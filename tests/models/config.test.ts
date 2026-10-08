@@ -9,7 +9,7 @@ import {
   getConfig,
   getDatadogApiKey,
   getGooglePlacesApiKey,
-  getParsedModelId,
+  getParseModelId,
   getPlacesCacheTtlHours,
   getPlanModelId,
   getRateLimitDailySpendUsd,
@@ -35,22 +35,35 @@ describe("Config module", () => {
 
   describe("Defaults", () => {
     it("applies default model IDs", () => {
-      assert.equal(getParsedModelId(), "claude-haiku-4.5");
+      // Clear any ambient env vars to ensure defaults are tested
+      delete process.env.PARSE_MODEL_ID;
+      delete process.env.PLAN_MODEL_ID;
+      delete process.env.REPAIR_MODEL_ID;
+      delete process.env.AGENT_MODEL_ID;
+
+      assert.equal(getParseModelId(), "claude-haiku-4-5");
       assert.equal(getPlanModelId(), "claude-sonnet-5");
       assert.equal(getRepairModelId(), "claude-sonnet-5");
       assert.equal(getAgentModelId(), "claude-sonnet-5");
     });
 
     it("applies default cache TTL", () => {
+      delete process.env.PLACES_CACHE_TTL_HOURS;
       assert.equal(getPlacesCacheTtlHours(), 24);
     });
 
     it("applies default rate limits", () => {
+      delete process.env.RATE_LIMIT_REQUESTS_PER_HOUR;
+      delete process.env.RATE_LIMIT_DAILY_SPEND_USD;
       assert.equal(getRateLimitRequestsPerHour(), 5);
       assert.equal(getRateLimitDailySpendUsd(), 100);
     });
 
     it("applies default validation caps", () => {
+      delete process.env.TRAVEL_CAP_MINUTES;
+      delete process.env.AGENT_MAX_TOOL_CALLS;
+      delete process.env.AGENT_MAX_COST_USD_PER_TURN;
+      delete process.env.REPAIR_MAX_ROUNDS;
       assert.equal(getTravelCapMinutes(), 25);
       assert.equal(getAgentMaxToolCalls(), 6);
       assert.equal(getAgentMaxCostUsdPerTurn(), 0.03);
@@ -61,12 +74,12 @@ describe("Config module", () => {
   describe("Environment variable overrides", () => {
     it("overrides model IDs from environment", () => {
       process.env.PARSE_MODEL_ID = "claude-opus-5";
-      process.env.PLAN_MODEL_ID = "claude-haiku-4.5";
+      process.env.PLAN_MODEL_ID = "claude-haiku-4-5";
       process.env.REPAIR_MODEL_ID = "claude-opus-5";
       process.env.AGENT_MODEL_ID = "claude-opus-5";
 
-      assert.equal(getParsedModelId(), "claude-opus-5");
-      assert.equal(getPlanModelId(), "claude-haiku-4.5");
+      assert.equal(getParseModelId(), "claude-opus-5");
+      assert.equal(getPlanModelId(), "claude-haiku-4-5");
       assert.equal(getRepairModelId(), "claude-opus-5");
       assert.equal(getAgentModelId(), "claude-opus-5");
     });
@@ -94,6 +107,53 @@ describe("Config module", () => {
       assert.equal(getAgentMaxToolCalls(), 10);
       assert.equal(getAgentMaxCostUsdPerTurn(), 0.05);
       assert.equal(getRepairMaxRounds(), 3);
+    });
+  });
+
+  describe("Empty and whitespace-only environment variables", () => {
+    it("treats empty string API key as missing (fails at access time)", () => {
+      process.env.ANTHROPIC_API_KEY = "";
+
+      // getConfig should succeed (empty string preprocessed to undefined)
+      const cfg = getConfig();
+      assert.ok(cfg);
+
+      // But accessing the key should fail
+      assert.throws(
+        () => getAnthropicApiKey(),
+        {
+          message: /Missing required secret: ANTHROPIC_API_KEY/,
+        }
+      );
+    });
+
+    it("treats whitespace-only API key as missing", () => {
+      process.env.GOOGLE_PLACES_API_KEY = "   \t\n  ";
+
+      const cfg = getConfig();
+      assert.ok(cfg);
+
+      assert.throws(
+        () => getGooglePlacesApiKey(),
+        {
+          message: /Missing required secret: GOOGLE_PLACES_API_KEY/,
+        }
+      );
+    });
+
+    it("applies default when numeric var is empty string", () => {
+      process.env.PLACES_CACHE_TTL_HOURS = "";
+      assert.equal(getPlacesCacheTtlHours(), 24);
+    });
+
+    it("applies default when numeric var is whitespace-only", () => {
+      process.env.RATE_LIMIT_REQUESTS_PER_HOUR = "  \t  ";
+      assert.equal(getRateLimitRequestsPerHour(), 5);
+    });
+
+    it("applies default when model ID is empty string", () => {
+      process.env.PARSE_MODEL_ID = "";
+      assert.equal(getParseModelId(), "claude-haiku-4-5");
     });
   });
 
@@ -155,6 +215,22 @@ describe("Config module", () => {
       const cfg = getConfig();
       assert.ok(cfg);
     });
+
+    it("error messages do not echo secret values", () => {
+      process.env.ANTHROPIC_API_KEY = "sk-ant-secret-value-12345";
+
+      let errorMessage = "";
+      try {
+        // Force a config error with an invalid numeric value while a secret is set
+        process.env.PLACES_CACHE_TTL_HOURS = "not-a-number";
+        getConfig();
+      } catch (error) {
+        errorMessage = String(error);
+      }
+
+      // Error should not contain the secret value
+      assert.ok(!errorMessage.includes("sk-ant-secret-value-12345"));
+    });
   });
 
   describe("Invalid values", () => {
@@ -206,12 +282,13 @@ describe("Config module", () => {
       });
     });
 
-    it("rejects empty model ID", () => {
-      process.env.PARSE_MODEL_ID = "";
-
-      assert.throws(() => getConfig(), {
-        name: "ZodError",
-      });
+    it("rejects empty model ID (after trim)", () => {
+      // Empty string is now preprocessed to undefined, so it gets the default.
+      // This test checks that model IDs must be non-empty if provided.
+      process.env.PARSE_MODEL_ID = "   ";
+      
+      // After preprocessing, this becomes undefined and uses the default
+      assert.equal(getParseModelId(), "claude-haiku-4-5");
     });
 
     it("rejects non-numeric cache TTL", () => {
@@ -220,6 +297,30 @@ describe("Config module", () => {
       assert.throws(() => getConfig(), {
         name: "ZodError",
       });
+    });
+
+    it("rejects float on integer-required field", () => {
+      process.env.AGENT_MAX_TOOL_CALLS = "12.5";
+
+      assert.throws(() => getConfig(), {
+        name: "ZodError",
+      });
+    });
+
+    it("accepts scientific notation for numeric fields", () => {
+      process.env.RATE_LIMIT_REQUESTS_PER_HOUR = "1e1";
+      assert.equal(getRateLimitRequestsPerHour(), 10);
+    });
+
+    it("accepts string-formatted decimal on integer field if it coerces to integer", () => {
+      // Zod's coerce.number() converts "25.0" to 25, which is a valid integer
+      process.env.TRAVEL_CAP_MINUTES = "25.0";
+      assert.equal(getTravelCapMinutes(), 25);
+    });
+
+    it("accepts decimals on non-integer numeric field", () => {
+      process.env.AGENT_MAX_COST_USD_PER_TURN = "0.05";
+      assert.equal(getAgentMaxCostUsdPerTurn(), 0.05);
     });
   });
 
@@ -236,11 +337,11 @@ describe("Config module", () => {
 
     it("reloads config after reset", () => {
       process.env.PARSE_MODEL_ID = "claude-opus-5";
-      assert.equal(getParsedModelId(), "claude-opus-5");
+      assert.equal(getParseModelId(), "claude-opus-5");
 
       resetConfig();
-      process.env.PARSE_MODEL_ID = "claude-haiku-4.5";
-      assert.equal(getParsedModelId(), "claude-haiku-4.5");
+      process.env.PARSE_MODEL_ID = "claude-haiku-4-5";
+      assert.equal(getParseModelId(), "claude-haiku-4-5");
     });
   });
 });

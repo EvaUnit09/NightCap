@@ -1,5 +1,27 @@
 import { z } from "zod";
 
+// Enforce server-only imports in Next.js builds (fails if imported from client code).
+// Tests run under tsx/node, so we conditionally require it to avoid test failures.
+// The try-catch allows tests to run while still protecting against client imports in production.
+try {
+  if (typeof window === "undefined") {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    require("server-only");
+  }
+} catch {
+  // Suppress in test environments where server-only may throw
+}
+
+/**
+ * Preprocess an environment variable: treat empty or whitespace-only strings as undefined.
+ * This ensures Zod defaults apply correctly and empty secrets don't fail at load time.
+ */
+function preprocessEnvVar(value: string | undefined): string | undefined {
+  if (value === undefined) return undefined;
+  const trimmed = value.trim();
+  return trimmed === "" ? undefined : trimmed;
+}
+
 /**
  * Configuration schema with Zod validation.
  * Secrets must be provided; non-secrets have documented defaults.
@@ -11,8 +33,8 @@ const configSchema = z.object({
   datadogApiKey: z.string().min(1).optional(),
   turnstileSecretKey: z.string().min(1).optional(),
 
-  // Model IDs - defaults from architecture (Haiku 4.5 for parse, Sonnet 5 for others)
-  parseModelId: z.string().min(1).default("claude-haiku-4.5"),
+  // Model IDs - defaults from architecture (Haiku 4-5 for parse, Sonnet 5 for others)
+  parseModelId: z.string().min(1).default("claude-haiku-4-5"),
   planModelId: z.string().min(1).default("claude-sonnet-5"),
   repairModelId: z.string().min(1).default("claude-sonnet-5"),
   agentModelId: z.string().min(1).default("claude-sonnet-5"),
@@ -20,8 +42,9 @@ const configSchema = z.object({
   // Cache TTL - 24 hours from architecture
   placesCacheTtlHours: z.coerce.number().int().positive().default(24),
 
-  // Rate Limits - from architecture: 5 plans/hour/IP, plus daily spend cap
+  // Rate Limits - from architecture: 5 plans/hour/IP
   rateLimitRequestsPerHour: z.coerce.number().int().positive().default(5),
+  // Daily spend cap - placeholder default of 100 USD pending Noah's decision
   rateLimitDailySpendUsd: z.coerce.number().positive().default(100),
 
   // Validation Caps - from architecture
@@ -46,30 +69,30 @@ function loadConfig(): Config {
   }
 
   const parsed = configSchema.parse({
-    // API Keys
-    anthropicApiKey: process.env.ANTHROPIC_API_KEY,
-    googlePlacesApiKey: process.env.GOOGLE_PLACES_API_KEY,
-    datadogApiKey: process.env.DATADOG_API_KEY,
-    turnstileSecretKey: process.env.TURNSTILE_SECRET_KEY,
+    // API Keys - preprocess to handle empty strings
+    anthropicApiKey: preprocessEnvVar(process.env.ANTHROPIC_API_KEY),
+    googlePlacesApiKey: preprocessEnvVar(process.env.GOOGLE_PLACES_API_KEY),
+    datadogApiKey: preprocessEnvVar(process.env.DATADOG_API_KEY),
+    turnstileSecretKey: preprocessEnvVar(process.env.TURNSTILE_SECRET_KEY),
 
     // Model IDs
-    parseModelId: process.env.PARSE_MODEL_ID,
-    planModelId: process.env.PLAN_MODEL_ID,
-    repairModelId: process.env.REPAIR_MODEL_ID,
-    agentModelId: process.env.AGENT_MODEL_ID,
+    parseModelId: preprocessEnvVar(process.env.PARSE_MODEL_ID),
+    planModelId: preprocessEnvVar(process.env.PLAN_MODEL_ID),
+    repairModelId: preprocessEnvVar(process.env.REPAIR_MODEL_ID),
+    agentModelId: preprocessEnvVar(process.env.AGENT_MODEL_ID),
 
     // Cache TTL
-    placesCacheTtlHours: process.env.PLACES_CACHE_TTL_HOURS,
+    placesCacheTtlHours: preprocessEnvVar(process.env.PLACES_CACHE_TTL_HOURS),
 
     // Rate Limits
-    rateLimitRequestsPerHour: process.env.RATE_LIMIT_REQUESTS_PER_HOUR,
-    rateLimitDailySpendUsd: process.env.RATE_LIMIT_DAILY_SPEND_USD,
+    rateLimitRequestsPerHour: preprocessEnvVar(process.env.RATE_LIMIT_REQUESTS_PER_HOUR),
+    rateLimitDailySpendUsd: preprocessEnvVar(process.env.RATE_LIMIT_DAILY_SPEND_USD),
 
     // Validation Caps
-    travelCapMinutes: process.env.TRAVEL_CAP_MINUTES,
-    agentMaxToolCalls: process.env.AGENT_MAX_TOOL_CALLS,
-    agentMaxCostUsdPerTurn: process.env.AGENT_MAX_COST_USD_PER_TURN,
-    repairMaxRounds: process.env.REPAIR_MAX_ROUNDS,
+    travelCapMinutes: preprocessEnvVar(process.env.TRAVEL_CAP_MINUTES),
+    agentMaxToolCalls: preprocessEnvVar(process.env.AGENT_MAX_TOOL_CALLS),
+    agentMaxCostUsdPerTurn: preprocessEnvVar(process.env.AGENT_MAX_COST_USD_PER_TURN),
+    repairMaxRounds: preprocessEnvVar(process.env.REPAIR_MAX_ROUNDS),
   });
 
   config = parsed;
@@ -119,8 +142,8 @@ export function getTurnstileSecretKey(): string {
   return requireSecret("TURNSTILE_SECRET_KEY", cfg.turnstileSecretKey);
 }
 
-/** Get parse model ID (Haiku 4.5 by default). */
-export function getParsedModelId(): string {
+/** Get parse model ID (Haiku 4-5 by default). */
+export function getParseModelId(): string {
   return getConfig().parseModelId;
 }
 

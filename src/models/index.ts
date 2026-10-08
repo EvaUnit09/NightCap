@@ -6,7 +6,7 @@ export {
   getConfig,
   getDatadogApiKey,
   getGooglePlacesApiKey,
-  getParsedModelId,
+  getParseModelId,
   getPlacesCacheTtlHours,
   getPlanModelId,
   getRateLimitDailySpendUsd,
