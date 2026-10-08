@@ -56,7 +56,7 @@ describe("Config module", () => {
       delete process.env.RATE_LIMIT_REQUESTS_PER_HOUR;
       delete process.env.RATE_LIMIT_DAILY_SPEND_USD;
       assert.equal(getRateLimitRequestsPerHour(), 5);
-      assert.equal(getRateLimitDailySpendUsd(), 100);
+      assert.equal(getRateLimitDailySpendUsd(), 5);
     });
 
     it("applies default validation caps", () => {

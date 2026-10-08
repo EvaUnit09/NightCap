@@ -44,8 +44,8 @@ const configSchema = z.object({
 
   // Rate Limits - from architecture: 5 plans/hour/IP
   rateLimitRequestsPerHour: z.coerce.number().int().positive().default(5),
-  // Daily spend cap - placeholder default of 100 USD pending Noah's decision
-  rateLimitDailySpendUsd: z.coerce.number().positive().default(100),
+  // Daily spend cap in USD across all requests
+  rateLimitDailySpendUsd: z.coerce.number().positive().default(5),
 
   // Validation Caps - from architecture
   travelCapMinutes: z.coerce.number().int().positive().default(25),
