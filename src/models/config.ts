@@ -1,16 +1,5 @@
+import "server-only";
 import { z } from "zod";
-
-// Enforce server-only imports in Next.js builds (fails if imported from client code).
-// Tests run under tsx/node, so we conditionally require it to avoid test failures.
-// The try-catch allows tests to run while still protecting against client imports in production.
-try {
-  if (typeof window === "undefined") {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    require("server-only");
-  }
-} catch {
-  // Suppress in test environments where server-only may throw
-}
 
 /**
  * Preprocess an environment variable: treat empty or whitespace-only strings as undefined.
