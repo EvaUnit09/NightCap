@@ -17,6 +17,7 @@ export const stopTypeSchema = z.enum([
 
 /** Google Places price level. Absent levels stay null on a candidate. */
 export const priceLevelSchema = z.enum([
+  "PRICE_LEVEL_UNSPECIFIED",
   "PRICE_LEVEL_FREE",
   "PRICE_LEVEL_INEXPENSIVE",
   "PRICE_LEVEL_MODERATE",
@@ -32,6 +33,7 @@ export const businessStatusSchema = z.enum([
   "OPERATIONAL",
   "CLOSED_TEMPORARILY",
   "CLOSED_PERMANENTLY",
+  "FUTURE_OPENING",
 ]);
 
 /**

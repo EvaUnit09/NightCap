@@ -33,6 +33,7 @@ const searchVenuesInputSchema = z
 const replaceStopInputSchema = z
   .object({
     tool: z.literal("replace_stop"),
+    optionIndex: z.int().min(0).max(2),
     stopIndex: z.int().min(0).max(3),
     placeId: placeIdSchema,
   })
@@ -41,6 +42,7 @@ const replaceStopInputSchema = z
 const reorderStopsInputSchema = z
   .object({
     tool: z.literal("reorder_stops"),
+    optionIndex: z.int().min(0).max(2),
     order: z.array(z.int().min(0).max(3)).min(2).max(4),
     times: z.array(timeSlotSchema).min(2).max(4),
   })

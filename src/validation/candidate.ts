@@ -19,11 +19,12 @@ const openingPointSchema = z
 /**
  * One weekly open interval from Places.
  * Review text is not part of this contract.
+ * 24/7 venues may omit the close time.
  */
 const openingPeriodSchema = z
   .object({
     open: openingPointSchema,
-    close: openingPointSchema,
+    close: openingPointSchema.optional(),
   })
   .strict();
 

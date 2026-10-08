@@ -104,6 +104,36 @@ describe("itinerary schema", () => {
       assert.match(parsed.error.issues.map((issue) => issue.message).join(" "), /shared/);
     }
   });
+
+  it("rejects non-null travelToNext on the last stop", () => {
+    const itinerary = validItinerary();
+    itinerary.options[0].stops[1].travelToNext = { mode: "walk", minutes: 10 };
+    const parsed = itinerarySchema.safeParse(itinerary);
+    assert.equal(parsed.success, false);
+    if (!parsed.success) {
+      assert.match(parsed.error.issues.map((issue) => issue.message).join(" "), /last stop/i);
+    }
+  });
+
+  it("rejects null travelToNext on a non-last stop", () => {
+    const itinerary = validItinerary();
+    itinerary.options[1].stops[1].travelToNext = null;
+    const parsed = itinerarySchema.safeParse(itinerary);
+    assert.equal(parsed.success, false);
+    if (!parsed.success) {
+      assert.match(parsed.error.issues.map((issue) => issue.message).join(" "), /except the last/i);
+    }
+  });
+
+  it("rejects stops not in chronological order", () => {
+    const itinerary = validItinerary();
+    itinerary.options[0].stops[1].start = "2026-10-10T18:00:00-04:00";
+    const parsed = itinerarySchema.safeParse(itinerary);
+    assert.equal(parsed.success, false);
+    if (!parsed.success) {
+      assert.match(parsed.error.issues.map((issue) => issue.message).join(" "), /chronological/i);
+    }
+  });
 });
 
 describe("boundary schemas", () => {
@@ -158,12 +188,13 @@ describe("boundary schemas", () => {
       "search_venues",
     );
     assert.equal(
-      toolInputSchema.parse({ tool: "replace_stop", stopIndex: 1, placeId: "place-z" }).tool,
+      toolInputSchema.parse({ tool: "replace_stop", optionIndex: 0, stopIndex: 1, placeId: "place-z" }).tool,
       "replace_stop",
     );
     assert.equal(
       toolInputSchema.parse({
         tool: "reorder_stops",
+        optionIndex: 0,
         order: [1, 0],
         times: [
           { start: START, end: MID },
@@ -177,6 +208,62 @@ describe("boundary schemas", () => {
       "validate_itinerary",
     );
   });
+
+  it("rejects reorder_stops with mismatched order and times length", () => {
+    const parsed = toolInputSchema.safeParse({
+      tool: "reorder_stops",
+      optionIndex: 0,
+      order: [1, 0],
+      times: [{ start: START, end: MID }],
+    });
+    assert.equal(parsed.success, false);
+    if (!parsed.success) {
+      assert.match(parsed.error.issues.map((issue) => issue.message).join(" "), /same length/i);
+    }
+  });
+
+  it("rejects reorder_stops with duplicate stop indices", () => {
+    const parsed = toolInputSchema.safeParse({
+      tool: "reorder_stops",
+      optionIndex: 0,
+      order: [1, 1],
+      times: [
+        { start: START, end: MID },
+        { start: LATER, end: END },
+      ],
+    });
+    assert.equal(parsed.success, false);
+    if (!parsed.success) {
+      assert.match(parsed.error.issues.map((issue) => issue.message).join(" "), /not repeat/i);
+    }
+  });
+
+  it("rejects reorder_stops with too few stops", () => {
+    const parsed = toolInputSchema.safeParse({
+      tool: "reorder_stops",
+      optionIndex: 0,
+      order: [0],
+      times: [{ start: START, end: MID }],
+    });
+    assert.equal(parsed.success, false);
+  });
+
+  it("rejects reorder_stops with too many stops", () => {
+    const parsed = toolInputSchema.safeParse({
+      tool: "reorder_stops",
+      optionIndex: 0,
+      order: [0, 1, 2, 3, 4],
+      times: [
+        { start: START, end: MID },
+        { start: LATER, end: END },
+        { start: "2026-10-10T23:00:00-04:00", end: "2026-10-11T00:00:00-04:00" },
+        { start: "2026-10-11T00:15:00-04:00", end: "2026-10-11T01:00:00-04:00" },
+        { start: "2026-10-11T01:15:00-04:00", end: "2026-10-11T02:00:00-04:00" },
+      ],
+    });
+    assert.equal(parsed.success, false);
+  });
+
 
   it("uses the same itinerary schema from pipeline, agent, and eval", () => {
     assert.equal(pipelineItinerarySchema, itinerarySchema);
