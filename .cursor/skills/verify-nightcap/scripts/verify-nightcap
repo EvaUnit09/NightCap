@@ -1,0 +1,314 @@
+#!/usr/bin/env bash
+# Launch, check, drive, and stop one Nightcap dev server for verification.
+# Kills only the process group this script started. Proof files under artifacts/ are kept.
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SKILL_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+ROOT="$(cd "$SKILL_DIR/../../.." && pwd)"
+RUN_DIR="$SKILL_DIR/.run"
+STATE="$RUN_DIR/state.env"
+ART_ROOT="$SKILL_DIR/artifacts"
+DEFAULT_PORT=4173
+
+usage() {
+  cat <<'EOF'
+Usage: verify-nightcap <command>
+
+  launch          Start next dev on 127.0.0.1:4173. Refuses if one is already up.
+  doctor          Read-only check that this run's server is worth driving.
+  url             Print this run's base URL.
+  drive home      Save the home-page response and assert its markers.
+  drive not-found Save the unknown-route response and assert the 404 markers.
+  cleanup         Stop the server this script started and remove .run/. Keeps artifacts/.
+EOF
+}
+
+load_state() {
+  PID=""
+  PORT=""
+  RUN_ID=""
+  URL=""
+  LOG=""
+  if [[ -f "$STATE" ]]; then
+    # shellcheck disable=SC1090
+    set -a
+    # shellcheck source=/dev/null
+    source "$STATE"
+    set +a
+  fi
+}
+
+save_state() {
+  mkdir -p "$RUN_DIR"
+  cat >"$STATE" <<EOF
+RUN_ID=$(printf '%s' "$RUN_ID")
+PID=$(printf '%s' "$PID")
+PORT=$(printf '%s' "$PORT")
+URL=$(printf '%s' "$URL")
+LOG=$(printf '%s' "$LOG")
+EOF
+}
+
+pid_alive() {
+  [[ -n "${PID:-}" ]] && kill -0 "$PID" 2>/dev/null
+}
+
+require_next_version() {
+  local declared installed
+  declared="$(cd "$ROOT" && node -p "require('./package.json').dependencies.next")"
+  installed="$(cd "$ROOT" && node -p "require('./node_modules/next/package.json').version")"
+  if [[ "$installed" != "$declared" ]]; then
+    echo "doctor: installed next ${installed} does not match package.json ${declared}" >&2
+    return 1
+  fi
+  echo "next ${installed}"
+}
+
+foreign_nightcap_on_3000() {
+  local body
+  body="$(curl -fsS --max-time 2 http://127.0.0.1:3000/ 2>/dev/null || true)"
+  grep -q '<h1>Nightcap</h1>' <<<"$body"
+}
+
+listener_owned_by_us() {
+  local listeners lp
+  listeners="$(lsof -nP -iTCP:"$PORT" -sTCP:LISTEN -t 2>/dev/null || true)"
+  if [[ -z "$listeners" ]]; then
+    echo "doctor: nothing is listening on port ${PORT}" >&2
+    return 1
+  fi
+  for lp in $listeners; do
+    if is_in_group "$lp"; then
+      echo "port ${PORT} listener ${lp}"
+      return 0
+    fi
+  done
+  echo "doctor: port ${PORT} is not owned by pid ${PID}" >&2
+  return 1
+}
+
+is_in_group() {
+  local candidate="$1" guard=0 pgid
+  pgid="$(ps -o pgid= -p "$candidate" 2>/dev/null | tr -d ' ' || true)"
+  [[ -n "$pgid" && "$pgid" == "$PID" ]] && return 0
+  while [[ -n "$candidate" && "$candidate" != "0" && "$candidate" != "1" && $guard -lt 30 ]]; do
+    if [[ "$candidate" == "$PID" ]]; then
+      return 0
+    fi
+    candidate="$(ps -o ppid= -p "$candidate" 2>/dev/null | tr -d ' ' || true)"
+    guard=$((guard + 1))
+  done
+  return 1
+}
+
+stop_group() {
+  if ! pid_alive; then
+    return 0
+  fi
+  kill -TERM -"$PID" 2>/dev/null || kill -TERM "$PID" 2>/dev/null || true
+  local i
+  for i in 1 2 3 4 5 6 7 8 9 10; do
+    pid_alive || return 0
+    sleep 0.2
+  done
+  kill -KILL -"$PID" 2>/dev/null || kill -KILL "$PID" 2>/dev/null || true
+}
+
+cmd_doctor() {
+  load_state
+  if [[ -z "${PID:-}" || -z "${URL:-}" || -z "${PORT:-}" ]]; then
+    echo "doctor: no verification instance. Run launch first." >&2
+    return 1
+  fi
+  if ! pid_alive; then
+    echo "doctor: pid ${PID} is not running" >&2
+    return 1
+  fi
+  require_next_version
+  listener_owned_by_us
+  local code body
+  body="$(mktemp)"
+  code="$(curl -sS --max-time 5 -o "$body" -w "%{http_code}" "$URL/")"
+  if [[ "$code" != "200" ]] || ! grep -q '<title>Nightcap</title>' "$body" || ! grep -q '<h1>Nightcap</h1>' "$body"; then
+    echo "doctor: ${URL}/ returned status ${code} without the Nightcap home markers" >&2
+    rm -f "$body"
+    return 1
+  fi
+  rm -f "$body"
+  echo "url ${URL}"
+  echo "pid ${PID}"
+  echo "port ${PORT}"
+  echo "run ${RUN_ID}"
+  echo "log ${LOG}"
+}
+
+cmd_launch() {
+  load_state
+  if pid_alive; then
+    if cmd_doctor >/dev/null; then
+      echo "already running ${URL}"
+      echo "run ${RUN_ID}"
+      return 0
+    fi
+    echo "launch: pid ${PID} is alive but unhealthy. Run cleanup before launching again." >&2
+    return 1
+  fi
+  rm -rf "$RUN_DIR"
+
+  if foreign_nightcap_on_3000; then
+    echo "launch: Nightcap is already serving on port 3000 from a server this run did not start." >&2
+    echo "launch: this checkout can run one Next server because both share .next. Not killing it." >&2
+    return 1
+  fi
+  if [[ -n "$(lsof -nP -iTCP:${DEFAULT_PORT} -sTCP:LISTEN -t 2>/dev/null || true)" ]]; then
+    echo "launch: port ${DEFAULT_PORT} is already in use. Not killing it." >&2
+    return 1
+  fi
+
+  mkdir -p "$RUN_DIR"
+  RUN_ID="$(date +%Y%m%dT%H%M%S)"
+  PORT="$DEFAULT_PORT"
+  URL="http://127.0.0.1:${PORT}"
+  LOG="$RUN_DIR/${RUN_ID}.log"
+  cd "$ROOT"
+  perl -e 'setpgrp(0,0); exec @ARGV or die $!' npm run dev -- --hostname 127.0.0.1 --port "$PORT" >"$LOG" 2>&1 &
+  PID="$!"
+  save_state
+
+  local i code body
+  body="$(mktemp)"
+  for i in $(seq 1 60); do
+    if ! pid_alive; then
+      echo "launch: server exited before it was ready. Log follows." >&2
+      tail -n 40 "$LOG" >&2 || true
+      rm -f "$body"
+      return 1
+    fi
+    code="$(curl -sS --max-time 2 -o "$body" -w "%{http_code}" "$URL/" 2>/dev/null || true)"
+    if [[ "$code" == "200" ]] && grep -q '<h1>Nightcap</h1>' "$body"; then
+      rm -f "$body"
+      echo "ready ${URL}"
+      echo "pid ${PID}"
+      echo "run ${RUN_ID}"
+      echo "log ${LOG}"
+      return 0
+    fi
+    sleep 1
+  done
+  rm -f "$body"
+  echo "launch: timed out waiting for ${URL}/. Log follows." >&2
+  tail -n 40 "$LOG" >&2 || true
+  stop_group || true
+  return 1
+}
+
+write_proof() {
+  local dest="$1" feature="$2" code="$3" detail="$4"
+  cat >"$dest" <<EOF
+feature: ${feature}
+url: ${URL}
+status: ${code}
+run: ${RUN_ID}
+${detail}
+EOF
+}
+
+cmd_drive() {
+  local feature="${1:-}"
+  if [[ "$feature" != "home" && "$feature" != "not-found" ]]; then
+    echo "drive: expected 'home' or 'not-found'" >&2
+    usage >&2
+    return 1
+  fi
+  cmd_doctor >/dev/null
+  load_state
+  local dest code
+  dest="$ART_ROOT/$RUN_ID"
+  mkdir -p "$dest"
+  case "$feature" in
+    home)
+      code="$(curl -sS --max-time 10 -D "$dest/home.headers.txt" -o "$dest/home.html" -w "%{http_code}" "$URL/")"
+      if [[ "$code" != "200" ]] \
+        || ! grep -q '<title>Nightcap</title>' "$dest/home.html" \
+        || ! grep -q '<h1>Nightcap</h1>' "$dest/home.html" \
+        || ! grep -q 'content="Night-out itineraries for New York."' "$dest/home.html"; then
+        write_proof "$dest/home.proof.txt" "home" "$code" "result: fail"
+        echo "drive home: markers missing (status ${code}). See ${dest}/home.html" >&2
+        return 1
+      fi
+      write_proof "$dest/home.proof.txt" "home" "$code" "$(cat <<EOF
+result: pass
+entry: GET /
+title: Nightcap
+heading: Nightcap
+description: Night-out itineraries for New York.
+screenshot: ${dest}/home.png
+aria: ${dest}/home.aria.txt
+EOF
+)"
+      echo "ARTIFACT_DIR=${dest}"
+      echo "HOME_HTML=${dest}/home.html"
+      echo "HOME_HEADERS=${dest}/home.headers.txt"
+      echo "HOME_PROOF=${dest}/home.proof.txt"
+      echo "SCREENSHOT_PATH=${dest}/home.png"
+      echo "ARIA_PATH=${dest}/home.aria.txt"
+      ;;
+    not-found)
+      code="$(curl -sS --max-time 10 -D "$dest/not-found.headers.txt" -o "$dest/not-found.html" -w "%{http_code}" "$URL/does-not-exist")"
+      if [[ "$code" != "404" ]] \
+        || ! grep -q '>404<' "$dest/not-found.html" \
+        || ! grep -q 'This page could not be found.' "$dest/not-found.html"; then
+        write_proof "$dest/not-found.proof.txt" "not-found" "$code" "result: fail"
+        echo "drive not-found: markers missing (status ${code}). See ${dest}/not-found.html" >&2
+        return 1
+      fi
+      write_proof "$dest/not-found.proof.txt" "not-found" "$code" "$(cat <<EOF
+result: pass
+entry: GET /does-not-exist
+heading: 404
+message: This page could not be found.
+screenshot: ${dest}/not-found.png
+aria: ${dest}/not-found.aria.txt
+EOF
+)"
+      echo "ARTIFACT_DIR=${dest}"
+      echo "NOT_FOUND_HTML=${dest}/not-found.html"
+      echo "NOT_FOUND_HEADERS=${dest}/not-found.headers.txt"
+      echo "NOT_FOUND_PROOF=${dest}/not-found.proof.txt"
+      echo "SCREENSHOT_PATH=${dest}/not-found.png"
+      echo "ARIA_PATH=${dest}/not-found.aria.txt"
+      ;;
+  esac
+}
+
+cmd_cleanup() {
+  load_state
+  if [[ -n "${PID:-}" ]]; then
+    stop_group
+  fi
+  rm -rf "$RUN_DIR"
+  echo "cleanup: stopped the verification server and removed ${RUN_DIR}"
+  echo "cleanup: artifacts remain in ${ART_ROOT}"
+}
+
+main() {
+  local cmd="${1:-}"
+  case "$cmd" in
+    launch) cmd_launch ;;
+    doctor) cmd_doctor ;;
+    url)
+      load_state
+      if [[ -z "${URL:-}" ]]; then
+        echo "url: no verification instance. Run launch first." >&2
+        return 1
+      fi
+      printf '%s\n' "$URL"
+      ;;
+    drive) shift; cmd_drive "${1:-}" ;;
+    cleanup) cmd_cleanup ;;
+    *) usage; return 1 ;;
+  esac
+}
+
+main "$@"
