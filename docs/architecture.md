@@ -75,7 +75,7 @@ eval smoke subset) · Dockerfile for local dev and the eval runner.
 
 ## Build sequence
 
-Written 2026-10-08 from [scope.md](scope.md). The repo has these docs and no application code.
+Written 2026-10-08 from [scope.md](scope.md). The Next.js app and the domain folders from scope §9 are scaffolded. Shared Zod schemas for intent, candidate, stop, itinerary, validation error, and tool input live in `src/validation/`.
 Scope marks the 2026-10-04 milestone done (60-case set, validator, filter-only baseline). Those
 files are not in this workspace. Land them before treating the 2026-10-11 pipeline milestone as started.
 
