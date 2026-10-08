@@ -1,0 +1,30 @@
+# Decision Log
+
+Key choices and trade-offs for Nightcap. Newest entries are appended at the bottom.
+Scope details: [scope.md](scope.md).
+
+| # | Date | Decision | Alternatives considered | Reason |
+|---|---|---|---|---|
+| 1 | 2026-09-28 | v1 targets couples on a date | Friend groups (3–8); both equally | One shared budget and simpler logistics make eval tractable. Groups in v2. |
+| 2 | 2026-09-28 | Venues come only from the Google Places API, cached 24h | Yelp Fusion; Foursquare; curated seed DB + OSM | Best NYC coverage, with the hours, price, coords and business status needed for validation. Cost is controlled by the cache. |
+| 3 | 2026-09-28 | Primary metric: itinerary validity rate ≥ 90%, 0% invented venues | LLM-judge score; beta "would go" rate; validity + judge combined | Objective, automatable, and directly tests grounding. The judge is a secondary metric. |
+| 4 | 2026-09-28 | Add diversity/novelty metrics | Validity only; beta "new to you" only | Validity alone could be maxed by always suggesting famous places, and the core problem is "same few places". |
+| 5 | 2026-09-28 | 4-week timeline | 6 weeks (recommended); 8–10 weeks | Owner's choice. Accepted risk; cut order defined in scope §10. |
+| 6 | 2026-09-28 | Hybrid: LLM parses/selects/explains, deterministic code validates | Filters only (LLM parses only); end-to-end LLM planning | Free-text vibe needs an LLM. Hours, budget and travel checks must be exact. Filter-only kept as an eval baseline. |
+| 7 | 2026-09-28 | Anonymous use + magic-link saved plans; PII redacted | Full auth + profiles; stateless | Low friction for beta while still collecting real test cases and feedback. Minimal PII. |
+| 8 | 2026-09-28 | 2–4 timed stops per itinerary, 2–3 themed options | Exactly 3 stops; dinner + 1 optional | Flexible enough for real nights out and still easy to validate. |
+| 9 | 2026-09-28 | Prompt pipeline: parse → plan → repair | Parse → plan only; single tool-calling agent | Targeted repair is cheaper than regenerating. A code-controlled workflow is faster and easier to evaluate than an agent. |
+| 10 | 2026-09-28 | Langfuse for tracing + eval datasets; prompts versioned in git | LangSmith; Datadog; Langfuse prompt management | Open source, strong TS SDK, free cloud tier. Git keeps prompt history reviewable. Superseded 2026-10-06 by #23. |
+| 11 | 2026-09-28 | Static per-stage routing: Haiku 4.5 parse, Sonnet 5 plan/repair/agent | One model everywhere; difficulty-based router | Fits the < $0.05 budget (Opus 5 plan ≈ $0.08). The eval decides any step up or down. |
+| 12 | 2026-09-28 | Opus 5 as offline judge, calibrated on ~30 human labels | Same model as planner; different provider | Avoids self-grading bias. Offline-only cost is acceptable. Agreement is reported. |
+| 13 | 2026-09-28 | TypeScript / Next.js end to end | FastAPI + Next.js; Python + Streamlit | One language, easy Vercel deploy, first-class Anthropic and Datadog Node SDKs. The template's Python layout is adapted. |
+| 14 | 2026-09-28 | §4 RAG adapted to structured candidate retrieval (no chunking/embeddings) | Full RAG over venue text (pgvector); skip the section | Venue data is structured, and Google's terms limit storing review text. Keeps the retrieval-vs-generation failure split. |
+| 15 | 2026-09-28 | Refinement agent is a core v1 feature | Skip agents; week-4 cut line; v1.1 | Owner priority for the UX and the portfolio story. Schedule risk accepted; other features are cut first. |
+| 16 | 2026-09-28 | Hosting: Vercel + Supabase + Langfuse Cloud; Docker for dev/eval | Vercel + Neon; Docker on Fly/Railway | Managed, preview deploys, built-in Postgres + auth, minimal ops. Observability host superseded 2026-10-06 by #23 (Datadog). |
+| 17 | 2026-09-28 | Stream each itinerary via SSE once it passes validation | Token streaming; no streaming | Good perceived latency without ever showing an unvalidated stop. |
+| 18 | 2026-09-28 | 5 plans/hr/IP + global daily spend cap + Turnstile | Invite code only; IP limit only | Allows a public demo with a hard cost ceiling. |
+| 19 | 2026-09-28 | Full-span Langfuse tracing + weekly taxonomy-based error analysis | LLM-call-only tracing; ad hoc review | Needed to attribute failures to retrieval, plan, repair or agent, and to grow the test set. Tooling superseded 2026-10-06 by #23. |
+| 20 | 2026-09-28 | Skip fine-tuning (§8) | Stretch goal: fine-tune the parse stage | Prompts and retrieval aren't exhausted, there's no training data, and there are 4 weeks. Revisit if parse on Haiku plateaus. |
+| 21 | 2026-09-28 | Single Next.js app with domain folders in `src/` | pnpm monorepo (apps/web + packages) | Less setup for a solo 4-week build; domain folders keep boundaries clear. |
+| 22 | 2026-09-28 | Weekly plan W1 data+eval → W2 pipeline → W3 UI+agent → W4 beta+polish | Extend to 6 weeks; agent first | Eval foundations first. Cut order: model comparison → route map → share links. |
+| 23 | 2026-10-06 | Datadog LLM Observability for tracing, datasets, and experiments; prompts stay versioned in git. Supersedes #10, the observability host in #16, and the tracing tool in #19. | Langfuse (previous choice); LangSmith | Owner choice. Datadog covers the same per-request traces, stage spans, eval datasets, and experiments, and adds production monitors. Git remains the prompt source of truth. |
