@@ -67,7 +67,7 @@ export class RoutesMatrixTravelCalculator implements TravelCalculator {
   constructor(options: RoutesMatrixTravelOptions = {}) {
     if (
       options.maxLegs !== undefined &&
-      (!Number.isFinite(options.maxLegs) || options.maxLegs <= 0)
+      (!Number.isInteger(options.maxLegs) || options.maxLegs <= 0)
     ) {
       throw new Error(
         `maxLegs must be a positive number (got ${String(options.maxLegs)})`

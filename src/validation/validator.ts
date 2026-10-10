@@ -182,12 +182,12 @@ export async function validateItinerary(
 
   if (
     options.maxLegs !== undefined &&
-    (!Number.isFinite(options.maxLegs) || options.maxLegs <= 0)
+    (!Number.isInteger(options.maxLegs) || options.maxLegs <= 0)
   ) {
     return [
       emitError({
         code: "invalid_format",
-        message: `maxLegs must be a positive number (got ${String(options.maxLegs)})`,
+        message: `maxLegs must be a positive integer (got ${String(options.maxLegs)})`,
       }),
     ];
   }
