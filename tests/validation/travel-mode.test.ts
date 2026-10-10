@@ -69,7 +69,7 @@ describe("travelModeSchema SSOT", () => {
           { theme: "Two", stops: [stop("place-c", "WALK"), stop("place-d", null)] },
         ],
       };
-      assert.throws(() => parseItinerary(bad), undefined, `expected ${dropped} to fail`);
+      assert.throws(() => parseItinerary(bad), Error, `expected ${dropped} to fail`);
     }
   });
 });
