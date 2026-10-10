@@ -16,7 +16,6 @@ describe("held-out corpus (frozen before generalization rewrite)", () => {
     const missPass = miss.filter((row) => row.passed).length;
     const survivePass = survive.filter((row) => row.passed).length;
     const totalPass = results.filter((row) => row.passed).length;
-    // eslint-disable-next-line no-console
     console.log(
       `held-out pass rate: ${totalPass}/${results.length} overall, ` +
         `${missPass}/${miss.length} miss, ${survivePass}/${survive.length} survive`,
