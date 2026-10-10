@@ -8,6 +8,7 @@ import type { z } from "zod";
 import {
   getAgentMaxCostUsdPerTurn,
   getAgentMaxToolCalls,
+  getMaxTravelLegsPerRequest,
   getRepairMaxRounds,
   getTravelCapMinutes,
   resetConfig,
@@ -231,11 +232,13 @@ describe("prompt-loader", () => {
       const parse = loadPrompt("parse_intent", "v1");
 
       assert.match(plan.text, /\{\{travel_cap_minutes\}\}/);
+      assert.match(plan.text, /\{\{max_travel_legs\}\}/);
       assert.match(plan.text, /\{\{min_options\}\}/);
       assert.match(agent.text, /\{\{agent_max_tool_calls\}\}/);
       assert.match(agent.text, /\{\{agent_max_cost_usd\}\}/);
 
       assert.ok(plan.body.includes(String(getTravelCapMinutes())));
+      assert.ok(plan.body.includes(String(getMaxTravelLegsPerRequest())));
       assert.ok(plan.body.includes(`${PROMPT_SCHEMA_BOUNDS.minOptions}–${PROMPT_SCHEMA_BOUNDS.maxOptions}`));
       assert.ok(parse.body.includes(`${PROMPT_SCHEMA_BOUNDS.minStops}–${PROMPT_SCHEMA_BOUNDS.maxStops}`));
       assert.ok(parse.body.includes(PROMPT_SCHEMA_BOUNDS.stopTypes.join(", ")));

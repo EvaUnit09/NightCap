@@ -26,13 +26,19 @@ export {
   intentSchema,
   type Intent,
 } from "./intent";
-export { STOPS_MAX, STOPS_MIN, STOPS_MIN_SINGLE } from "./bounds";
+export {
+  MAX_TRAVEL_LEGS_PER_REQUEST_DEFAULT,
+  STOPS_MAX,
+  STOPS_MIN,
+  STOPS_MIN_SINGLE,
+} from "./bounds";
 export {
   ITINERARY_OPTIONS_MAX,
   ITINERARY_OPTIONS_MIN,
   itineraryOptionSchema,
   itineraryOptionSchemaFor,
   itinerarySchema,
+  itinerarySchemaFor,
   type Itinerary,
   type ItineraryOption,
 } from "./itinerary";

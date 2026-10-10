@@ -1,6 +1,8 @@
 import "server-only";
 import { z } from "zod";
 
+import { MAX_TRAVEL_LEGS_PER_REQUEST_DEFAULT } from "../validation/bounds";
+
 /**
  * Preprocess an environment variable: treat empty or whitespace-only strings as undefined.
  * This ensures Zod defaults apply correctly and empty secrets don't fail at load time.
@@ -41,6 +43,11 @@ const configSchema = z.object({
   agentMaxToolCalls: z.coerce.number().int().positive().default(6),
   agentMaxCostUsdPerTurn: z.coerce.number().positive().default(0.03),
   repairMaxRounds: z.coerce.number().int().positive().default(2),
+  maxTravelLegsPerRequest: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(MAX_TRAVEL_LEGS_PER_REQUEST_DEFAULT),
 });
 
 type Config = z.infer<typeof configSchema>;
@@ -82,6 +89,7 @@ function loadConfig(): Config {
     agentMaxToolCalls: preprocessEnvVar(process.env.AGENT_MAX_TOOL_CALLS),
     agentMaxCostUsdPerTurn: preprocessEnvVar(process.env.AGENT_MAX_COST_USD_PER_TURN),
     repairMaxRounds: preprocessEnvVar(process.env.REPAIR_MAX_ROUNDS),
+    maxTravelLegsPerRequest: preprocessEnvVar(process.env.MAX_TRAVEL_LEGS_PER_REQUEST),
   });
 
   config = parsed;
@@ -184,6 +192,11 @@ export function getAgentMaxCostUsdPerTurn(): number {
 /** Get repair max rounds (2 by default). */
 export function getRepairMaxRounds(): number {
   return getConfig().repairMaxRounds;
+}
+
+/** Get max travel legs per request, summed across options (4 by default). */
+export function getMaxTravelLegsPerRequest(): number {
+  return getConfig().maxTravelLegsPerRequest;
 }
 
 /** Reset config for testing. */

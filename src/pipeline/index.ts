@@ -3,6 +3,7 @@
  * Parse, plan, and repair all read these schemas.
  */
 export {
+  MAX_TRAVEL_LEGS_PER_REQUEST_DEFAULT,
   STOPS_MAX,
   STOPS_MIN,
   STOPS_MIN_SINGLE,
@@ -11,6 +12,7 @@ export {
   itineraryOptionSchema,
   itineraryOptionSchemaFor,
   itinerarySchema,
+  itinerarySchemaFor,
   parseCandidate,
   parseIntent,
   parseItinerary,

@@ -6,6 +6,7 @@ import { isAbsolute, relative, resolve, sep } from "node:path";
 import {
   getAgentMaxCostUsdPerTurn,
   getAgentMaxToolCalls,
+  getMaxTravelLegsPerRequest,
   getRepairMaxRounds,
   getTravelCapMinutes,
 } from "../models/config";
@@ -15,7 +16,12 @@ import {
   STOP_TYPES_MAX,
   STOP_TYPES_MIN,
 } from "../validation/intent";
-import { STOPS_MAX, STOPS_MIN, STOPS_MIN_SINGLE } from "../validation/bounds";
+import {
+  MAX_TRAVEL_LEGS_PER_REQUEST_DEFAULT,
+  STOPS_MAX,
+  STOPS_MIN,
+  STOPS_MIN_SINGLE,
+} from "../validation/bounds";
 import {
   ITINERARY_OPTIONS_MAX,
   ITINERARY_OPTIONS_MIN,
@@ -48,6 +54,7 @@ export const PROMPT_SCHEMA_BOUNDS = {
   tagMax: INTENT_TAG_MAX,
   stopTypes: stopTypeSchema.options as readonly string[],
   travelModes: TRAVEL_MODES,
+  maxTravelLegs: MAX_TRAVEL_LEGS_PER_REQUEST_DEFAULT,
 } as const;
 
 const ALLOWED_FRONT_MATTER_KEYS = new Set(["name", "version"]);
@@ -82,6 +89,7 @@ const promptCache = new Map<string, PromptMetadata>();
 function templateValues(): Record<string, string> {
   return {
     travel_cap_minutes: String(getTravelCapMinutes()),
+    max_travel_legs: String(getMaxTravelLegsPerRequest()),
     agent_max_tool_calls: String(getAgentMaxToolCalls()),
     agent_max_cost_usd: String(getAgentMaxCostUsdPerTurn()),
     repair_max_rounds: String(getRepairMaxRounds()),

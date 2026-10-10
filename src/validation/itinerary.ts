@@ -1,10 +1,20 @@
 import { z } from "zod";
 
-import { STOPS_MAX, STOPS_MIN, STOPS_MIN_SINGLE } from "./bounds";
+import {
+  MAX_TRAVEL_LEGS_PER_REQUEST_DEFAULT,
+  STOPS_MAX,
+  STOPS_MIN,
+  STOPS_MIN_SINGLE,
+} from "./bounds";
 import { oneLineSchema } from "./common";
 import { stopSchema } from "./stop";
 
-export { STOPS_MAX, STOPS_MIN, STOPS_MIN_SINGLE } from "./bounds";
+export {
+  MAX_TRAVEL_LEGS_PER_REQUEST_DEFAULT,
+  STOPS_MAX,
+  STOPS_MIN,
+  STOPS_MIN_SINGLE,
+} from "./bounds";
 
 export const ITINERARY_OPTIONS_MIN = 2;
 export const ITINERARY_OPTIONS_MAX = 3;
@@ -71,47 +81,67 @@ export const itineraryOptionSchema = itineraryOptionSchemaFor(false);
  * A planned night: 2–3 themed options.
  * No Place ID may appear more than once.
  * A 1-stop option is allowed only when `singleStop` is true.
+ * Travel legs (stops − 1 per option; 0 when single-stop) sum to at most `maxLegs`.
  */
-export const itinerarySchema = z
-  .object({
-    singleStop: z.boolean().default(false),
-    options: z
-      .array(itineraryOptionSchemaWithBounds(STOPS_MIN_SINGLE, STOPS_MAX))
-      .min(ITINERARY_OPTIONS_MIN)
-      .max(ITINERARY_OPTIONS_MAX),
-  })
-  .strict()
-  .superRefine((itinerary, ctx) => {
-    itinerary.options.forEach((option, optionIndex) => {
-      const allowed = itinerary.singleStop
-        ? option.stops.length === STOPS_MIN_SINGLE
-        : option.stops.length >= STOPS_MIN && option.stops.length <= STOPS_MAX;
-      if (!allowed) {
+export function itinerarySchemaFor(
+  options: { maxLegs?: number } = {},
+) {
+  const maxLegs = options.maxLegs ?? MAX_TRAVEL_LEGS_PER_REQUEST_DEFAULT;
+  return z
+    .object({
+      singleStop: z.boolean().default(false),
+      options: z
+        .array(itineraryOptionSchemaWithBounds(STOPS_MIN_SINGLE, STOPS_MAX))
+        .min(ITINERARY_OPTIONS_MIN)
+        .max(ITINERARY_OPTIONS_MAX),
+    })
+    .strict()
+    .superRefine((itinerary, ctx) => {
+      itinerary.options.forEach((option, optionIndex) => {
+        const allowed = itinerary.singleStop
+          ? option.stops.length === STOPS_MIN_SINGLE
+          : option.stops.length >= STOPS_MIN && option.stops.length <= STOPS_MAX;
+        if (!allowed) {
+          ctx.addIssue({
+            code: "custom",
+            message: itinerary.singleStop
+              ? "Each option needs exactly 1 stop when singleStop is true"
+              : "Each option needs 2–4 stops unless singleStop is true",
+            path: ["options", optionIndex, "stops"],
+          });
+        }
+      });
+
+      const seen = new Set<string>();
+      itinerary.options.forEach((option, optionIndex) => {
+        option.stops.forEach((stop, stopIndex) => {
+          if (seen.has(stop.placeId)) {
+            ctx.addIssue({
+              code: "custom",
+              message: "A venue cannot be shared between options",
+              path: ["options", optionIndex, "stops", stopIndex, "placeId"],
+            });
+            return;
+          }
+          seen.add(stop.placeId);
+        });
+      });
+
+      const legs = itinerary.options.reduce(
+        (sum, option) => sum + Math.max(0, option.stops.length - 1),
+        0,
+      );
+      if (legs > maxLegs) {
         ctx.addIssue({
           code: "custom",
-          message: itinerary.singleStop
-            ? "Each option needs exactly 1 stop when singleStop is true"
-            : "Each option needs 2–4 stops unless singleStop is true",
-          path: ["options", optionIndex, "stops"],
+          message: `At most ${maxLegs} travel legs per request across all options`,
+          path: ["options"],
         });
       }
     });
+}
 
-    const seen = new Set<string>();
-    itinerary.options.forEach((option, optionIndex) => {
-      option.stops.forEach((stop, stopIndex) => {
-        if (seen.has(stop.placeId)) {
-          ctx.addIssue({
-            code: "custom",
-            message: "A venue cannot be shared between options",
-            path: ["options", optionIndex, "stops", stopIndex, "placeId"],
-          });
-          return;
-        }
-        seen.add(stop.placeId);
-      });
-    });
-  });
+export const itinerarySchema = itinerarySchemaFor();
 
 export type ItineraryOption = z.infer<typeof itineraryOptionSchema>;
 export type Itinerary = z.infer<typeof itinerarySchema>;

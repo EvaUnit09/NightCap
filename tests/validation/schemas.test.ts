@@ -4,11 +4,13 @@ import type { z } from "zod";
 
 import { itinerarySchema as agentItinerarySchema, toolInputSchema } from "../../src/agent";
 import {
+  MAX_TRAVEL_LEGS_PER_REQUEST_DEFAULT as CONTRACT_MAX_LEGS,
   STOPS_MAX as CONTRACT_STOPS_MAX,
   STOPS_MIN as CONTRACT_STOPS_MIN,
   STOPS_MIN_SINGLE as CONTRACT_STOPS_MIN_SINGLE,
 } from "../../src/contracts/itinerary";
 import {
+  MAX_TRAVEL_LEGS_PER_REQUEST_DEFAULT,
   STOPS_MAX,
   STOPS_MIN,
   STOPS_MIN_SINGLE,
@@ -70,6 +72,8 @@ describe("itinerary contracts", () => {
     assert.equal(CONTRACT_STOPS_MIN, STOPS_MIN);
     assert.equal(CONTRACT_STOPS_MIN_SINGLE, STOPS_MIN_SINGLE);
     assert.equal(CONTRACT_STOPS_MAX, STOPS_MAX);
+    assert.equal(MAX_TRAVEL_LEGS_PER_REQUEST_DEFAULT, 4);
+    assert.equal(CONTRACT_MAX_LEGS, MAX_TRAVEL_LEGS_PER_REQUEST_DEFAULT);
   });
 });
 

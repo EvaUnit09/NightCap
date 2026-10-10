@@ -248,6 +248,26 @@ describe("single-stop prompt rules", () => {
     assert.doesNotMatch(source, /LEGACY_MODE_FOR_CONTRACT|rewriteContractTravelModes/);
   });
 
+  it("templates the travel-leg cap and spells out the allowed shapes", () => {
+    const plan = loadPrompt("plan_itineraries", "v1").body;
+    const repair = loadPrompt("repair_itinerary", "v1").body;
+    const refine = loadPrompt("refine_agent", "v1").body;
+    for (const [name, body] of [
+      ["plan", plan],
+      ["repair", repair],
+      ["refine", refine],
+    ] as const) {
+      assert.match(body, /4/, `${name} should include the templated leg cap`);
+      assert.match(body, /2\+2/);
+      assert.match(body, /2\+3/);
+      assert.match(body, /2\+4/);
+      assert.match(body, /3\+3/);
+      assert.match(body, /2\+2\+2/);
+      assert.match(body, /2\+2\+3/);
+    }
+    assert.match(plan, /prefer[\s\S]{0,80}2 options of 3|3 options of 2/i);
+  });
+
   it("tells plan when to pick BICYCLE and to stay conservative at night", () => {
     const plan = loadPrompt("plan_itineraries", "v1").body;
     assert.match(plan, /BICYCLE/);
