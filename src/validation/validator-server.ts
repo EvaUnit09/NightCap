@@ -3,6 +3,7 @@ import "server-only";
 import {
   getEnableLiveRoutes,
   getGooglePlacesApiKey,
+  getMaxTravelLegsPerRequest,
   getPriceRanges,
   getRoutesApiTimeoutMs,
   getTravelBudgetMs,
@@ -32,6 +33,7 @@ export async function validateItineraryServer(
     travelCapMinutes: getTravelCapMinutes(),
     travelToleranceMinutes: getTravelClaimToleranceMinutes(),
     travelBudgetMs: getTravelBudgetMs(),
+    maxLegs: getMaxTravelLegsPerRequest(),
     travelCalculator: getEnableLiveRoutes()
       ? createRoutesTravelCalculator()
       : undefined,
@@ -59,6 +61,7 @@ export function createRoutesTravelCalculator(
   return new RoutesMatrixTravelCalculator({
     apiKey,
     timeoutMs: getRoutesApiTimeoutMs(),
+    maxLegs: getMaxTravelLegsPerRequest(),
     fetchImpl,
   });
 }

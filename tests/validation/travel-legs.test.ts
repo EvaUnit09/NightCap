@@ -61,6 +61,8 @@ describe("travel-leg cap", () => {
     const toolInput = readFileSync(resolve("src/validation/tool-input.ts"), "utf8");
     assert.doesNotMatch(index, /models\/config|from ["'].*config["']/);
     assert.doesNotMatch(toolInput, /models\/config|from ["'].*config["']/);
+    const validator = readFileSync(resolve("src/validation/validator.ts"), "utf8");
+    assert.doesNotMatch(validator, /models\/config|from ["'].*config["']/);
   });
 
   it("accepts exactly the allowed multi-stop shapes and any single-stop shape", () => {

@@ -745,6 +745,59 @@ describe("validateItinerary", () => {
     );
   });
 
+  it("returns invalid_format when travel legs across options exceed maxLegs", async () => {
+    const itinerary = planFromStopCounts([3, 4]);
+    const errors = await validateItinerary(
+      {
+        intent,
+        candidates: candidatesForPlan(itinerary),
+        itinerary,
+      },
+      { travelCapMinutes: 25, travelCalculator: calc(10) }
+    );
+    assert.ok(
+      errors.some(
+        (e) =>
+          e.code === "invalid_format" &&
+          /at most 4 travel legs/i.test(e.message)
+      ),
+      JSON.stringify(errors)
+    );
+  });
+
+  it("accepts a 3+3 plan at the default 4-leg cap", async () => {
+    const itinerary = planFromStopCounts([3, 3]);
+    const errors = await validateItinerary(
+      {
+        intent,
+        candidates: candidatesForPlan(itinerary),
+        itinerary,
+      },
+      { travelCapMinutes: 25, travelCalculator: calc(10) }
+    );
+    assert.deepEqual(errors, [], JSON.stringify(errors));
+  });
+
+  it("honors a tighter maxLegs parameter via itinerarySchemaFor", async () => {
+    const itinerary = planFromStopCounts([2, 3]);
+    const errors = await validateItinerary(
+      {
+        intent,
+        candidates: candidatesForPlan(itinerary),
+        itinerary,
+      },
+      { travelCapMinutes: 25, travelCalculator: calc(10), maxLegs: 2 }
+    );
+    assert.ok(
+      errors.some(
+        (e) =>
+          e.code === "invalid_format" &&
+          /at most 2 travel legs/i.test(e.message)
+      ),
+      JSON.stringify(errors)
+    );
+  });
+
   it("fails a 2-stop itinerary when singleStop is true on both sides", async () => {
     const errors = await validateItinerary(
       {
@@ -764,6 +817,35 @@ describe("validateItinerary", () => {
     );
   });
 });
+
+function planFromStopCounts(counts: number[]) {
+  let n = 0;
+  return {
+    options: counts.map((count, optionIndex) => ({
+      theme: `Option ${optionIndex + 1}`,
+      stops: Array.from({ length: count }, (_, stopIndex) => {
+        const id = `ChIJL${n++}`;
+        const hour = 17 + stopIndex;
+        return {
+          placeId: id,
+          name: `Venue ${id}`,
+          start: `2026-10-15T${String(hour).padStart(2, "0")}:00:00-04:00`,
+          end: `2026-10-15T${String(hour).padStart(2, "0")}:40:00-04:00`,
+          estimatedCostUsd: 40,
+          why: "Drinks",
+          travelToNext:
+            stopIndex === count - 1 ? null : { mode: "WALK" as const, minutes: 10 },
+        };
+      }),
+    })),
+  };
+}
+
+function candidatesForPlan(plan: ReturnType<typeof planFromStopCounts>) {
+  return plan.options.flatMap((option) =>
+    option.stops.map((stop) => candidate(stop.placeId, stop.name))
+  );
+}
 
 function oneStopPlan(singleStop: boolean) {
   return {

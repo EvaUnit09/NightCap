@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { MAX_TRAVEL_LEGS_PER_REQUEST_DEFAULT } from "./bounds";
 import type { Candidate } from "./candidate";
 import { candidateSchema } from "./candidate";
 import {
@@ -13,7 +14,7 @@ import {
 } from "./defaults";
 import type { Intent } from "./intent";
 import { intentSchema } from "./intent";
-import { itineraryOptionSchemaFor, itinerarySchema } from "./itinerary";
+import { itineraryOptionSchemaFor, itinerarySchemaFor } from "./itinerary";
 import {
   singleStopMatchesIntent,
   stampSingleStopFromIntent,
@@ -71,6 +72,11 @@ export interface ValidatorOptions {
    * Default DEFAULT_TRAVEL_BUDGET_MS. Exhausted budget fails closed.
    */
   travelBudgetMs?: number;
+  /**
+   * Cap on travel legs per request, summed across options (stops − 1 each).
+   * Default MAX_TRAVEL_LEGS_PER_REQUEST_DEFAULT. Exceeding it is invalid_format.
+   */
+  maxLegs?: number;
 }
 
 const MESSAGE_MAX = 300;
@@ -119,7 +125,8 @@ type SharedItineraryParse =
  * budget (sum of each stop's party-total estimatedCostUsd vs party-total
  * budgetUsd), price-level plausibility (per-person ranges vs
  * estimatedCostUsd / partySize), travel max(claimed, computed) ≤ cap,
- * claimed-vs-computed tolerance, intent/itinerary singleStop agreement via
+ * claimed-vs-computed tolerance, travel-leg cap (`maxLegs`, #28) via
+ * `itinerarySchemaFor`, intent/itinerary singleStop agreement via
  * `singleStopMatchesIntent`.
  *
  * Callable from the pipeline, repair loop, agent `validate_itinerary` tool,
@@ -153,7 +160,12 @@ export async function validateItinerary(
     ? stampSingleStopFromIntent(input.itinerary, intent.singleStop)
     : stampSingleStopFromIntent({}, intent.singleStop);
 
-  const itineraryParse = parseSharedItinerary(stamped, intent.singleStop);
+  const maxLegs =
+    options.maxLegs !== undefined && options.maxLegs > 0
+      ? options.maxLegs
+      : MAX_TRAVEL_LEGS_PER_REQUEST_DEFAULT;
+
+  const itineraryParse = parseSharedItinerary(stamped, intent.singleStop, maxLegs);
   if (!itineraryParse.success) {
     return [
       emitError({
@@ -527,9 +539,10 @@ function normalizeName(name: string): string {
 
 function parseSharedItinerary(
   raw: unknown,
-  singleStop: boolean
+  singleStop: boolean,
+  maxLegs: number
 ): SharedItineraryParse {
-  const direct = parseWithSharedSchemas(raw, singleStop);
+  const direct = parseWithSharedSchemas(raw, singleStop, maxLegs);
   if (direct.success) {
     return direct;
   }
@@ -542,7 +555,11 @@ function parseSharedItinerary(
   // Unsupported hop modes fail the shared enum before refinements run.
   // Retry with a schema-valid placeholder so chronology / unique-venue still
   // apply, then restore the original mode for travel_unverified.
-  const retry = parseWithSharedSchemas(coerceHopModesForSchema(raw), singleStop);
+  const retry = parseWithSharedSchemas(
+    coerceHopModesForSchema(raw),
+    singleStop,
+    maxLegs
+  );
   if (!retry.success) {
     return retry;
   }
@@ -551,9 +568,10 @@ function parseSharedItinerary(
 
 function parseWithSharedSchemas(
   raw: unknown,
-  singleStop: boolean
+  singleStop: boolean,
+  maxLegs: number
 ): SharedItineraryParse {
-  const shared = itinerarySchema.safeParse(raw);
+  const shared = itinerarySchemaFor({ maxLegs }).safeParse(raw);
   if (!shared.success) {
     return { success: false, error: shared.error };
   }

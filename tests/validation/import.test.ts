@@ -58,4 +58,12 @@ describe("validator importability", () => {
     assert.equal(STOPS_MIN_SINGLE, 1);
     assert.equal(STOPS_MAX, 4);
   });
+
+  it("does not import config from the validator", () => {
+    const source = readFileSync(
+      new URL("../../src/validation/validator.ts", import.meta.url),
+      "utf8"
+    );
+    assert.doesNotMatch(source, /models\/config|from ["'].*config["']/);
+  });
 });

@@ -1,5 +1,6 @@
 import "server-only";
 
+import { MAX_TRAVEL_LEGS_PER_REQUEST_DEFAULT } from "./bounds";
 import {
   normalizeTravelMode,
   type SupportedTravelMode,
@@ -31,6 +32,8 @@ export interface RoutesMatrixTravelOptions {
   apiKey?: string;
   timeoutMs?: number;
   fetchImpl?: typeof fetch;
+  /** Cap on billed 1×1 elements per calculateMinutes. Default 4 (#28). */
+  maxLegs?: number;
 }
 
 interface RouteMatrixElement {
@@ -51,21 +54,30 @@ interface RouteMatrixElement {
  *
  * Fail-closed: unsupported mode, missing key, HTTP 4xx/5xx, timeout,
  * ROUTE_NOT_FOUND, element status, missing duration, or malformed body → null.
+ * More than `maxLegs` hops refuses to bill: throws before any fetch (#28).
  */
 export class RoutesMatrixTravelCalculator implements TravelCalculator {
   private readonly apiKey: string | undefined;
   private readonly timeoutMs: number;
   private readonly fetchImpl: typeof fetch;
+  private readonly maxLegs: number;
 
   constructor(options: RoutesMatrixTravelOptions = {}) {
     this.apiKey = options.apiKey;
     this.timeoutMs = options.timeoutMs ?? 5000;
     this.fetchImpl = options.fetchImpl ?? fetch;
+    this.maxLegs = options.maxLegs ?? MAX_TRAVEL_LEGS_PER_REQUEST_DEFAULT;
   }
 
   async calculateMinutes(
     legs: readonly TravelLeg[]
   ): Promise<Array<number | null>> {
+    if (legs.length > this.maxLegs) {
+      throw new Error(
+        `At most ${this.maxLegs} travel legs per request; refused to bill ${legs.length}`
+      );
+    }
+
     const results: Array<number | null> = legs.map(() => null);
     if (!this.apiKey) {
       return results;

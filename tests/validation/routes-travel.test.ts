@@ -185,7 +185,7 @@ describe("RoutesMatrixTravelCalculator", () => {
     assert.equal(result[0], null);
   });
 
-  it("bills one matrix element per consecutive leg across mixed modes (9 legs bill 9)", async () => {
+  it("bills one matrix element per consecutive leg across mixed modes (4 legs bill 4)", async () => {
     let billedElements = 0;
     const modesSent: string[] = [];
     const calculator = new RoutesMatrixTravelCalculator({
@@ -208,17 +208,38 @@ describe("RoutesMatrixTravelCalculator", () => {
       },
     });
     const cycle = ["WALK", "TRANSIT", "BICYCLE"] as const;
-    const legs = Array.from({ length: 9 }, (_, index) => ({
+    const legs = Array.from({ length: 4 }, (_, index) => ({
       ...walkLeg,
       mode: cycle[index % 3]!,
       from: { lat: 40.73 + index * 0.001, lng: -74.002 },
       to: { lat: 40.74 + index * 0.001, lng: -73.99 },
     }));
     const result = await calculator.calculateMinutes(legs);
-    assert.equal(billedElements, 9);
-    assert.equal(result.length, 9);
+    assert.equal(billedElements, 4);
+    assert.equal(result.length, 4);
     assert.ok(result.every((minutes) => minutes === 10));
     assert.deepEqual(new Set(modesSent), new Set(["WALK", "TRANSIT", "BICYCLE"]));
+  });
+
+  it("refuses to bill 5 legs and never fetches", async () => {
+    let calls = 0;
+    const calculator = new RoutesMatrixTravelCalculator({
+      apiKey: "test-key",
+      fetchImpl: async () => {
+        calls += 1;
+        return jsonResponse(success);
+      },
+    });
+    const legs = Array.from({ length: 5 }, (_, index) => ({
+      ...walkLeg,
+      from: { lat: 40.73 + index * 0.001, lng: -74.002 },
+      to: { lat: 40.74 + index * 0.001, lng: -73.99 },
+    }));
+    await assert.rejects(
+      () => calculator.calculateMinutes(legs),
+      /At most 4 travel legs/
+    );
+    assert.equal(calls, 0);
   });
 
   it("sends a past departureTime only on TRANSIT and never on BICYCLE or WALK", async () => {
