@@ -4,6 +4,7 @@ import type { Intent } from "./intent";
 import { intentSchema } from "./intent";
 import type { Itinerary } from "./itinerary";
 import { itinerarySchema } from "./itinerary";
+import { effectiveStopBounds, readItineraryBounds } from "./schema-bounds";
 import type { TravelCalculator, TravelLeg } from "./travel";
 import {
   validationErrorSchema,
@@ -74,16 +75,6 @@ export async function validateItinerary(
   input: ValidatorInput,
   options: ValidatorOptions = {}
 ): Promise<ValidationError[]> {
-  const itineraryParse = itinerarySchema.safeParse(input.itinerary);
-  if (!itineraryParse.success) {
-    return [
-      emitError({
-        code: "not_found",
-        message: `Invalid itinerary format: ${itineraryParse.error.message}`,
-      }),
-    ];
-  }
-
   const intentParse = intentSchema.safeParse(input.intent);
   if (!intentParse.success) {
     return [
@@ -94,8 +85,20 @@ export async function validateItinerary(
     ];
   }
 
+  const itineraryParse = itinerarySchema.safeParse(input.itinerary);
+  if (!itineraryParse.success) {
+    return [
+      emitError({
+        code: "not_found",
+        message: `Invalid itinerary format: ${itineraryParse.error.message}`,
+      }),
+    ];
+  }
+
   const intent: Intent = intentParse.data;
   const itinerary: Itinerary = itineraryParse.data;
+  const planBounds = readItineraryBounds();
+  const stopBounds = effectiveStopBounds(intent);
   const candidates = parseCandidates(input.candidates);
   const travelCapMinutes = options.travelCapMinutes ?? 25;
   const travelToleranceMinutes = options.travelToleranceMinutes ?? 5;
@@ -107,7 +110,32 @@ export async function validateItinerary(
   const errors: ValidationError[] = [];
   const pendingTravel: PendingTravel[] = [];
 
+  if (
+    itinerary.options.length < planBounds.options.min ||
+    itinerary.options.length > planBounds.options.max
+  ) {
+    errors.push(
+      emitError({
+        code: "not_found",
+        message: `Itinerary must have ${planBounds.options.min}–${planBounds.options.max} options`,
+      })
+    );
+  }
+
   for (const [optionIndex, option] of itinerary.options.entries()) {
+    if (
+      option.stops.length < stopBounds.min ||
+      option.stops.length > stopBounds.max
+    ) {
+      errors.push(
+        emitError({
+          code: "not_found",
+          message: `Option ${optionIndex + 1} must have ${stopBounds.min}–${stopBounds.max} stops`,
+          optionIndex,
+        })
+      );
+    }
+
     let totalCostUsd = 0;
 
     for (const [stopIndex, stop] of option.stops.entries()) {
