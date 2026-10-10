@@ -61,6 +61,20 @@ function parseLiveRoutesFlag(value: string | undefined): boolean {
 }
 
 /**
+ * Coord TTL must be a plain decimal integer (reject 1e1, 0x1e, signs, decimals).
+ */
+function preprocessPlainInt(value: string | undefined): string | undefined {
+  const trimmed = preprocessEnvVar(value);
+  if (trimmed === undefined) return undefined;
+  if (!/^[0-9]+$/.test(trimmed)) {
+    throw new Error(
+      `Invalid PLACES_COORDS_CACHE_TTL_DAYS: expected a plain decimal integer, got ${JSON.stringify(trimmed)}`
+    );
+  }
+  return trimmed;
+}
+
+/**
  * Configuration schema with Zod validation.
  * Secrets must be provided; non-secrets have documented defaults.
  */
@@ -163,7 +177,7 @@ function loadConfig(): Config {
     agentModelId: preprocessEnvVar(process.env.AGENT_MODEL_ID),
 
     // Coord cache TTL
-    placesCoordsCacheTtlDays: preprocessEnvVar(process.env.PLACES_COORDS_CACHE_TTL_DAYS),
+    placesCoordsCacheTtlDays: preprocessPlainInt(process.env.PLACES_COORDS_CACHE_TTL_DAYS),
 
     // Rate Limits
     rateLimitRequestsPerHour: preprocessEnvVar(process.env.RATE_LIMIT_REQUESTS_PER_HOUR),

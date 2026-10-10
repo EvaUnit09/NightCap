@@ -12,7 +12,7 @@ flowchart TD
     RED --> P1[parse_intent<br/>Haiku 4.5 → Zod intent]
     P1 -->|SSE: parsed intent| U
     P1 --> R[Retrieval<br/>Places Text/Nearby Search]
-    R <--> C[(places_cache<br/>Supabase, 24h TTL)]
+    R <--> C[(places_cache<br/>place_id + coords ≤ 30d)]
     R --> F[Filter: OPERATIONAL, open at slot, price band]
     F --> RR[Re-rank: vibe fit + novelty penalty]
     RR --> P2[plan_itineraries<br/>Sonnet 5, candidate IDs only]
@@ -57,7 +57,7 @@ user text is treated as data.
 | `requests` | id, created_at, redacted_text, parsed_intent (jsonb), client_hash |
 | `itineraries` | id, request_id, option_index, stops (jsonb), valid (bool), validation_errors (jsonb), prompt_versions, models, cost_usd, latency_ms |
 | `feedback` | id, itinerary_id, thumbs, would_go, did_go, new_to_you (jsonb per venue), closed_report_place_id |
-| `places_cache` | place_id / query_key, payload (terms-permitted fields), fetched_at, expires_at |
+| `places_cache` | place_id (PK), lat, lng, coords_fetched_at, coords_expires_at (≤ 30d). No payload. Query-result cache dropped. |
 | `saved_plans` | id, user_id (magic link), itinerary_id, share_slug |
 
 ## Observability (Datadog)
@@ -119,7 +119,7 @@ Do this before prompt iteration. Later phases call these modules; they do not re
 | # | Action | Lands in | Done when |
 |---|---|---|---|
 | 11 | Call Places Text Search, Nearby Search, and Place Details. Venues come only from these responses. | `src/retrieval/` | A query returns Place IDs plus hours, price, coords, rating, review count, and business status. |
-| 12 | Cache Places responses for 24 hours, keyed by place id and by query. | `places_cache` | A repeat query inside the TTL does not call Places. Expired rows are not served. |
+| 12 | Cache `place_id` indefinitely and lat/lng for ≤ 30 days. Hours, price, and rating are fetched live. The previous query-keyed 24h details cache is dropped (raises Places cost; pending Noah's cost decision). | `places_cache` | Expired coordinates are not served. A repeat details query still calls Places. |
 | 13 | Filter to `OPERATIONAL` venues that are open for the slot and inside the price band, then re-rank. | `src/retrieval/` | Top-K per stop type prefers vibe-tag fit and penalizes very high review counts. Closed venues never reach the planner. |
 | 14 | Retry a Places 429 or timeout once, then surface a partial result with a clear error. | `src/retrieval/` | The failure is a span with status error. The user is not shown an invented stop. |
 

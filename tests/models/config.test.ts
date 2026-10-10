@@ -261,9 +261,7 @@ describe("Config module", () => {
     it("rejects negative coord cache TTL", () => {
       process.env.PLACES_COORDS_CACHE_TTL_DAYS = "-1";
 
-      assert.throws(() => getConfig(), {
-        name: "ZodError",
-      });
+      assert.throws(() => getConfig(), /plain decimal integer|ZodError/);
     });
 
     it("rejects zero coord cache TTL", () => {
@@ -345,9 +343,19 @@ describe("Config module", () => {
     it("rejects non-numeric coord cache TTL", () => {
       process.env.PLACES_COORDS_CACHE_TTL_DAYS = "not-a-number";
 
-      assert.throws(() => getConfig(), {
-        name: "ZodError",
-      });
+      assert.throws(() => getConfig(), /plain decimal integer/);
+    });
+
+    it("rejects scientific notation for coord cache TTL", () => {
+      process.env.PLACES_COORDS_CACHE_TTL_DAYS = "1e1";
+
+      assert.throws(() => getConfig(), /plain decimal integer/);
+    });
+
+    it("rejects hex literals for coord cache TTL", () => {
+      process.env.PLACES_COORDS_CACHE_TTL_DAYS = "0x1e";
+
+      assert.throws(() => getConfig(), /plain decimal integer/);
     });
 
     it("rejects float on integer-required field", () => {
