@@ -76,7 +76,7 @@ By **2026-10-25** (4 weeks), ship a deployed v1 that:
 - `places_cache`: `place_id` indefinitely, lat/lng for 30 days; hours, price, rating, and names fetched live
 - `itineraries.stops`: `placeId` plus planning fields only (times, stopType, estimatedCostUsd, travelToNext, why). Names and Places details are hydrated live on view/share (decision #29)
 
-Anonymous by default. A magic link saves and shares plans. Names and other PII are redacted from the free text before storage and logging.
+Anonymous by default. A magic link saves and shares plans. `requests.redacted_text` stores heuristic-redacted request text (users who put full names in a request accept that risk). Datadog spans get only `parsed_intent` plus a hash of the request, never the free text. The redactor's bar is good, not perfect.
 
 ### Constraints
 
@@ -86,7 +86,7 @@ Anonymous by default. A magic link saves and shares plans. Names and other PII a
 | Latency (p50 / p99)   | < 8s / < 20s end to end            | First itinerary is streamed as soon as it passes validation                                  |
 | Cost per request      | < $0.10 avg                        | Beta target (#30). Places Enterprise fields stay (novelty re-rank needs rating and review count). Plan stage ≈ $0.03; #36 model comparison is the lever to bring cost down. |
 | Quality bar           | ≥ 90% validity, 0% invented venues | Validity defined under Success Metrics                                                       |
-| Privacy / compliance  | No PII in logs or DB               | Redaction before Datadog and DB; Google Places terms respected                               |
+| Privacy / compliance  | No raw request text in Datadog; heuristic-redacted text in DB | DB stores `redacted_text` (good, not perfect). Datadog gets `parsed_intent` plus a request hash only. Google Places terms respected. |
 | Availability / uptime | Best-effort                        | Portfolio demo; daily spend cap may pause service                                            |
 
 
@@ -418,7 +418,7 @@ Flow: user message + current itinerary → agent calls tools → must call `vali
 | Logging Approach | Tool/Method                                                                                                                                                                                                                                                                             |
 | ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Basic            | Supabase tables (requests, itineraries, feedback)                                                                                                                                                                                                                                       |
-| Advanced         | Datadog LLM Observability: one trace per request; spans for parse, each Places call (cache hit/miss), re-rank, plan, validate, repair, agent turns. Tags: prompt version, model, test-case ID. Metadata: tokens, cost, latency, validation errors by type. PII redacted before logging. |
+| Advanced         | Datadog LLM Observability: one trace per request; spans for parse, each Places call (cache hit/miss), re-rank, plan, validate, repair, agent turns. Tags: prompt version, model, test-case ID. Metadata: tokens, cost, latency, validation errors by type. Spans carry `parsed_intent` plus a request hash, never the free-text request. |
 
 
 

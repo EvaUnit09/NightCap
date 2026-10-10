@@ -3,7 +3,10 @@
  *
  * Written before the generalization rewrite. Do not add cases here to chase
  * a score after implementation. Names and places are chosen to be distinct
- * from the reviewer probe and the original regression fixture.
+ * from the original regression fixture.
+ *
+ * Provenance: some names and cue shapes came from reviewer reports. This
+ * file is not the reviewer's held-out v3 set.
  */
 
 export interface HeldOutCase {

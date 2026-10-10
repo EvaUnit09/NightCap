@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { redact, redactForStorage, redactForTrace } from "../../src/monitoring";
+import { redact, redactForStorage } from "../../src/monitoring";
 
 describe("redact - email redaction", () => {
   it("redacts a single email address", () => {
@@ -309,15 +309,15 @@ describe("redactForStorage", () => {
   });
 });
 
-describe("redactForTrace", () => {
+describe("redactForStorage", () => {
   it("is an alias for redact and redacts 7-digit local phones", () => {
     const text = "Meeting with Sarah at 555-1234";
     const redactResult = redact(text);
-    const traceResult = redactForTrace(text);
+    const storageResult = redactForStorage(text);
 
     assert.equal(redactResult.text, "Meeting with [NAME] at [PHONE]");
-    assert.equal(redactResult.text, traceResult.text);
-    assert.deepEqual(redactResult.counts, traceResult.counts);
+    assert.equal(redactResult.text, storageResult.text);
+    assert.deepEqual(redactResult.counts, storageResult.counts);
   });
 });
 

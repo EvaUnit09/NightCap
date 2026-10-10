@@ -1,3 +1,5 @@
+import "server-only";
+
 /**
  * PII redaction for NightCap.
  *
@@ -25,6 +27,8 @@
  *   rare or newly coined names can leak after a weak cue.
  * - Non-Latin orthographies after a weak cue survive unless the folded form
  *   is in the list (Ольга ≠ olga).
+ * - Two-token venues without a listed given name (Le Coucou, Don Angie,
+ *   Joe Allen) are left as a known limit unless they hit a strong person cue.
  */
 
 import {
@@ -149,6 +153,38 @@ const RELATIONS = new Set([
   "stepdaughter",
   "step-sister",
   "step-brother",
+  "bestie",
+  "bff",
+  "hubby",
+  "wifey",
+  "so",
+  "bae",
+  "grandma",
+  "grandpa",
+  "nana",
+  "abuela",
+  "twin",
+  "neighbor",
+  "crush",
+  "plus-one",
+  "mentor",
+  "teammate",
+]);
+
+const ARTICLES = new Set(["a", "an", "the"]);
+
+const RELATION_PHRASES = new Set(["significant other", "other half", "plus one"]);
+
+const EVENT_NOUNS = new Set([
+  "birthday",
+  "bday",
+  "anniversary",
+  "bachelorette",
+  "graduation",
+  "promotion",
+  "retirement",
+  "engagement",
+  "party",
 ]);
 
 const FUNCTION_WORDS = new Set([
@@ -193,6 +229,7 @@ interface Span {
 }
 
 interface NameRun {
+  startIndex: number;
   endIndex: number;
   start: number;
   end: number;
@@ -298,6 +335,7 @@ function acceptsName(
   token: Tok,
   strength: "strong" | "weak",
   requireCapital = false,
+  allowPlaceName = false,
 ): boolean {
   if (alreadyRedacted(text, token)) {
     return false;
@@ -313,7 +351,7 @@ function acceptsName(
   ) {
     return false;
   }
-  if (strength === "weak" && isPlaceTerm(stripped.base)) {
+  if (!allowPlaceName && isPlaceTerm(stripped.base)) {
     return false;
   }
   if (requireCapital && !isProperShape(stripped.base)) {
@@ -349,12 +387,13 @@ function consumeNameRun(
   index: number,
   strength: "strong" | "weak",
   requireCapital = false,
+  allowPlaceName = false,
 ): NameRun | null {
   const token = tokens[index];
-  if (!token || !acceptsName(text, token, strength, requireCapital)) {
+  if (!token || !acceptsName(text, token, strength, requireCapital, allowPlaceName)) {
     return null;
   }
-  if (strength === "weak" && placePhraseLength(folded, index) > 0) {
+  if (!allowPlaceName && placePhraseLength(folded, index) > 0) {
     return null;
   }
   let last = index;
@@ -367,10 +406,10 @@ function consumeNameRun(
     if (alreadyRedacted(text, next)) {
       break;
     }
-    if (strength === "weak" && placePhraseLength(folded, index + offset) > 0) {
+    if (!allowPlaceName && placePhraseLength(folded, index + offset) > 0) {
       break;
     }
-    if (isPlaceTerm(next.raw) && strength === "weak") {
+    if (isPlaceTerm(next.raw) && !allowPlaceName) {
       break;
     }
     if (!isProperShape(next.raw) && !isGivenName(next.raw)) {
@@ -385,7 +424,7 @@ function consumeNameRun(
   const final = tokens[last];
   const stripped = stripPossessiveRaw(final.raw);
   const end = stripped.possessive ? final.start + stripped.base.length : final.end;
-  return { endIndex: last, start: first.start, end };
+  return { startIndex: index, endIndex: last, start: first.start, end };
 }
 
 function collectListMembers(
@@ -395,11 +434,12 @@ function collectListMembers(
   startIndex: number,
   strength: "strong" | "weak",
   requireCapital = false,
+  allowPlaceName = false,
 ): NameRun[] {
-  if (strength === "weak" && placePhraseLength(folded, startIndex) > 0) {
+  if (!allowPlaceName && placePhraseLength(folded, startIndex) > 0) {
     return [];
   }
-  const first = consumeNameRun(text, tokens, folded, startIndex, strength, requireCapital);
+  const first = consumeNameRun(text, tokens, folded, startIndex, strength, requireCapital, allowPlaceName);
   if (!first) {
     return [];
   }
@@ -422,7 +462,7 @@ function collectListMembers(
     if (strength === "weak" && placePhraseLength(folded, cursor) > 0) {
       break;
     }
-    const next = consumeNameRun(text, tokens, folded, cursor, strength, requireCapital);
+    const next = consumeNameRun(text, tokens, folded, cursor, strength, requireCapital, allowPlaceName);
     if (!next) {
       break;
     }
@@ -439,20 +479,19 @@ function collectNames(text: string): Span[] {
   const spans: Span[] = [];
   const used = new Set<number>();
 
-  const occupySpan = (start: number, end: number): void => {
-    for (let i = 0; i < tokens.length; i += 1) {
-      if (tokens[i].start < end && tokens[i].end > start) {
-        used.add(i);
-      }
+  const occupyRange = (from: number, to: number): void => {
+    const last = Math.min(to, tokens.length - 1);
+    for (let i = from; i <= last; i += 1) {
+      used.add(i);
     }
   };
 
-  const markRun = (run: NameRun | null): boolean => {
+  const markRun = (run: NameRun | null, fromIndex: number): boolean => {
     if (!run) {
       return false;
     }
     addSpan(spans, run.start, run.end);
-    occupySpan(run.start, run.end);
+    occupyRange(fromIndex, run.endIndex);
     return true;
   };
 
@@ -461,15 +500,13 @@ function collectNames(text: string): Span[] {
       return false;
     }
     if (merged) {
-      const start = members[0].start;
-      const end = members[members.length - 1].end;
-      addSpan(spans, start, end);
-      occupySpan(start, end);
+      addSpan(spans, members[0].start, members[members.length - 1].end);
+      occupyRange(members[0].startIndex, members[members.length - 1].endIndex);
       return true;
     }
     for (const member of members) {
       addSpan(spans, member.start, member.end);
-      occupySpan(member.start, member.end);
+      occupyRange(member.startIndex, member.endIndex);
     }
     return true;
   };
@@ -490,24 +527,24 @@ function collectNames(text: string): Span[] {
       const run = consumeNameRun(text, tokens, folded, i + 1, "strong");
       if (run) {
         addSpan(spans, tok.start, run.end);
-        occupySpan(tok.start, run.end);
+        occupyRange(i, run.endIndex);
         continue;
       }
     }
 
     if (GREETINGS.has(tok.folded) && i + 1 < tokens.length) {
-      markRun(consumeNameRun(text, tokens, folded, i + 1, "strong"));
+      markRun(consumeNameRun(text, tokens, folded, i + 1, "strong"), i + 1);
       continue;
     }
 
     if (tok.folded === "named" && i + 1 < tokens.length) {
-      markRun(consumeNameRun(text, tokens, folded, i + 1, "strong"));
+      markRun(consumeNameRun(text, tokens, folded, i + 1, "strong"), i + 1);
       continue;
     }
 
     if (ACTION_CUES.has(tok.folded)) {
       const after = i + 1 < tokens.length && tokens[i + 1].folded === "for" ? i + 2 : i + 1;
-      markRun(consumeNameRun(text, tokens, folded, after, "strong"));
+      markRun(consumeNameRun(text, tokens, folded, after, "strong"), after);
       continue;
     }
 
@@ -528,7 +565,7 @@ function collectNames(text: string): Span[] {
             FIRST_PERSON.has(tokens[afterName].folded) &&
             (isListConnector(gapToAfter) || afterName > run.endIndex + 1)
           ) {
-            markRun(run);
+            markRun(run, i + 1);
             continue;
           }
         }
@@ -537,11 +574,17 @@ function collectNames(text: string): Span[] {
 
     if (POSSESSORS.has(tok.folded)) {
       if (i + 3 < tokens.length && tokens[i + 1].folded === "name" && tokens[i + 2].folded === "is") {
-        markRun(consumeNameRun(text, tokens, folded, i + 3, "strong"));
+        markRun(consumeNameRun(text, tokens, folded, i + 3, "strong"), i + 3);
         continue;
       }
       let relationAt = -1;
-      for (let j = i + 1; j <= i + 3 && j < tokens.length; j += 1) {
+      for (let j = i + 1; j <= i + 4 && j < tokens.length; j += 1) {
+        const phrase =
+          j + 1 < tokens.length ? `${tokens[j].folded} ${tokens[j + 1].folded}` : "";
+        if (RELATION_PHRASES.has(phrase)) {
+          relationAt = j + 1;
+          break;
+        }
         if (RELATIONS.has(tokens[j].folded)) {
           relationAt = j;
           break;
@@ -555,36 +598,38 @@ function collectNames(text: string): Span[] {
         }
       }
       if (relationAt >= 0 && relationAt + 1 < tokens.length) {
-        markRun(consumeNameRun(text, tokens, folded, relationAt + 1, "strong"));
-        continue;
+        const gap = between(text, tokens[relationAt], tokens[relationAt + 1]);
+        if (/^[,.]?\s+$/.test(gap)) {
+          markRun(consumeNameRun(text, tokens, folded, relationAt + 1, "strong", false, true), relationAt + 1);
+          continue;
+        }
       }
     }
 
-    if (RELATIONS.has(tok.folded) && (i === 0 || !POSSESSORS.has(tokens[i - 1]?.folded))) {
-      markRun(consumeNameRun(text, tokens, folded, i + 1, "strong"));
+    const prev = i > 0 ? tokens[i - 1] : undefined;
+    const relationAnchor =
+      prev !== undefined &&
+      (ARTICLES.has(prev.folded) || POSSESSORS.has(prev.folded) || prev.folded === "with") &&
+      /^\s+$/.test(between(text, prev, tok));
+    if (RELATIONS.has(tok.folded) && relationAnchor && i + 1 < tokens.length && /^[,.]?\s+$/.test(between(text, tok, tokens[i + 1]))) {
+      markRun(consumeNameRun(text, tokens, folded, i + 1, "strong", false, POSSESSORS.has(prev?.folded ?? "")), i + 1);
     }
 
     const stripped = stripPossessiveRaw(tok.raw);
     const eventPossessive = stripped.possessive || /^['’]s(?:\s|$)/.test(text.slice(tok.end));
+    const prevCapitalized = prev !== undefined && isProperShape(prev.raw);
     if (
       eventPossessive &&
       !precededByWeakWith(tokens, i, text) &&
+      !prevCapitalized &&
       (isProperShape(stripped.base) || isGivenName(stripped.base)) &&
       !isPlaceTerm(stripped.base)
     ) {
       const rest = text.slice(stripped.possessive ? tok.end : tok.end + 2);
-      const event = rest.match(/^\s+([\p{L}'’-]{1,40}|\d{1,4}(?:st|nd|rd|th)?)/u);
+      const event = rest.match(/^\s+([\p{L}'’-]{1,40}|\d{1,3}(?:st|nd|rd|th))/u);
       if (event) {
         const eventFolded = foldedNameKey(event[1]);
-        const eventIsNoun =
-          /^\d/.test(event[1]) ||
-          (event[1][0] !== undefined && event[1][0] === event[1][0].toLowerCase() && !/\p{Lu}/u.test(event[1][0]));
-        if (
-          eventIsNoun &&
-          !FUNCTION_WORDS.has(eventFolded) &&
-          !RELATIONS.has(eventFolded) &&
-          !POSSESSORS.has(eventFolded)
-        ) {
+        if (eventFolded !== "day" && (EVENT_NOUNS.has(eventFolded) || /^\d{1,3}(?:st|nd|rd|th)$/u.test(eventFolded))) {
           addSpan(spans, tok.start, tok.start + stripped.base.length);
           used.add(i);
           continue;
@@ -607,16 +652,22 @@ function collectNames(text: string): Span[] {
       continue;
     }
 
-    if (FIRST_PERSON.has(tok.folded)) {
+    if (FIRST_PERSON.has(tok.folded) || tok.folded === "myself") {
       const nameAt = nextNonConnector(text, tokens, i + 1);
       if (
         nameAt < tokens.length &&
         nameAt > i &&
         (isConnectorToken(text, tokens[i + 1]) || isListConnector(between(text, tok, tokens[nameAt])))
       ) {
-        markMembers(collectListMembers(text, tokens, folded, nameAt, "weak"), false);
+        markMembers(collectListMembers(text, tokens, folded, nameAt, tok.folded === "myself" ? "strong" : "weak"), false);
         continue;
       }
+    }
+
+    if (i + 1 < tokens.length && FIRST_PERSON.has(tokens[i + 1].folded) && isListConnector(between(text, tok, tokens[i + 1])) && acceptsName(text, tok, "strong")) {
+      addSpan(spans, tok.start, tok.end);
+      used.add(i);
+      continue;
     }
 
     if (
@@ -701,11 +752,17 @@ function mergeSpans(spans: Span[]): Span[] {
 
 function applySpans(text: string, spans: Span[]): { text: string; count: number } {
   const merged = mergeSpans(spans);
-  let result = text;
-  for (let i = merged.length - 1; i >= 0; i -= 1) {
-    result = `${result.slice(0, merged[i].start)}[NAME]${result.slice(merged[i].end)}`;
+  if (merged.length === 0) {
+    return { text, count: 0 };
   }
-  return { text: result, count: merged.length };
+  const parts: string[] = [];
+  let cursor = 0;
+  for (const span of merged) {
+    parts.push(text.slice(cursor, span.start), "[NAME]");
+    cursor = span.end;
+  }
+  parts.push(text.slice(cursor));
+  return { text: parts.join(""), count: merged.length };
 }
 
 function replaceAll(source: string, pattern: RegExp, replacement: string, onHit: () => void): string {
@@ -743,10 +800,109 @@ export function redactTextUncapped(input: string): { text: string; counts: Redac
   return { text: names.text, counts: { ...counts, names: names.count } };
 }
 
+const MAX_DEPTH = 32;
+const MAX_WALK_NODES = 10_000;
+
+interface WalkState {
+  nodes: number;
+  overflow: boolean;
+}
+
+function isBinaryNode(node: object): boolean {
+  if (typeof Buffer !== "undefined" && Buffer.isBuffer(node)) {
+    return true;
+  }
+  if (ArrayBuffer.isView(node) || node instanceof ArrayBuffer) {
+    return true;
+  }
+  return false;
+}
+
+function uniqueKey(output: Record<string, unknown>, key: string): string {
+  if (!Object.hasOwn(output, key)) {
+    return key;
+  }
+  let n = 2;
+  let candidate = `${key}~${n}`;
+  while (Object.hasOwn(output, candidate)) {
+    n += 1;
+    candidate = `${key}~${n}`;
+  }
+  return candidate;
+}
+
+function walkValue(node: unknown, depth: number, ancestors: readonly object[], state: WalkState): unknown {
+  state.nodes += 1;
+  if (state.nodes > MAX_WALK_NODES || depth > MAX_DEPTH) {
+    return "[REDACTION_ERROR]";
+  }
+  if (node === null || node === undefined) {
+    return node;
+  }
+  if (typeof node === "function" || typeof node === "symbol") {
+    return undefined;
+  }
+  if (typeof node === "string") {
+    if (codePointLength(node) > MAX_INPUT_CHARS) {
+      state.overflow = true;
+      return "";
+    }
+    return redactTextUncapped(node).text;
+  }
+  if (typeof node === "number" || typeof node === "boolean") {
+    return node;
+  }
+  if (typeof node !== "object") {
+    return undefined;
+  }
+  if (isBinaryNode(node)) {
+    return "[BINARY]";
+  }
+  if (ancestors.includes(node)) {
+    return "[REDACTION_ERROR: circular reference]";
+  }
+  if (node instanceof Date) {
+    if (Number.isNaN(node.valueOf())) {
+      return "[REDACTION_ERROR]";
+    }
+    return node.toISOString();
+  }
+  if (node instanceof Map) {
+    return [...node.entries()].map(([key, nested]) => [
+      walkValue(key, depth + 1, ancestors, state),
+      walkValue(nested, depth + 1, ancestors, state),
+    ]);
+  }
+  if (node instanceof Set) {
+    return [...node.values()].map((nested) => walkValue(nested, depth + 1, ancestors, state));
+  }
+  if (node instanceof Error) {
+    const next = [...ancestors, node];
+    return {
+      name: walkValue(node.name, depth + 1, next, state),
+      message: walkValue(node.message, depth + 1, next, state),
+    };
+  }
+  const nextAncestors = [...ancestors, node];
+  if (Array.isArray(node)) {
+    return node.map((item) => walkValue(item, depth + 1, nextAncestors, state));
+  }
+  const output: Record<string, unknown> = {};
+  for (const [key, nested] of Object.entries(node)) {
+    const safeKey = typeof key === "string" ? redactTextUncapped(key).text : String(key);
+    output[uniqueKey(output, safeKey)] = walkValue(nested, depth + 1, nextAncestors, state);
+  }
+  return output;
+}
+
 export function redact(text: unknown): RedactionResult {
   try {
     if (typeof text === "object" && text !== null) {
-      const walked = redactValue(text);
+      const state: WalkState = { nodes: 0, overflow: false };
+      const walked = walkValue(text, 0, [], state);
+      if (state.overflow) {
+        return { ok: false, error: "too_long", text: "", counts: EMPTY_COUNTS };
+      }
       const asText = typeof walked === "string" ? walked : JSON.stringify(walked);
       return { ok: true, text: asText ?? "", counts: EMPTY_COUNTS };
     }
@@ -761,77 +917,15 @@ export function redact(text: unknown): RedactionResult {
   }
 }
 
-const MAX_DEPTH = 32;
-
 export function redactValue(value: unknown): unknown {
-  const walk = (node: unknown, depth: number, ancestors: readonly object[]): unknown => {
-    if (depth > MAX_DEPTH) {
-      return "[REDACTION_ERROR]";
-    }
-    if (node === null || node === undefined) {
-      return node;
-    }
-    const type = typeof node;
-    if (type === "function" || type === "symbol") {
-      return undefined;
-    }
-    if (type === "string") {
-      const result = redact(node);
-      return result.ok ? result.text : "";
-    }
-    if (type === "number" || type === "boolean") {
-      return node;
-    }
-    if (type !== "object") {
-      return undefined;
-    }
-    if (ancestors.includes(node)) {
-      return "[REDACTION_ERROR: circular reference]";
-    }
-    if (node instanceof Date) {
-      return node.toISOString();
-    }
-    if (node instanceof Map) {
-      return [...node.entries()].map(([key, nested]) => [
-        walk(key, depth + 1, ancestors),
-        walk(nested, depth + 1, ancestors),
-      ]);
-    }
-    if (node instanceof Set) {
-      return [...node.values()].map((nested) => walk(nested, depth + 1, ancestors));
-    }
-    if (node instanceof Error) {
-      const next = [...ancestors, node];
-      return {
-        name: walk(node.name, depth + 1, next),
-        message: walk(node.message, depth + 1, next),
-      };
-    }
-    const nextAncestors = [...ancestors, node];
-    if (Array.isArray(node)) {
-      return node.map((item) => walk(item, depth + 1, nextAncestors));
-    }
-    const output: Record<string, unknown> = {};
-    for (const [key, nested] of Object.entries(node)) {
-      const keyResult = typeof key === "string" ? redact(key) : null;
-      const safeKey = keyResult ? (keyResult.ok ? keyResult.text : "") : String(key);
-      output[safeKey] = walk(nested, depth + 1, nextAncestors);
-    }
-    return output;
-  };
-
   try {
-    return walk(value, 0, []);
+    return walkValue(value, 0, [], { nodes: 0, overflow: false });
   } catch {
     return "[REDACTION_ERROR]";
   }
 }
 
 export function redactForStorage(text: unknown): RedactionResult {
-  return redact(text);
-}
-
-export function redactForTrace(text: unknown): RedactionResult {
   return redact(text);
 }
 

@@ -1,3 +1,4 @@
+import { GIVEN_NAME_EXTRA_KEYS } from "./given-names-extra";
 import { GIVEN_NAME_KEYS } from "./given-names";
 import { PLACE_TERMS } from "./place-terms";
 
@@ -5,7 +6,7 @@ function foldKey(value: string): string {
   return value.normalize("NFKD").replace(/\p{M}/gu, "").toLowerCase();
 }
 
-export const GIVEN_NAME_SET: ReadonlySet<string> = new Set(GIVEN_NAME_KEYS);
+export const GIVEN_NAME_SET: ReadonlySet<string> = new Set([...GIVEN_NAME_KEYS, ...GIVEN_NAME_EXTRA_KEYS]);
 
 export const PLACE_TERM_SET: ReadonlySet<string> = new Set(PLACE_TERMS.map(foldKey));
 
@@ -37,4 +38,4 @@ export function isPlaceTerm(token: string): boolean {
   return PLACE_TERM_SET.has(foldKey(token));
 }
 
-export const GIVEN_NAME_COUNT = GIVEN_NAME_KEYS.length;
+export const GIVEN_NAME_COUNT = GIVEN_NAME_SET.size;

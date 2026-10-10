@@ -100,7 +100,7 @@ per hop. See decision log #25.
 | 2 | Define shared Zod schemas: intent, candidate, stop, itinerary, validation error, tool input. | `src/validation/` | Every boundary parses with Zod. An itinerary is 2–3 options of 2–4 timed stops (exactly 1 stop when singleStop is true), with no venue shared between options. Travel modes are TRANSIT, BICYCLE, and WALK. |
 | 3 | Move model IDs, cache TTL, rate limits, travel cap, and spend caps into config. | `src/models/`, `.env.example` | No key, model id, TTL, or threshold is hardcoded. |
 | 4 | Create `requests`, `itineraries`, `feedback`, `places_cache`, `saved_plans`. | Supabase migration | Columns match the data model above. `places_cache` stores only fields Google's terms allow. `itineraries.stops` store `placeId` plus planning fields; names and details are hydrated live on view/share. |
-| 5 | Redact names and other PII from free text before any database write or Datadog span. | `src/monitoring/` | A request containing a name is stored and traced only in redacted form. |
+| 5 | Redact names and other PII from free text before any database write. Datadog spans get `parsed_intent` plus a request hash, never the free text. | `src/monitoring/` | A request is stored as heuristic-redacted text (`requests.redacted_text`). The redactor's bar is good, not perfect. |
 
 ### 2. Shared kernel
 
