@@ -17,3 +17,6 @@ export {
   getTurnstileSecretKey,
   resetConfig,
 } from "./config";
+
+export { getModelFor } from "./router";
+export { getTemperatureFor } from "./temperature";

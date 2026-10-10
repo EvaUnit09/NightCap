@@ -140,7 +140,7 @@ The refinement agent (§5) has its own system prompt.
 
 ```
 prompts/
- ├── parse_intent/v1.md          # front-matter: model, temperature, output schema name
+ ├── parse_intent/v1.md          # front-matter: name, version
  ├── plan_itineraries/v1.md
  ├── repair_itinerary/v1.md
  ├── refine_agent/v1.md
