@@ -265,7 +265,7 @@ describe("prompt-loader", () => {
         };
       }
 
-      const twoStop = [stop("a", { mode: "walk", minutes: 10 }), stop("b", null)];
+      const twoStop = [stop("a", { mode: "WALK", minutes: 10 }), stop("b", null)];
       assert.equal(itineraryOptionSchema.safeParse({ theme: "Two", stops: twoStop }).success, true);
       assert.equal(
         itineraryOptionSchema.safeParse({ theme: "One", stops: [twoStop[0]] }).success,
@@ -275,7 +275,7 @@ describe("prompt-loader", () => {
       const itinerary: z.input<typeof itinerarySchema> = {
         options: [
           { theme: "One", stops: twoStop },
-          { theme: "Two", stops: [stop("c", { mode: "walk", minutes: 10 }), stop("d", null)] },
+          { theme: "Two", stops: [stop("c", { mode: "WALK", minutes: 10 }), stop("d", null)] },
         ],
       };
       assert.equal(itinerarySchema.safeParse(itinerary).success, true);

@@ -1,6 +1,5 @@
 import type { ZodType } from "zod";
 
-import { travelModeSchema } from "../../src/contracts/travel";
 import { candidateSchema } from "../../src/validation/candidate";
 import { stampSingleStopFromIntent } from "../../src/validation/single-stop";
 import { intentSchema } from "../../src/validation/intent";
@@ -134,65 +133,6 @@ function isJsonLikeLanguage(language: string): boolean {
   return /^(json|jsonc|json[a-z0-9]*)$/i.test(language);
 }
 
-const LEGACY_MODE_FOR_CONTRACT = {
-  WALK: "walk",
-  TRANSIT: "transit",
-  BICYCLE: "walk",
-} as const;
-
-function collectDroppedTravelModeFailures(value: unknown, lineNumber: number): string[] {
-  const failures: string[] = [];
-
-  function walk(node: unknown): void {
-    if (Array.isArray(node)) {
-      node.forEach(walk);
-      return;
-    }
-    if (node === null || typeof node !== "object") {
-      return;
-    }
-    const record = node as Record<string, unknown>;
-    const travelToNext = record.travelToNext;
-    if (travelToNext && typeof travelToNext === "object") {
-      const mode = (travelToNext as { mode?: unknown }).mode;
-      if (mode !== undefined && !travelModeSchema.safeParse(mode).success) {
-        failures.push(
-          `Line ${lineNumber}: travel mode ${JSON.stringify(mode)} is not TRANSIT, BICYCLE, or WALK.`
-        );
-      }
-    }
-    Object.values(record).forEach(walk);
-  }
-
-  walk(value);
-  return failures;
-}
-
-/** Prompt examples use the contracts enum; #7 still owns src/validation mode strings. */
-function rewriteContractTravelModesForLegacySchema(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    return value.map(rewriteContractTravelModesForLegacySchema);
-  }
-  if (value === null || typeof value !== "object") {
-    return value;
-  }
-  const record = value as Record<string, unknown>;
-  const next: Record<string, unknown> = {};
-  for (const [key, child] of Object.entries(record)) {
-    if (key === "travelToNext" && child && typeof child === "object") {
-      const travel = child as { mode?: unknown };
-      const mapped =
-        typeof travel.mode === "string" && travel.mode in LEGACY_MODE_FOR_CONTRACT
-          ? LEGACY_MODE_FOR_CONTRACT[travel.mode as keyof typeof LEGACY_MODE_FOR_CONTRACT]
-          : undefined;
-      next[key] = mapped === undefined ? child : { ...travel, mode: mapped };
-      continue;
-    }
-    next[key] = rewriteContractTravelModesForLegacySchema(child);
-  }
-  return next;
-}
-
 function schemaForBlock(block: JsonFenceBlock): ZodType | null {
   if (block.schemaName === "itineraryOption") {
     return itineraryOptionSchemaFor(block.singleStop);
@@ -241,16 +181,13 @@ export function collectJsonFenceFailures(markdown: string): string[] {
       continue;
     }
 
-    const modeFailures = collectDroppedTravelModeFailures(parsed.value, block.lineNumber);
-    failures.push(...modeFailures);
-
     const stamped =
       block.schemaName === "itinerary" &&
       parsed.value !== null &&
       typeof parsed.value === "object"
         ? stampSingleStopFromIntent(parsed.value, block.singleStop)
         : parsed.value;
-    const result = schema.safeParse(rewriteContractTravelModesForLegacySchema(stamped));
+    const result = schema.safeParse(stamped);
     if (!result.success) {
       failures.push(`Line ${block.lineNumber} schema=${block.schemaName}: ${result.error.message}`);
     } else {
@@ -300,7 +237,7 @@ export const TAXI_ITINERARY = `{
           "end": "2026-10-10T20:30:00-04:00",
           "estimatedCostUsd": 40,
           "why": "Quiet room and a short walk.",
-          "travelToNext": { "mode": "walk", "minutes": 8 }
+          "travelToNext": { "mode": "WALK", "minutes": 8 }
         },
         {
           "placeId": "place-d",

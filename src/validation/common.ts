@@ -25,8 +25,41 @@ export const priceLevelSchema = z.enum([
   "PRICE_LEVEL_VERY_EXPENSIVE",
 ]);
 
-/** How the party gets to the next stop. The duration cap is a later check. */
-export const travelModeSchema = z.enum(["walk", "transit", "rideshare"]);
+/** NightCap v1 travel modes. Same strings Google Routes uses; #7's mapping is identity. */
+export const TRAVEL_MODES = ["TRANSIT", "BICYCLE", "WALK"] as const;
+export type TravelMode = (typeof TRAVEL_MODES)[number];
+export const travelModeSchema = z.enum(TRAVEL_MODES);
+
+/** Model-output boundary only: trim + uppercase. Dropped modes are not mapped. */
+export function normalizeModelTravelMode(mode: string): string {
+  return mode.trim().toUpperCase();
+}
+
+export function normalizeModelTravelModes(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(normalizeModelTravelModes);
+  }
+  if (value === null || typeof value !== "object") {
+    return value;
+  }
+  const record = value as Record<string, unknown>;
+  const next: Record<string, unknown> = {};
+  for (const [key, child] of Object.entries(record)) {
+    if (key === "travelToNext" && child && typeof child === "object") {
+      const travel = child as { mode?: unknown };
+      next[key] = {
+        ...travel,
+        mode:
+          typeof travel.mode === "string"
+            ? normalizeModelTravelMode(travel.mode)
+            : travel.mode,
+      };
+      continue;
+    }
+    next[key] = normalizeModelTravelModes(child);
+  }
+  return next;
+}
 
 /** Places `business_status` values. */
 export const businessStatusSchema = z.enum([

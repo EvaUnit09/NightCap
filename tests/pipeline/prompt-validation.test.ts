@@ -224,6 +224,41 @@ describe("single-stop prompt rules", () => {
     }
   });
 
+  it("does not rewrite travel modes before schema checks", () => {
+    const source = readFileSync(resolve("tests/pipeline/prompt-json-blocks.ts"), "utf8");
+    assert.doesNotMatch(source, /LEGACY_MODE_FOR_CONTRACT|rewriteContractTravelModes/);
+  });
+
+  it("tells plan when to pick BICYCLE and to stay conservative at night", () => {
+    const plan = loadPrompt("plan_itineraries", "v1").body;
+    assert.match(plan, /BICYCLE/);
+    assert.match(plan, /bik/i);
+    assert.match(plan, /short/i);
+    assert.match(plan, /night/i);
+  });
+
+  it("guides repair on unsupported modes, stop minimum, and singleStop re-stamp", () => {
+    const repair = loadPrompt("repair_itinerary", "v1").body;
+    assert.match(repair, /travel_unverified[\s\S]{0,200}allowed mode|unsupported mode/i);
+    assert.doesNotMatch(repair, /drop the hop/i);
+    assert.match(repair, /invalid_format[\s\S]{0,240}re-stamp|stamps/i);
+  });
+
+  it("says budgetUsd and estimatedCostUsd are party totals, not per person", () => {
+    for (const stage of PIPELINE_STAGES) {
+      const body = loadPrompt(stage, "v1").body;
+      assert.doesNotMatch(
+        body,
+        /estimatedCostUsd[\s\S]{0,80}per-person|per-person amount/,
+        `${stage} must not call estimatedCostUsd per-person`,
+      );
+    }
+    const parse = loadPrompt("parse_intent", "v1").body;
+    const plan = loadPrompt("plan_itineraries", "v1").body;
+    assert.match(parse, /party|couple/i);
+    assert.match(plan, /party|couple|whole party/i);
+  });
+
   it("lists only TRANSIT, BICYCLE, and WALK as travel modes", () => {
     for (const stage of PIPELINE_STAGES) {
       const body = loadPrompt(stage, "v1").body;

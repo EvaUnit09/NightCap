@@ -3,14 +3,13 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 
-import { TRAVEL_MODES } from "../contracts/travel";
 import {
   getAgentMaxCostUsdPerTurn,
   getAgentMaxToolCalls,
   getRepairMaxRounds,
   getTravelCapMinutes,
 } from "../models/config";
-import { stopTypeSchema } from "../validation/common";
+import { TRAVEL_MODES, stopTypeSchema } from "../validation/common";
 import {
   INTENT_TAG_MAX,
   STOP_TYPES_MAX,

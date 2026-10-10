@@ -50,12 +50,12 @@ function validItinerary(): z.input<typeof itinerarySchema> {
   return {
     options: [
       option("Low-key West Village", [
-        stop("place-a", START, MID, { mode: "walk", minutes: 12 }),
+        stop("place-a", START, MID, { mode: "WALK", minutes: 12 }),
         stop("place-b", LATER, END, null),
       ]),
       option("East Village night", [
-        stop("place-c", START, MID, { mode: "transit", minutes: 18 }),
-        stop("place-d", LATER, END, { mode: "walk", minutes: 8 }),
+        stop("place-c", START, MID, { mode: "TRANSIT", minutes: 18 }),
+        stop("place-d", LATER, END, { mode: "WALK", minutes: 8 }),
         stop("place-e", "2026-10-10T22:45:00-04:00", "2026-10-11T00:00:00-04:00", null),
       ]),
     ],
@@ -90,13 +90,13 @@ describe("itinerary schema", () => {
     const itinerary = validItinerary();
     itinerary.options.push(
       option("Brooklyn", [
-        stop("place-f", START, MID, { mode: "walk", minutes: 10 }),
+        stop("place-f", START, MID, { mode: "WALK", minutes: 10 }),
         stop("place-g", LATER, END, null),
       ]),
     );
     itinerary.options.push(
       option("Queens", [
-        stop("place-h", START, MID, { mode: "walk", minutes: 10 }),
+        stop("place-h", START, MID, { mode: "WALK", minutes: 10 }),
         stop("place-i", LATER, END, null),
       ]),
     );
@@ -137,7 +137,7 @@ describe("itinerary schema", () => {
     const oneStop = option("Just dinner", [stop("place-solo", START, END, null)]);
     const alsoOne = option("Also dinner", [stop("place-solo-2", START, END, null)]);
     const twoStop = option("Two stops", [
-      stop("place-a", START, MID, { mode: "walk", minutes: 12 }),
+      stop("place-a", START, MID, { mode: "WALK", minutes: 12 }),
       stop("place-b", LATER, END, null),
     ]);
     assert.equal(
@@ -157,10 +157,10 @@ describe("itinerary schema", () => {
   it("rejects an option with more than 4 stops", () => {
     const itinerary = validItinerary();
     itinerary.options[0] = option("Too many", [
-      stop("p1", "2026-10-10T17:00:00-04:00", "2026-10-10T18:00:00-04:00", { mode: "walk", minutes: 5 }),
-      stop("p2", "2026-10-10T18:10:00-04:00", "2026-10-10T19:00:00-04:00", { mode: "walk", minutes: 5 }),
-      stop("p3", "2026-10-10T19:10:00-04:00", "2026-10-10T20:00:00-04:00", { mode: "walk", minutes: 5 }),
-      stop("p4", "2026-10-10T20:10:00-04:00", "2026-10-10T21:00:00-04:00", { mode: "walk", minutes: 5 }),
+      stop("p1", "2026-10-10T17:00:00-04:00", "2026-10-10T18:00:00-04:00", { mode: "WALK", minutes: 5 }),
+      stop("p2", "2026-10-10T18:10:00-04:00", "2026-10-10T19:00:00-04:00", { mode: "WALK", minutes: 5 }),
+      stop("p3", "2026-10-10T19:10:00-04:00", "2026-10-10T20:00:00-04:00", { mode: "WALK", minutes: 5 }),
+      stop("p4", "2026-10-10T20:10:00-04:00", "2026-10-10T21:00:00-04:00", { mode: "WALK", minutes: 5 }),
       stop("p5", "2026-10-10T21:10:00-04:00", "2026-10-10T22:00:00-04:00", null),
     ]);
     assert.equal(itinerarySchema.safeParse(itinerary).success, false);
@@ -178,7 +178,7 @@ describe("itinerary schema", () => {
 
   it("rejects non-null travelToNext on the last stop", () => {
     const itinerary = validItinerary();
-    itinerary.options[0].stops[1].travelToNext = { mode: "walk", minutes: 10 };
+    itinerary.options[0].stops[1].travelToNext = { mode: "WALK", minutes: 10 };
     const parsed = itinerarySchema.safeParse(itinerary);
     assert.equal(parsed.success, false);
     if (!parsed.success) {

@@ -1,16 +1,21 @@
 import { candidateSchema, type Candidate } from "./candidate";
+import { normalizeModelTravelModes } from "./common";
 import { intentSchema, type Intent } from "./intent";
 import { itinerarySchema, type Itinerary } from "./itinerary";
 import { toolInputSchema, type ToolInput } from "./tool-input";
 import { validationErrorSchema, type ValidationError } from "./validation-error";
 
 export {
+  TRAVEL_MODES,
   businessStatusSchema,
   isoDateTimeSchema,
+  normalizeModelTravelMode,
+  normalizeModelTravelModes,
   placeIdSchema,
   priceLevelSchema,
   stopTypeSchema,
   travelModeSchema,
+  type TravelMode,
 } from "./common";
 export { candidateSchema, type Candidate } from "./candidate";
 export {
@@ -54,9 +59,9 @@ export function parseCandidate(input: unknown): Candidate {
   return candidateSchema.parse(input);
 }
 
-/** Parse a plan of 2–3 options. */
+/** Parse a plan of 2–3 options. Trim/uppercase travel modes; never map dropped modes. */
 export function parseItinerary(input: unknown): Itinerary {
-  return itinerarySchema.parse(input);
+  return itinerarySchema.parse(normalizeModelTravelModes(input));
 }
 
 /** Parse one validator finding. */
@@ -66,5 +71,5 @@ export function parseValidationError(input: unknown): ValidationError {
 
 /** Parse one refinement-tool input. */
 export function parseToolInput(input: unknown): ToolInput {
-  return toolInputSchema.parse(input);
+  return toolInputSchema.parse(normalizeModelTravelModes(input));
 }
