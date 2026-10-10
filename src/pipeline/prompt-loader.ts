@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 
+import { TRAVEL_MODES } from "../contracts/travel";
 import {
   getAgentMaxCostUsdPerTurn,
   getAgentMaxToolCalls,
@@ -49,6 +50,7 @@ export const PROMPT_SCHEMA_BOUNDS = {
   maxStopTypes: STOP_TYPES_MAX,
   tagMax: INTENT_TAG_MAX,
   stopTypes: stopTypeSchema.options as readonly string[],
+  travelModes: TRAVEL_MODES,
 } as const;
 
 const ALLOWED_FRONT_MATTER_KEYS = new Set(["name", "version"]);
@@ -93,6 +95,7 @@ function templateValues(): Record<string, string> {
     max_stops: String(PROMPT_SCHEMA_BOUNDS.maxStops),
     tag_max: String(PROMPT_SCHEMA_BOUNDS.tagMax),
     stop_types: PROMPT_SCHEMA_BOUNDS.stopTypes.join(", "),
+    travel_modes: PROMPT_SCHEMA_BOUNDS.travelModes.join(", "),
   };
 }
 

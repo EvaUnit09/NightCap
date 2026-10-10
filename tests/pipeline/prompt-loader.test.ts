@@ -239,6 +239,7 @@ describe("prompt-loader", () => {
       assert.ok(plan.body.includes(`${PROMPT_SCHEMA_BOUNDS.minOptions}–${PROMPT_SCHEMA_BOUNDS.maxOptions}`));
       assert.ok(parse.body.includes(`${PROMPT_SCHEMA_BOUNDS.minStops}–${PROMPT_SCHEMA_BOUNDS.maxStops}`));
       assert.ok(parse.body.includes(PROMPT_SCHEMA_BOUNDS.stopTypes.join(", ")));
+      assert.ok(parse.body.includes(PROMPT_SCHEMA_BOUNDS.travelModes.join(", ")));
       assert.ok(parse.body.includes(String(PROMPT_SCHEMA_BOUNDS.tagMax)));
       assert.ok(repair.body.includes(String(getRepairMaxRounds())));
       assert.ok(agent.body.includes(String(getAgentMaxToolCalls())));

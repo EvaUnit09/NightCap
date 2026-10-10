@@ -180,6 +180,22 @@ describe("single-stop prompt rules", () => {
     }
   });
 
+  it("lists only TRANSIT, BICYCLE, and WALK as travel modes", () => {
+    for (const stage of PIPELINE_STAGES) {
+      const body = loadPrompt(stage, "v1").body;
+      assert.match(body, /TRANSIT/);
+      assert.match(body, /BICYCLE/);
+      assert.match(body, /WALK/);
+      assert.doesNotMatch(body, /"mode": "(walk|transit|rideshare|taxi|DRIVE)"/);
+    }
+    const scope = readFileSync(resolve("docs/scope.md"), "utf8");
+    const architecture = readFileSync(resolve("docs/architecture.md"), "utf8");
+    assert.match(scope, /TRANSIT/);
+    assert.match(scope, /BICYCLE/);
+    assert.match(scope, /WALK/);
+    assert.match(architecture, /TRANSIT, BICYCLE, and WALK/);
+  });
+
   it("mentions the single-stop exception in refine_agent, scope, and architecture", () => {
     const refine = loadPrompt("refine_agent", "v1").body;
     assert.match(refine, /singleStop|exactly \{\{min_stops_single\}\}/);
