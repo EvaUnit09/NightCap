@@ -28,7 +28,7 @@ const elementError = JSON.parse(
 const walkLeg: TravelLeg = {
   from: { lat: 40.734, lng: -74.002 },
   to: { lat: 40.729, lng: -73.987 },
-  mode: "walk",
+  mode: "WALK",
 };
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -76,24 +76,25 @@ describe("RoutesMatrixTravelCalculator", () => {
     assert.equal(result[1], 10);
   });
 
-  it("maps walk, transit, and bicycle only", async () => {
-    const modes: string[] = [];
+  it("fails closed on lowercase walk, transit, and bicycle without fetching", async () => {
+    let calls = 0;
     const calculator = new RoutesMatrixTravelCalculator({
       apiKey: "test-key",
-      fetchImpl: async (_url, init) => {
-        modes.push(JSON.parse(String(init?.body)).travelMode);
+      fetchImpl: async () => {
+        calls += 1;
         return jsonResponse(success);
       },
     });
-    await calculator.calculateMinutes([
+    const result = await calculator.calculateMinutes([
       { ...walkLeg, mode: "walk" },
       { ...walkLeg, mode: "transit" },
       { ...walkLeg, mode: "bicycle" },
     ]);
-    assert.deepEqual(modes.sort(), ["BICYCLE", "TRANSIT", "WALK"]);
+    assert.equal(calls, 0);
+    assert.deepEqual(result, [null, null, null]);
   });
 
-  it("maps #8 contract modes WALK, TRANSIT, and BICYCLE", async () => {
+  it("sends identity travel modes WALK, TRANSIT, and BICYCLE", async () => {
     const modes: string[] = [];
     const calculator = new RoutesMatrixTravelCalculator({
       apiKey: "test-key",
@@ -206,7 +207,7 @@ describe("RoutesMatrixTravelCalculator", () => {
         ]);
       },
     });
-    const cycle = ["walk", "transit", "bicycle"] as const;
+    const cycle = ["WALK", "TRANSIT", "BICYCLE"] as const;
     const legs = Array.from({ length: 9 }, (_, index) => ({
       ...walkLeg,
       mode: cycle[index % 3]!,
@@ -239,9 +240,9 @@ describe("RoutesMatrixTravelCalculator", () => {
     });
     const pastDeparture = "2020-03-15T19:30:00-04:00";
     await calculator.calculateMinutes([
-      { ...walkLeg, mode: "walk", departureTime: pastDeparture },
-      { ...walkLeg, mode: "transit", departureTime: pastDeparture },
-      { ...walkLeg, mode: "bicycle", departureTime: pastDeparture },
+      { ...walkLeg, mode: "WALK", departureTime: pastDeparture },
+      { ...walkLeg, mode: "TRANSIT", departureTime: pastDeparture },
+      { ...walkLeg, mode: "BICYCLE", departureTime: pastDeparture },
     ]);
     const byMode = Object.fromEntries(
       bodies.map((body) => [body.travelMode, body])
@@ -306,9 +307,9 @@ describe("RoutesMatrixTravelCalculator", () => {
     });
     const departureTime = "2026-10-15T20:00:00-04:00";
     await calculator.calculateMinutes([
-      { ...walkLeg, mode: "walk", departureTime },
-      { ...walkLeg, mode: "transit", departureTime },
-      { ...walkLeg, mode: "bicycle", departureTime },
+      { ...walkLeg, mode: "WALK", departureTime },
+      { ...walkLeg, mode: "TRANSIT", departureTime },
+      { ...walkLeg, mode: "BICYCLE", departureTime },
     ]);
     const byMode = Object.fromEntries(
       bodies.map((body) => [body.travelMode, body])
@@ -331,7 +332,7 @@ describe("RoutesMatrixTravelCalculator", () => {
       },
     });
     const result = await calculator.calculateMinutes([
-      { from: null, to: walkLeg.to, mode: "walk" },
+      { from: null, to: walkLeg.to, mode: "WALK" },
       walkLeg,
     ]);
     assert.equal(originCount, 1);

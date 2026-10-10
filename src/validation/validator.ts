@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { Candidate } from "./candidate";
 import { candidateSchema } from "./candidate";
 import {
+  DEFAULT_PARTY_SIZE,
   DEFAULT_PRICE_RANGES,
   DEFAULT_TRAVEL_BUDGET_MS,
   DEFAULT_TRAVEL_CAP_MINUTES,
@@ -29,6 +30,7 @@ import {
 } from "./validation-error";
 
 export {
+  DEFAULT_PARTY_SIZE,
   DEFAULT_PRICE_RANGES,
   DEFAULT_TRAVEL_BUDGET_MS,
   DEFAULT_TRAVEL_CAP_MINUTES,
@@ -55,9 +57,15 @@ export interface ValidatorOptions {
   travelToleranceMinutes?: number;
   /**
    * Inclusive heuristic per-person USD ranges per PRICE_LEVEL_*.
-   * Not from Google. UNSPECIFIED skips the check.
+   * Not from Google. Compared to estimatedCostUsd / partySize.
+   * UNSPECIFIED skips the check.
    */
   priceRanges?: PriceRanges;
+  /**
+   * Party size used to convert each stop's party-total estimatedCostUsd
+   * into a per-person figure for PRICE_LEVEL ranges. Default 2 (couples).
+   */
+  partySize?: number;
   /**
    * Wall-clock budget for this validation's travel calls.
    * Default DEFAULT_TRAVEL_BUDGET_MS. Exhausted budget fails closed.
@@ -108,9 +116,11 @@ type SharedItineraryParse =
  * travel calculator are parameters. A sync or async calculator return is allowed.
  *
  * Checks: invented venue, operational, open in America/New_York, name match,
- * budget (every stop's cost), price-level plausibility, travel
- * max(claimed, computed) ≤ cap, claimed-vs-computed tolerance,
- * intent/itinerary singleStop agreement via `singleStopMatchesIntent`.
+ * budget (sum of each stop's party-total estimatedCostUsd vs party-total
+ * budgetUsd), price-level plausibility (per-person ranges vs
+ * estimatedCostUsd / partySize), travel max(claimed, computed) ≤ cap,
+ * claimed-vs-computed tolerance, intent/itinerary singleStop agreement via
+ * `singleStopMatchesIntent`.
  *
  * Callable from the pipeline, repair loop, agent `validate_itinerary` tool,
  * and the eval runner via `src/validation/validator`.
@@ -160,6 +170,10 @@ export async function validateItinerary(
   const travelToleranceMinutes =
     options.travelToleranceMinutes ?? DEFAULT_TRAVEL_TOLERANCE_MINUTES;
   const priceRanges = { ...DEFAULT_PRICE_RANGES, ...options.priceRanges };
+  const partySize =
+    options.partySize !== undefined && options.partySize > 0
+      ? options.partySize
+      : DEFAULT_PARTY_SIZE;
 
   const candidateMap = new Map(
     candidates.map((candidate) => [candidate.placeId, candidate])
@@ -221,6 +235,7 @@ export async function validateItinerary(
         const priceError = implausibleCostError(
           candidate,
           stop.estimatedCostUsd,
+          partySize,
           priceRanges,
           optionIndex,
           stopIndex
@@ -293,7 +308,8 @@ function parseCandidates(input: unknown): Candidate[] {
 
 function implausibleCostError(
   candidate: Candidate,
-  claimedUsd: number,
+  claimedPartyUsd: number,
+  partySize: number,
   priceRanges: Record<PriceLevelKey, readonly [number, number]>,
   optionIndex: number,
   stopIndex: number
@@ -307,16 +323,21 @@ function implausibleCostError(
     return null;
   }
   const [min, max] = range;
-  if (claimedUsd >= min && claimedUsd <= max) {
+  const perPersonUsd = claimedPartyUsd / partySize;
+  if (perPersonUsd >= min && perPersonUsd <= max) {
     return null;
   }
   return emitError({
     code: "implausible_cost",
-    message: `Claimed $${claimedUsd} is outside ${level} range $${min}–$${max} (heuristic, per person)`,
+    message: `Claimed $${claimedPartyUsd} ($${formatUsd(perPersonUsd)}/person for ${partySize}) is outside ${level} range $${min}–$${max} (heuristic, per person)`,
     optionIndex,
     stopIndex,
     placeId: candidate.placeId,
   });
+}
+
+function formatUsd(value: number): string {
+  return Number.isInteger(value) ? String(value) : value.toFixed(2);
 }
 
 async function computeTravel(

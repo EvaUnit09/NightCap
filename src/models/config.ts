@@ -19,7 +19,8 @@ function preprocessEnvVar(value: string | undefined): string | undefined {
   return trimmed === "" ? undefined : trimmed;
 }
 
-/** Inclusive heuristic per-person USD pair. Rejects min > max. */
+/** Inclusive heuristic per-person USD pair. Rejects min > max.
+ * Compared to estimatedCostUsd / partySize (default 2). */
 const priceRangeSchema = z
   .tuple([z.number(), z.number()])
   .refine(([min, max]) => min <= max, {
@@ -97,6 +98,7 @@ const configSchema = z.object({
   enableLiveRoutes: z.boolean().default(false),
 
   // Heuristic per-person USD ranges (not from Google). Format "min,max".
+  // Validator compares estimatedCostUsd / partySize (default 2) to these.
   priceRangeFree: priceRangeSchema.default([
     ...DEFAULT_PRICE_RANGES.PRICE_LEVEL_FREE,
   ]),
@@ -301,6 +303,7 @@ export function getEnableLiveRoutes(): boolean {
 /**
  * Heuristic per-person USD ranges for PRICE_LEVEL_* checks.
  * Not from Google. Overridable via PRICE_RANGE_* env vars.
+ * Compared to estimatedCostUsd / partySize (default 2).
  */
 export function getPriceRanges(): {
   free: [number, number];

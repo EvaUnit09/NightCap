@@ -4,7 +4,6 @@ import { z } from "zod";
 
 import { candidateSchema } from "../../src/validation/candidate";
 import { intentSchema } from "../../src/validation/intent";
-import { itinerarySchema } from "../../src/validation/itinerary";
 import type { TravelCalculator } from "../../src/validation/travel";
 import { validationErrorSchema } from "../../src/validation/validation-error";
 import { validateItinerary } from "../../src/validation/validator";
@@ -54,7 +53,7 @@ function candidate(
 function twoOptionPlan(overrides?: {
   costs?: [number, number, number, number];
   travelMinutes?: number;
-}): z.input<typeof itinerarySchema> {
+}) {
   const costs = overrides?.costs ?? [40, 80, 40, 80];
   const minutes = overrides?.travelMinutes ?? 10;
   return {
@@ -69,7 +68,7 @@ function twoOptionPlan(overrides?: {
             end: "2026-10-15T20:00:00-04:00",
             estimatedCostUsd: costs[0],
             why: "Drinks",
-            travelToNext: { mode: "walk", minutes },
+            travelToNext: { mode: "WALK", minutes },
           },
           {
             placeId: "ChIJ2",
@@ -92,7 +91,7 @@ function twoOptionPlan(overrides?: {
             end: "2026-10-15T20:00:00-04:00",
             estimatedCostUsd: costs[2],
             why: "Drinks",
-            travelToNext: { mode: "walk", minutes },
+            travelToNext: { mode: "WALK", minutes },
           },
           {
             placeId: "ChIJ4",
@@ -119,13 +118,13 @@ function fourCandidates(): Array<z.input<typeof candidateSchema>> {
 }
 
 function setHopMode(
-  itinerary: z.input<typeof itinerarySchema>,
+  itinerary: ReturnType<typeof twoOptionPlan>,
   mode: string
 ): void {
   itinerary.options[0]!.stops[0]!.travelToNext = {
     mode,
     minutes: 10,
-  } as { mode: "walk"; minutes: number };
+  } as { mode: "WALK"; minutes: number };
 }
 
 function calc(minutes: number | null | (() => number | null)): TravelCalculator {
@@ -381,8 +380,8 @@ describe("validateItinerary", () => {
     );
   });
 
-  it("fails closed as travel_unverified for rideshare, drive, and taxi", async () => {
-    for (const mode of ["rideshare", "drive", "taxi"] as const) {
+  it("fails closed as travel_unverified for rideshare, drive, taxi, and lowercase aliases", async () => {
+    for (const mode of ["rideshare", "drive", "taxi", "walk", "transit", "bicycle"] as const) {
       const itinerary = twoOptionPlan();
       setHopMode(itinerary, mode);
       const errors = await validateItinerary(
@@ -400,17 +399,7 @@ describe("validateItinerary", () => {
     }
   });
 
-  it("accepts bicycle when the calculator returns minutes", async () => {
-    const itinerary = twoOptionPlan();
-    setHopMode(itinerary, "bicycle");
-    const errors = await validateItinerary(
-      { intent, candidates: fourCandidates(), itinerary },
-      { travelCapMinutes: 25, travelCalculator: calc(10) }
-    );
-    assert.deepEqual(errors, [], JSON.stringify(errors));
-  });
-
-  it("accepts #8 contract modes WALK, TRANSIT, and BICYCLE", async () => {
+  it("accepts identity travel modes WALK, TRANSIT, and BICYCLE", async () => {
     for (const mode of ["WALK", "TRANSIT", "BICYCLE"] as const) {
       const itinerary = twoOptionPlan();
       setHopMode(itinerary, mode);
@@ -465,8 +454,45 @@ describe("validateItinerary", () => {
         (e) =>
           e.code === "implausible_cost" &&
           e.message.includes("PRICE_LEVEL_INEXPENSIVE") &&
+          e.message.includes("/person") &&
           e.stopIndex === 0
       )
+    );
+  });
+
+  it("compares PRICE_LEVEL ranges to estimatedCostUsd divided by party size", async () => {
+    const candidates = fourCandidates();
+    candidates[0] = { ...candidates[0]!, priceLevel: "PRICE_LEVEL_INEXPENSIVE" };
+    const partyTotalInsideRange = await validateItinerary(
+      {
+        intent,
+        candidates,
+        itinerary: twoOptionPlan({ costs: [60, 40, 40, 40] }),
+      },
+      { travelCapMinutes: 25, travelCalculator: calc(10) }
+    );
+    assert.equal(
+      partyTotalInsideRange.some((e) => e.code === "implausible_cost"),
+      false,
+      JSON.stringify(partyTotalInsideRange)
+    );
+
+    const partyTotalOutsideRange = await validateItinerary(
+      {
+        intent,
+        candidates,
+        itinerary: twoOptionPlan({ costs: [100, 40, 40, 40] }),
+      },
+      { travelCapMinutes: 25, travelCalculator: calc(10) }
+    );
+    assert.ok(
+      partyTotalOutsideRange.some(
+        (e) =>
+          e.code === "implausible_cost" &&
+          e.message.includes("$50/person") &&
+          e.stopIndex === 0
+      ),
+      JSON.stringify(partyTotalOutsideRange)
     );
   });
 

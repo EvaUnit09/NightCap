@@ -46,7 +46,7 @@ interface RouteMatrixElement {
  * leg is a 1×1 computeRouteMatrix call. A request has one travelMode, so mixed
  * modes are never packed into one matrix (and never N×N).
  *
- * v1 sends the contract enum as Routes `travelMode`: TRANSIT, BICYCLE, WALK.
+ * v1 sends TRANSIT, BICYCLE, and WALK as Routes `travelMode` (identity).
  * Any other mode returns null without fetching.
  *
  * Fail-closed: unsupported mode, missing key, HTTP 4xx/5xx, timeout,

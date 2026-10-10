@@ -17,7 +17,7 @@ describe("HaversineEstimator (offline fallback)", () => {
       {
         from: { lat: 40.7589, lng: -73.9851 },
         to: { lat: 40.76, lng: -73.986 },
-        mode: "walk",
+        mode: "WALK",
       },
     ]);
     assert.equal(result.length, 1);
@@ -27,7 +27,7 @@ describe("HaversineEstimator (offline fallback)", () => {
 
   it("returns null when a side has no coordinates", () => {
     const result = calculator.calculateMinutes([
-      { from: null, to: { lat: 40.76, lng: -73.986 }, mode: "walk" },
+      { from: null, to: { lat: 40.76, lng: -73.986 }, mode: "WALK" },
     ]);
     assert.equal(result[0], null);
   });
@@ -37,7 +37,7 @@ describe("HaversineEstimator (offline fallback)", () => {
       {
         from: { lat: 40.7589, lng: -73.9851 },
         to: { lat: 40.76, lng: -73.986 },
-        mode: "teleport" as "walk",
+        mode: "teleport",
       },
     ]);
     assert.equal(result[0], null);
@@ -48,7 +48,7 @@ describe("HaversineEstimator (offline fallback)", () => {
       {
         from: { lat: 40.7589, lng: -73.9851 },
         to: { lat: 40.76, lng: -73.986 },
-        mode: "walk" as const,
+        mode: "WALK" as const,
       },
     ];
     assert.deepEqual(
@@ -62,7 +62,7 @@ describe("HaversineEstimator (offline fallback)", () => {
       {
         from: { lat: 40.7589, lng: -73.9851 },
         to: { lat: 40.7589, lng: -73.9852 },
-        mode: "walk",
+        mode: "WALK",
       },
     ]);
     assert.equal((minutes ?? 0) % 1, 0);
@@ -73,7 +73,7 @@ describe("HaversineEstimator (offline fallback)", () => {
       {
         from: { lat: 40.7589, lng: -73.9851 },
         to: { lat: 40.7589, lng: -73.9851 },
-        mode: "walk",
+        mode: "WALK",
       },
     ]);
     assert.equal(minutes, 0);
@@ -84,7 +84,7 @@ describe("HaversineEstimator (offline fallback)", () => {
       {
         from: { lat: 40.734, lng: -74.002 },
         to: { lat: 40.729, lng: -73.987 },
-        mode: "walk",
+        mode: "WALK",
       },
     ]);
     assert.ok(minutes !== null);
@@ -92,21 +92,20 @@ describe("HaversineEstimator (offline fallback)", () => {
     assert.ok(minutes! <= 30, `expected <= 30, got ${minutes}`);
   });
 
-  it("treats WALK the same as walk", () => {
+  it("fails closed on lowercase walk (mapping is identity)", () => {
     const from = { lat: 40.734, lng: -74.002 };
     const to = { lat: 40.729, lng: -73.987 };
-    assert.deepEqual(
-      calculator.calculateMinutes([{ from, to, mode: "WALK" }]),
-      calculator.calculateMinutes([{ from, to, mode: "walk" }])
-    );
+    assert.deepEqual(calculator.calculateMinutes([{ from, to, mode: "walk" }]), [
+      null,
+    ]);
   });
 
-  it("models transit door-to-door so a ~2.5 mi hop is 20–30 min", () => {
+  it("models TRANSIT door-to-door so a ~2.5 mi hop is 20–30 min", () => {
     const [minutes] = calculator.calculateMinutes([
       {
         from: { lat: 40.7081, lng: -73.9571 },
         to: { lat: 40.718, lng: -73.99 },
-        mode: "transit",
+        mode: "TRANSIT",
       },
     ]);
     assert.ok(minutes !== null);

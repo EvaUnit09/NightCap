@@ -3,26 +3,20 @@ import { TRAVEL_MODES, type TravelMode } from "../contracts/travel";
 export { TRAVEL_MODES, travelModeSchema, type TravelMode } from "../contracts/travel";
 
 /**
- * NightCap v1 travel modes. Same names as `travelModeSchema` in
- * `src/contracts/travel.ts`: TRANSIT, BICYCLE, WALK. Rideshare, DRIVE, and
- * taxi are out of scope; the validator fails those closed as `travel_unverified`.
+ * NightCap v1 travel modes: TRANSIT, BICYCLE, WALK. Mapping onto Routes
+ * `travelMode` is identity. Any other value (including lowercase aliases,
+ * rideshare, DRIVE, taxi) is unsupported and fails closed.
  */
 export const SUPPORTED_TRAVEL_MODES = TRAVEL_MODES;
 export type SupportedTravelMode = TravelMode;
 
-const MODE_ALIASES: Record<string, TravelMode> = {
-  TRANSIT: "TRANSIT",
-  BICYCLE: "BICYCLE",
-  WALK: "WALK",
-  // Lowercase aliases until #8 replaces the itinerary enum.
-  transit: "TRANSIT",
-  bicycle: "BICYCLE",
-  walk: "WALK",
-};
+function isTravelMode(mode: string): mode is TravelMode {
+  return (TRAVEL_MODES as readonly string[]).includes(mode);
+}
 
-/** Map a hop mode onto the contract enum. Unknown values stay unsupported. */
+/** Identity: only the exact enum strings are supported. */
 export function normalizeTravelMode(mode: string): TravelMode | null {
-  return MODE_ALIASES[mode] ?? null;
+  return isTravelMode(mode) ? mode : null;
 }
 
 export function isSupportedTravelMode(mode: string): boolean {

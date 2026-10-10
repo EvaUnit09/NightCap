@@ -1,14 +1,20 @@
 /**
  * Shared validator / config defaults.
  *
+ * `budgetUsd` is the party's total for the night. `estimatedCostUsd` is each
+ * stop's total for the whole party. The validator sums stop totals against
+ * `budgetUsd`.
+ *
  * PRICE_LEVEL_* USD ranges are **heuristics**, not from Google. They are
- * **per person** (one guest's spend at that stop), used only to flag
- * implausible claimed costs.
+ * **per person**. The validator compares `estimatedCostUsd / partySize`
+ * (default `DEFAULT_PARTY_SIZE`) against those ranges.
  */
 export const DEFAULT_TRAVEL_CAP_MINUTES = 25;
 export const DEFAULT_TRAVEL_TOLERANCE_MINUTES = 5;
 /** Wall-clock budget for one validation's travel calls. */
 export const DEFAULT_TRAVEL_BUDGET_MS = 6000;
+/** Couples by default (decision-log #1). */
+export const DEFAULT_PARTY_SIZE = 2;
 
 export const DEFAULT_PRICE_RANGES = {
   PRICE_LEVEL_FREE: [0, 0],
