@@ -19,6 +19,9 @@ export {
   clearPromptCache,
   getPromptTraceTags,
   loadPrompt,
+  type LoadPromptOptions,
   type PipelineStage,
   type PromptMetadata,
 } from "./prompt-loader";
+
+export { wrapUserText } from "./wrap-user-text";

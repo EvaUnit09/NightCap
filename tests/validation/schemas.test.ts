@@ -35,6 +35,7 @@ function option(theme: string, stops: Stop[]) {
 
 function validItinerary(): Itinerary {
   return {
+    singleStop: false,
     options: [
       option("Low-key West Village", [
         stop("place-a", START, MID, { mode: "walk", minutes: 12 }),
@@ -81,6 +82,23 @@ describe("itinerary schema", () => {
     const itinerary = validItinerary();
     itinerary.options[0].stops = [itinerary.options[0].stops[1]];
     assert.equal(itinerarySchema.safeParse(itinerary).success, false);
+  });
+
+  it("allows a 1-stop option only when singleStop is true", () => {
+    const oneStop = option("Just dinner", [stop("place-solo", START, END, null)]);
+    const twoStop = option("Also just dinner", [stop("place-solo-2", START, END, null)]);
+    assert.equal(
+      itinerarySchema.safeParse({
+        options: [oneStop, twoStop],
+      }).success,
+      false,
+    );
+    const parsed = itinerarySchema.parse({
+      singleStop: true,
+      options: [oneStop, twoStop],
+    });
+    assert.equal(parsed.singleStop, true);
+    assert.equal(parsed.options[0].stops.length, 1);
   });
 
   it("rejects an option with more than 4 stops", () => {
@@ -147,6 +165,28 @@ describe("boundary schemas", () => {
       stopTypes: ["drinks", "dinner"],
     });
     assert.equal(parsed.budgetUsd, 120);
+    assert.equal(parsed.singleStop, false);
+  });
+
+  it("defaults singleStop to false and rejects a one-type request unless the flag is set", () => {
+    const base = {
+      area: "Union Square",
+      window: { start: START, end: END },
+      budgetUsd: 120,
+      dietary: [] as string[],
+      vibeTags: [] as string[],
+    };
+    assert.equal(
+      intentSchema.safeParse({ ...base, stopTypes: ["dinner"] }).success,
+      false,
+    );
+    const explicit = intentSchema.parse({
+      ...base,
+      stopTypes: ["dinner"],
+      singleStop: true,
+    });
+    assert.equal(explicit.singleStop, true);
+    assert.deepEqual(explicit.stopTypes, ["dinner"]);
   });
 
   it("parses a Places candidate", () => {

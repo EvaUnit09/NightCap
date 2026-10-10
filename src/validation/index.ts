@@ -13,8 +13,20 @@ export {
   travelModeSchema,
 } from "./common";
 export { candidateSchema, type Candidate } from "./candidate";
-export { intentSchema, type Intent } from "./intent";
 export {
+  INTENT_TAG_MAX,
+  STOP_TYPES_MAX,
+  STOP_TYPES_MIN,
+  STOP_TYPES_MIN_SINGLE,
+  intentSchema,
+  type Intent,
+} from "./intent";
+export {
+  ITINERARY_OPTIONS_MAX,
+  ITINERARY_OPTIONS_MIN,
+  STOPS_MAX,
+  STOPS_MIN,
+  STOPS_MIN_SINGLE,
   itineraryOptionSchema,
   itinerarySchema,
   type Itinerary,

@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, unlinkSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 
 import {
   getAgentMaxCostUsdPerTurn,
@@ -18,35 +19,40 @@ import {
   loadPrompt,
   type PipelineStage,
 } from "../../src/pipeline/prompt-loader";
-import { itineraryOptionSchema, itinerarySchema } from "../../src/validation/itinerary";
+import {
+  ITINERARY_OPTIONS_MAX,
+  ITINERARY_OPTIONS_MIN,
+  STOPS_MAX,
+  STOPS_MIN,
+  itineraryOptionSchema,
+  itinerarySchema,
+} from "../../src/validation/itinerary";
 import type { Itinerary, Stop } from "../../src/validation";
 
-const FIXTURE_VERSION = "v999";
-const FIXTURE_PATH = join(process.cwd(), "prompts", "parse_intent", `${FIXTURE_VERSION}.md`);
+const FIXTURE_VERSION = "v2";
+
+let fixtureRoot: string;
 
 function writeFixture(contents: string): void {
-  mkdirSync(dirname(FIXTURE_PATH), { recursive: true });
-  writeFileSync(FIXTURE_PATH, contents, "utf-8");
+  const dir = join(fixtureRoot, "parse_intent");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, `${FIXTURE_VERSION}.md`), contents, "utf-8");
   clearPromptCache();
 }
 
-function removeFixture(): void {
-  try {
-    unlinkSync(FIXTURE_PATH);
-  } catch {
-    // already gone
-  }
-  clearPromptCache();
+function loadFixture() {
+  return loadPrompt("parse_intent", FIXTURE_VERSION, { promptsRoot: fixtureRoot });
 }
 
 describe("prompt-loader", () => {
   beforeEach(() => {
+    fixtureRoot = mkdtempSync(join(tmpdir(), "nightcap-prompts-"));
     clearPromptCache();
     resetConfig();
   });
 
   afterEach(() => {
-    removeFixture();
+    rmSync(fixtureRoot, { recursive: true, force: true });
     resetConfig();
     clearPromptCache();
   });
@@ -109,12 +115,12 @@ describe("prompt-loader", () => {
     });
 
     it("normalizes CRLF before hashing", () => {
-      const lf = "---\nname: parse_intent\nversion: v999\n---\n# Body {{min_stops}}\n";
+      const lf = "---\nname: parse_intent\nversion: v2\n---\n# Body {{min_stops}}\n";
       writeFixture(lf);
-      const hashLf = loadPrompt("parse_intent", FIXTURE_VERSION).contentHash;
+      const hashLf = loadFixture().contentHash;
 
       writeFixture(lf.replace(/\n/g, "\r\n"));
-      const hashCrlf = loadPrompt("parse_intent", FIXTURE_VERSION).contentHash;
+      const hashCrlf = loadFixture().contentHash;
 
       assert.equal(hashLf, hashCrlf);
     });
@@ -128,9 +134,9 @@ describe("prompt-loader", () => {
     it("should throw error for non-existent prompt", () => {
       assert.throws(
         () => {
-          loadPrompt("parse_intent", FIXTURE_VERSION);
+          loadPrompt("parse_intent", "v2");
         },
-        { message: /Failed to load prompt: parse_intent\/v999\.md/ }
+        { message: /Failed to load prompt: parse_intent\/v2\.md/ }
       );
     });
 
@@ -146,61 +152,72 @@ describe("prompt-loader", () => {
 
   describe("front-matter parsing", () => {
     it("throws when the closing --- is missing", () => {
-      writeFixture("---\nname: parse_intent\nversion: v999\n# no closer\n");
-      assert.throws(
-        () => loadPrompt("parse_intent", FIXTURE_VERSION),
-        { message: /Missing or malformed front matter/ }
-      );
+      writeFixture("---\nname: parse_intent\nversion: v2\n# no closer\n");
+      assert.throws(() => loadFixture(), { message: /Missing or malformed front matter/ });
     });
 
-    it("throws on a malformed front-matter line", () => {
-      writeFixture("---\nname: parse_intent\nnot-a-pair\nversion: v999\n---\n# Body\n");
-      assert.throws(
-        () => loadPrompt("parse_intent", FIXTURE_VERSION),
-        { message: /Malformed front matter/ }
-      );
+    it("throws on a malformed front-matter line without echoing the line", () => {
+      writeFixture("---\nname: parse_intent\nnot-a-pair\nversion: v2\n---\n# Body\n");
+      assert.throws(() => loadFixture(), (error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error);
+        assert.match(message, /Malformed front matter/);
+        assert.equal(message.includes("not-a-pair"), false);
+        return true;
+      });
     });
 
     it("throws when name or version is missing", () => {
       writeFixture("---\nname: parse_intent\n---\n# Body\n");
-      assert.throws(
-        () => loadPrompt("parse_intent", FIXTURE_VERSION),
-        { message: /must include name and version/ }
-      );
+      assert.throws(() => loadFixture(), { message: /must include name and version/ });
     });
 
     it("throws when front-matter name does not match the path", () => {
-      writeFixture("---\nname: plan_itineraries\nversion: v999\n---\n# Body\n");
-      assert.throws(
-        () => loadPrompt("parse_intent", FIXTURE_VERSION),
-        { message: /does not match stage/ }
-      );
+      writeFixture("---\nname: plan_itineraries\nversion: v2\n---\n# Body\n");
+      assert.throws(() => loadFixture(), (error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error);
+        assert.match(message, /does not match stage/);
+        assert.equal(message.includes("plan_itineraries"), false);
+        return true;
+      });
     });
 
     it("throws when front-matter version does not match the path", () => {
       writeFixture("---\nname: parse_intent\nversion: v1\n---\n# Body\n");
-      assert.throws(
-        () => loadPrompt("parse_intent", FIXTURE_VERSION),
-        { message: /does not match requested version/ }
-      );
+      assert.throws(() => loadFixture(), { message: /does not match requested version/ });
     });
 
-    it("throws on unsupported front-matter keys", () => {
+    it("throws on unsupported front-matter keys without echoing the key", () => {
       writeFixture(
-        "---\nname: parse_intent\nversion: v999\nmodel: claude-haiku-4-5\n---\n# Body\n"
+        "---\nname: parse_intent\nversion: v2\nmodel: claude-haiku-4-5\n---\n# Body\n"
       );
-      assert.throws(
-        () => loadPrompt("parse_intent", FIXTURE_VERSION),
-        { message: /Unsupported front-matter key "model"/ }
-      );
+      assert.throws(() => loadFixture(), (error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error);
+        assert.match(message, /Unsupported front-matter key/);
+        assert.equal(message.includes("model"), false);
+        return true;
+      });
     });
 
-    it("throws on an unknown placeholder", () => {
-      writeFixture("---\nname: parse_intent\nversion: v999\n---\nUse {{not_a_real_key}}\n");
-      assert.throws(
-        () => loadPrompt("parse_intent", FIXTURE_VERSION),
-        { message: /unknown placeholder \{\{not_a_real_key\}\}/ }
+    it("throws on duplicate front-matter keys", () => {
+      writeFixture(
+        "---\nname: parse_intent\nname: parse_intent\nversion: v2\n---\n# Body\n"
       );
+      assert.throws(() => loadFixture(), { message: /Duplicate front-matter key/ });
+    });
+
+    it("throws on an unknown placeholder without echoing the token", () => {
+      writeFixture("---\nname: parse_intent\nversion: v2\n---\nUse {{not_a_real_key}}\n");
+      assert.throws(() => loadFixture(), (error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error);
+        assert.match(message, /unknown placeholder/);
+        assert.equal(message.includes("not_a_real_key"), false);
+        return true;
+      });
+    });
+
+    it("throws on {{constructor}} instead of reading Object.prototype", () => {
+      writeFixture("---\nname: parse_intent\nversion: v2\n---\nUse {{constructor}}\n");
+      assert.throws(() => loadFixture(), { message: /unknown placeholder/ });
     });
   });
 
@@ -219,6 +236,8 @@ describe("prompt-loader", () => {
       assert.ok(plan.body.includes(String(getTravelCapMinutes())));
       assert.ok(plan.body.includes(`${PROMPT_SCHEMA_BOUNDS.minOptions}–${PROMPT_SCHEMA_BOUNDS.maxOptions}`));
       assert.ok(parse.body.includes(`${PROMPT_SCHEMA_BOUNDS.minStops}–${PROMPT_SCHEMA_BOUNDS.maxStops}`));
+      assert.ok(parse.body.includes(PROMPT_SCHEMA_BOUNDS.stopTypes.join(", ")));
+      assert.ok(parse.body.includes(String(PROMPT_SCHEMA_BOUNDS.tagMax)));
       assert.ok(repair.body.includes(String(getRepairMaxRounds())));
       assert.ok(agent.body.includes(String(getAgentMaxToolCalls())));
       assert.ok(agent.body.includes(String(getAgentMaxCostUsdPerTurn())));
@@ -251,6 +270,7 @@ describe("prompt-loader", () => {
       );
 
       const itinerary: Itinerary = {
+        singleStop: false,
         options: [
           { theme: "One", stops: twoStop },
           { theme: "Two", stops: [stop("c", { mode: "walk", minutes: 10 }), stop("d", null)] },
@@ -261,10 +281,10 @@ describe("prompt-loader", () => {
         itinerarySchema.safeParse({ options: [itinerary.options[0]] }).success,
         false
       );
-      assert.equal(PROMPT_SCHEMA_BOUNDS.minOptions, 2);
-      assert.equal(PROMPT_SCHEMA_BOUNDS.maxOptions, 3);
-      assert.equal(PROMPT_SCHEMA_BOUNDS.minStops, 2);
-      assert.equal(PROMPT_SCHEMA_BOUNDS.maxStops, 4);
+      assert.equal(PROMPT_SCHEMA_BOUNDS.minOptions, ITINERARY_OPTIONS_MIN);
+      assert.equal(PROMPT_SCHEMA_BOUNDS.maxOptions, ITINERARY_OPTIONS_MAX);
+      assert.equal(PROMPT_SCHEMA_BOUNDS.minStops, STOPS_MIN);
+      assert.equal(PROMPT_SCHEMA_BOUNDS.maxStops, STOPS_MAX);
     });
   });
 
@@ -276,6 +296,8 @@ describe("prompt-loader", () => {
       assert.equal(tags.prompt_name, "parse_intent");
       assert.equal(tags.prompt_version, "v1");
       assert.equal(tags.prompt_hash, prompt.contentHash);
+      assert.equal(typeof tags.prompt_rendered_hash, "string");
+      assert.equal(tags.prompt_rendered_hash.length, 16);
     });
 
     it("should include all required tag fields", () => {
@@ -283,6 +305,34 @@ describe("prompt-loader", () => {
       assert.ok("prompt_name" in tags);
       assert.ok("prompt_version" in tags);
       assert.ok("prompt_hash" in tags);
+      assert.ok("prompt_rendered_hash" in tags);
+    });
+
+    it("keeps prompt_hash stable and changes prompt_rendered_hash when TRAVEL_CAP_MINUTES changes", () => {
+      const original = process.env.TRAVEL_CAP_MINUTES;
+      try {
+        delete process.env.TRAVEL_CAP_MINUTES;
+        resetConfig();
+        clearPromptCache();
+        const baseline = getPromptTraceTags(loadPrompt("plan_itineraries", "v1"));
+
+        process.env.TRAVEL_CAP_MINUTES = "99";
+        resetConfig();
+        clearPromptCache();
+        const overridden = getPromptTraceTags(loadPrompt("plan_itineraries", "v1"));
+
+        assert.equal(baseline.prompt_hash, overridden.prompt_hash);
+        assert.notEqual(baseline.prompt_rendered_hash, overridden.prompt_rendered_hash);
+        assert.ok(loadPrompt("plan_itineraries", "v1").body.includes("99"));
+      } finally {
+        if (original === undefined) {
+          delete process.env.TRAVEL_CAP_MINUTES;
+        } else {
+          process.env.TRAVEL_CAP_MINUTES = original;
+        }
+        resetConfig();
+        clearPromptCache();
+      }
     });
   });
 
