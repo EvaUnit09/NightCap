@@ -8,7 +8,6 @@ const WRAPPER_CLOSE = "\n</user_text>";
 
 /** C0/C1 controls (except tab/LF/CR), soft hyphen, zero-width, and BOM. */
 const STRIP_CHARS =
-  // eslint-disable-next-line no-control-regex -- intentional control-character strip
   /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F\u00AD\u180E\u200B-\u200D\u2060\uFEFF]/g;
 
 function unwrapIfWrapped(text: string): string {
