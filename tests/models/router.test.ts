@@ -2,7 +2,7 @@ import { describe, it, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { getModelFor } from "../../src/models/router";
 import { resetConfig } from "../../src/models/config";
-import { PIPELINE_STAGES } from "../../src/pipeline/prompt-loader";
+import { PIPELINE_STAGES, type PipelineStage } from "../../src/pipeline/prompt-loader";
 
 describe("model router", () => {
   beforeEach(() => {
@@ -31,43 +31,75 @@ describe("model router", () => {
     });
 
     it("should respect PARSE_MODEL_ID env override", () => {
-      process.env.PARSE_MODEL_ID = "claude-opus-5";
-      resetConfig();
+      const original = process.env.PARSE_MODEL_ID;
+      try {
+        process.env.PARSE_MODEL_ID = "claude-opus-5";
+        resetConfig();
 
-      const modelId = getModelFor("parse_intent");
-      assert.equal(modelId, "claude-opus-5");
-
-      delete process.env.PARSE_MODEL_ID;
+        const modelId = getModelFor("parse_intent");
+        assert.equal(modelId, "claude-opus-5");
+      } finally {
+        if (original === undefined) {
+          delete process.env.PARSE_MODEL_ID;
+        } else {
+          process.env.PARSE_MODEL_ID = original;
+        }
+        resetConfig();
+      }
     });
 
     it("should respect PLAN_MODEL_ID env override", () => {
-      process.env.PLAN_MODEL_ID = "claude-haiku-4-5";
-      resetConfig();
+      const original = process.env.PLAN_MODEL_ID;
+      try {
+        process.env.PLAN_MODEL_ID = "claude-haiku-4-5";
+        resetConfig();
 
-      const modelId = getModelFor("plan_itineraries");
-      assert.equal(modelId, "claude-haiku-4-5");
-
-      delete process.env.PLAN_MODEL_ID;
+        const modelId = getModelFor("plan_itineraries");
+        assert.equal(modelId, "claude-haiku-4-5");
+      } finally {
+        if (original === undefined) {
+          delete process.env.PLAN_MODEL_ID;
+        } else {
+          process.env.PLAN_MODEL_ID = original;
+        }
+        resetConfig();
+      }
     });
 
     it("should respect REPAIR_MODEL_ID env override", () => {
-      process.env.REPAIR_MODEL_ID = "claude-opus-5";
-      resetConfig();
+      const original = process.env.REPAIR_MODEL_ID;
+      try {
+        process.env.REPAIR_MODEL_ID = "claude-opus-5";
+        resetConfig();
 
-      const modelId = getModelFor("repair_itinerary");
-      assert.equal(modelId, "claude-opus-5");
-
-      delete process.env.REPAIR_MODEL_ID;
+        const modelId = getModelFor("repair_itinerary");
+        assert.equal(modelId, "claude-opus-5");
+      } finally {
+        if (original === undefined) {
+          delete process.env.REPAIR_MODEL_ID;
+        } else {
+          process.env.REPAIR_MODEL_ID = original;
+        }
+        resetConfig();
+      }
     });
 
     it("should respect AGENT_MODEL_ID env override", () => {
-      process.env.AGENT_MODEL_ID = "claude-opus-5";
-      resetConfig();
+      const original = process.env.AGENT_MODEL_ID;
+      try {
+        process.env.AGENT_MODEL_ID = "claude-opus-5";
+        resetConfig();
 
-      const modelId = getModelFor("refine_agent");
-      assert.equal(modelId, "claude-opus-5");
-
-      delete process.env.AGENT_MODEL_ID;
+        const modelId = getModelFor("refine_agent");
+        assert.equal(modelId, "claude-opus-5");
+      } finally {
+        if (original === undefined) {
+          delete process.env.AGENT_MODEL_ID;
+        } else {
+          process.env.AGENT_MODEL_ID = original;
+        }
+        resetConfig();
+      }
     });
 
     it("should handle all pipeline stages", () => {
@@ -90,47 +122,118 @@ describe("model router", () => {
     });
 
     it("should use config getters and not hardcode values", () => {
-      // Test that changing env vars affects the router
-      const originalParseModel = getModelFor("parse_intent");
+      const original = process.env.PARSE_MODEL_ID;
+      try {
+        // Test that changing env vars affects the router
+        const originalParseModel = getModelFor("parse_intent");
 
-      process.env.PARSE_MODEL_ID = "test-model-override";
-      resetConfig();
+        process.env.PARSE_MODEL_ID = "test-model-override";
+        resetConfig();
 
-      const newParseModel = getModelFor("parse_intent");
-      assert.notEqual(
-        originalParseModel,
-        newParseModel,
-        "router should use config getters, not hardcoded values"
-      );
-
-      delete process.env.PARSE_MODEL_ID;
-      resetConfig();
+        const newParseModel = getModelFor("parse_intent");
+        assert.notEqual(
+          originalParseModel,
+          newParseModel,
+          "router should use config getters, not hardcoded values"
+        );
+      } finally {
+        if (original === undefined) {
+          delete process.env.PARSE_MODEL_ID;
+        } else {
+          process.env.PARSE_MODEL_ID = original;
+        }
+        resetConfig();
+      }
     });
   });
 
-  describe("static routing", () => {
-    it("should not implement dynamic routing", () => {
-      // getModelFor should be a simple switch/map, not a complex router
-      // Verify by checking that the same stage always returns the same model
-      // (given the same config)
-      const modelId1 = getModelFor("parse_intent");
-      const modelId2 = getModelFor("parse_intent");
-      const modelId3 = getModelFor("parse_intent");
+  describe("stage-to-config-getter mapping", () => {
+    it("should map parse_intent to getParseModelId", () => {
+      const original = process.env.PARSE_MODEL_ID;
+      try {
+        process.env.PARSE_MODEL_ID = "test-parse-model";
+        resetConfig();
 
-      assert.equal(modelId1, modelId2);
-      assert.equal(modelId2, modelId3);
+        const modelId = getModelFor("parse_intent");
+        assert.equal(modelId, "test-parse-model", "should use getParseModelId");
+      } finally {
+        if (original === undefined) {
+          delete process.env.PARSE_MODEL_ID;
+        } else {
+          process.env.PARSE_MODEL_ID = original;
+        }
+        resetConfig();
+      }
     });
 
-    it("should route parse to Haiku and others to Sonnet by default", () => {
-      const parseModel = getModelFor("parse_intent");
-      const planModel = getModelFor("plan_itineraries");
-      const repairModel = getModelFor("repair_itinerary");
-      const agentModel = getModelFor("refine_agent");
+    it("should map plan_itineraries to getPlanModelId", () => {
+      const original = process.env.PLAN_MODEL_ID;
+      try {
+        process.env.PLAN_MODEL_ID = "test-plan-model";
+        resetConfig();
 
-      assert.ok(parseModel.includes("haiku"), "parse should use Haiku");
-      assert.ok(planModel.includes("sonnet"), "plan should use Sonnet");
-      assert.ok(repairModel.includes("sonnet"), "repair should use Sonnet");
-      assert.ok(agentModel.includes("sonnet"), "agent should use Sonnet");
+        const modelId = getModelFor("plan_itineraries");
+        assert.equal(modelId, "test-plan-model", "should use getPlanModelId");
+      } finally {
+        if (original === undefined) {
+          delete process.env.PLAN_MODEL_ID;
+        } else {
+          process.env.PLAN_MODEL_ID = original;
+        }
+        resetConfig();
+      }
+    });
+
+    it("should map repair_itinerary to getRepairModelId", () => {
+      const original = process.env.REPAIR_MODEL_ID;
+      try {
+        process.env.REPAIR_MODEL_ID = "test-repair-model";
+        resetConfig();
+
+        const modelId = getModelFor("repair_itinerary");
+        assert.equal(modelId, "test-repair-model", "should use getRepairModelId");
+      } finally {
+        if (original === undefined) {
+          delete process.env.REPAIR_MODEL_ID;
+        } else {
+          process.env.REPAIR_MODEL_ID = original;
+        }
+        resetConfig();
+      }
+    });
+
+    it("should map refine_agent to getAgentModelId", () => {
+      const original = process.env.AGENT_MODEL_ID;
+      try {
+        process.env.AGENT_MODEL_ID = "test-agent-model";
+        resetConfig();
+
+        const modelId = getModelFor("refine_agent");
+        assert.equal(modelId, "test-agent-model", "should use getAgentModelId");
+      } finally {
+        if (original === undefined) {
+          delete process.env.AGENT_MODEL_ID;
+        } else {
+          process.env.AGENT_MODEL_ID = original;
+        }
+        resetConfig();
+      }
+    });
+  });
+
+  describe("exhaustive switch with never default", () => {
+    it("should handle unknown stage at runtime", () => {
+      const unknownStage = "unknown_stage" as PipelineStage;
+
+      assert.throws(
+        () => {
+          getModelFor(unknownStage);
+        },
+        {
+          message: /Unknown pipeline stage at runtime/,
+        },
+        "Should throw for unknown stage even when type-casted"
+      );
     });
   });
 });

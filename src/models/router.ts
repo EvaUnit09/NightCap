@@ -24,6 +24,8 @@ import {
 /**
  * Get the model ID for a given pipeline stage.
  *
+ * Exhaustive switch with never default ensures all stages are handled.
+ *
  * @param stage - Pipeline stage name
  * @returns Model ID to use for that stage (e.g., "claude-haiku-4-5")
  */
@@ -37,5 +39,9 @@ export function getModelFor(stage: PipelineStage): string {
       return getRepairModelId();
     case "refine_agent":
       return getAgentModelId();
+    default: {
+      const exhaustive: never = stage;
+      throw new Error(`Unknown pipeline stage at runtime: ${String(exhaustive)}`);
+    }
   }
 }
