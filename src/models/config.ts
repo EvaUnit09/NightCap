@@ -342,6 +342,35 @@ export function getPriceRanges(): {
   };
 }
 
+/**
+ * Prod-only startup gate (#31). `next build` sets NODE_ENV=production, so this
+ * must not run during a build phase — only when a production server starts.
+ * Dev and test stay mock-friendly. Runtime Routes failures stay
+ * `travel_service_unavailable`.
+ */
+function isNextBuildPhase(phase: string | undefined): boolean {
+  if (phase && (phase.includes("build") || phase.includes("export"))) {
+    return true;
+  }
+  return process.env.npm_lifecycle_event === "build";
+}
+
+export function assertProductionLiveRoutes(): void {
+  if (process.env.NODE_ENV !== "production") {
+    return;
+  }
+  if (isNextBuildPhase(process.env.NEXT_PHASE)) {
+    return;
+  }
+  const cfg = getConfig();
+  if (cfg.enableLiveRoutes && cfg.googlePlacesApiKey) {
+    return;
+  }
+  throw new Error(
+    "Production refuses to start without ENABLE_LIVE_ROUTES=true and GOOGLE_PLACES_API_KEY. Runtime Routes outages use travel_service_unavailable."
+  );
+}
+
 /** Reset config for testing. */
 export function resetConfig(): void {
   config = null;

@@ -25,6 +25,7 @@ import {
   getPriceRanges,
   getTurnstileSecretKey,
   resetConfig,
+  assertProductionLiveRoutes,
 } from "../../src/models";
 
 describe("Config module", () => {
@@ -423,6 +424,51 @@ describe("Config module", () => {
           }
         );
       }
+    });
+  });
+
+  describe("production live-Routes startup", () => {
+    it("throws in production without the Routes key", () => {
+      process.env.NODE_ENV = "production";
+      delete process.env.NEXT_PHASE;
+      delete process.env.GOOGLE_PLACES_API_KEY;
+      process.env.ENABLE_LIVE_ROUTES = "true";
+      assert.throws(
+        () => assertProductionLiveRoutes(),
+        /ENABLE_LIVE_ROUTES|GOOGLE_PLACES_API_KEY/
+      );
+    });
+
+    it("is ok in production with ENABLE_LIVE_ROUTES and the Routes key", () => {
+      process.env.NODE_ENV = "production";
+      delete process.env.NEXT_PHASE;
+      process.env.ENABLE_LIVE_ROUTES = "true";
+      process.env.GOOGLE_PLACES_API_KEY = "test-routes-key";
+      assert.doesNotThrow(() => assertProductionLiveRoutes());
+    });
+
+    it("is ok in development without the key", () => {
+      process.env.NODE_ENV = "development";
+      delete process.env.NEXT_PHASE;
+      delete process.env.GOOGLE_PLACES_API_KEY;
+      delete process.env.ENABLE_LIVE_ROUTES;
+      assert.doesNotThrow(() => assertProductionLiveRoutes());
+      assert.doesNotThrow(() => getConfig());
+    });
+
+    it("does not throw from getConfig in production without a key", () => {
+      process.env.NODE_ENV = "production";
+      delete process.env.GOOGLE_PLACES_API_KEY;
+      delete process.env.ENABLE_LIVE_ROUTES;
+      assert.doesNotThrow(() => getConfig());
+    });
+
+    it("skips the check during next build", () => {
+      process.env.NODE_ENV = "production";
+      process.env.NEXT_PHASE = "phase-production-build";
+      delete process.env.GOOGLE_PLACES_API_KEY;
+      delete process.env.ENABLE_LIVE_ROUTES;
+      assert.doesNotThrow(() => assertProductionLiveRoutes());
     });
   });
 
