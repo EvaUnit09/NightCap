@@ -16,12 +16,10 @@ import {
   STOP_TYPES_MAX,
   STOP_TYPES_MIN,
 } from "../validation/intent";
+import { STOPS_MAX, STOPS_MIN, STOPS_MIN_SINGLE } from "../validation/bounds";
 import {
   ITINERARY_OPTIONS_MAX,
   ITINERARY_OPTIONS_MIN,
-  STOPS_MAX,
-  STOPS_MIN,
-  STOPS_MIN_SINGLE,
 } from "../validation/itinerary";
 
 /**

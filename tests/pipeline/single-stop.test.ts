@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { singleStopMatchesIntent, stampSingleStopFromIntent } from "../../src/pipeline";
+import {
+  singleStopMatchesIntent,
+  stampSingleStopFromIntent,
+} from "../../src/validation";
 
 describe("singleStopMatchesIntent", () => {
   it("does not trust a model singleStop that differs from the intent", () => {
@@ -9,9 +12,12 @@ describe("singleStopMatchesIntent", () => {
     assert.equal(singleStopMatchesIntent({ singleStop: false }, true), false);
   });
 
-  it("treats an omitted singleStop as unset so the stage can stamp intent.singleStop", () => {
-    assert.equal(singleStopMatchesIntent({}, true), true);
-    assert.equal(singleStopMatchesIntent({ options: [] }, false), true);
+  it("treats a missing singleStop key as false", () => {
+    assert.equal(singleStopMatchesIntent({}, true), false);
+    assert.equal(singleStopMatchesIntent({}, { singleStop: true }), false);
+    assert.equal(singleStopMatchesIntent({}, false), true);
+    assert.equal(singleStopMatchesIntent({ options: [] }, { singleStop: false }), true);
+    assert.equal(singleStopMatchesIntent({}, {}), true);
   });
 
   it("accepts a model singleStop only when it already matches the intent", () => {

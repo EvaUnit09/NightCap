@@ -1,5 +1,6 @@
-/** Shared itinerary stop-count bounds. Import these from the validator (#7). */
-
-export const STOPS_MIN = 2;
-export const STOPS_MIN_SINGLE = 1;
-export const STOPS_MAX = 4;
+/** Thin re-export. Canonical definitions live in `src/validation/bounds.ts`. */
+export {
+  STOPS_MAX,
+  STOPS_MIN,
+  STOPS_MIN_SINGLE,
+} from "../validation/bounds";

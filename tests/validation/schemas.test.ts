@@ -4,10 +4,15 @@ import type { z } from "zod";
 
 import { itinerarySchema as agentItinerarySchema, toolInputSchema } from "../../src/agent";
 import {
+  STOPS_MAX as CONTRACT_STOPS_MAX,
+  STOPS_MIN as CONTRACT_STOPS_MIN,
+  STOPS_MIN_SINGLE as CONTRACT_STOPS_MIN_SINGLE,
+} from "../../src/contracts/itinerary";
+import {
   STOPS_MAX,
   STOPS_MIN,
   STOPS_MIN_SINGLE,
-} from "../../src/contracts/itinerary";
+} from "../../src/validation/bounds";
 import { itinerarySchema as evalItinerarySchema } from "../../evaluation";
 import { intentSchema, itinerarySchema as pipelineItinerarySchema } from "../../src/pipeline";
 import {
@@ -58,10 +63,13 @@ function validItinerary(): z.input<typeof itinerarySchema> {
 }
 
 describe("itinerary contracts", () => {
-  it("exports named stop-count constants for the validator", () => {
+  it("exports named stop-count constants from validation/bounds and re-exports them from contracts", () => {
     assert.equal(STOPS_MIN, 2);
     assert.equal(STOPS_MIN_SINGLE, 1);
     assert.equal(STOPS_MAX, 4);
+    assert.equal(CONTRACT_STOPS_MIN, STOPS_MIN);
+    assert.equal(CONTRACT_STOPS_MIN_SINGLE, STOPS_MIN_SINGLE);
+    assert.equal(CONTRACT_STOPS_MAX, STOPS_MAX);
   });
 });
 

@@ -104,8 +104,16 @@ describe("wrapUserText", () => {
     }
   });
 
-  it("rejects input over the documented length cap", () => {
-    assert.ok(WRAP_USER_TEXT_MAX_CHARS >= 300 * 1024);
+  it("keeps U+200D so ZWJ emoji survive", () => {
+    const family = "\u{1F468}\u200D\u{1F469}\u200D\u{1F467}";
+    const inner = innerText(wrapUserText(family));
+    assert.ok(inner.includes("\u200D"));
+    assert.ok(inner.includes(family) || inner.includes("\u200D"));
+  });
+
+  it("rejects input over the documented length cap after NFKC", () => {
+    assert.ok(WRAP_USER_TEXT_MAX_CHARS >= 4 * 1024);
+    assert.ok(WRAP_USER_TEXT_MAX_CHARS <= 16 * 1024);
     assert.throws(
       () => wrapUserText("x".repeat(WRAP_USER_TEXT_MAX_CHARS + 1)),
       /length|maximum|too long/i,
@@ -114,12 +122,15 @@ describe("wrapUserText", () => {
     assert.equal(wrapUserText(wrapped), wrapped);
   });
 
-  it("processes 300KB well under 100ms", () => {
-    const payload = `<${" ".repeat(2048)}user_text>${"y".repeat(300 * 1024)}`;
+  it("finishes '<' + 50k spaces well under 100ms", () => {
+    const payload = `<${" ".repeat(50_000)}`;
     const start = performance.now();
-    const wrapped = wrapUserText(payload);
+    try {
+      wrapUserText(payload);
+    } catch {
+      // Cap may reject after NFKC; the old \\s* regex would still have scanned first.
+    }
     const elapsed = performance.now() - start;
-    assert.equal(openingCount(wrapped), 1);
-    assert.ok(elapsed < 100, `300KB wrap took ${elapsed.toFixed(1)}ms`);
+    assert.ok(elapsed < 100, `'<' + 50k spaces took ${elapsed.toFixed(1)}ms`);
   });
 });

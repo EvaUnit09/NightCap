@@ -3,6 +3,9 @@
  * Parse, plan, and repair all read these schemas.
  */
 export {
+  STOPS_MAX,
+  STOPS_MIN,
+  STOPS_MIN_SINGLE,
   candidateSchema,
   intentSchema,
   itineraryOptionSchema,
@@ -12,6 +15,8 @@ export {
   parseIntent,
   parseItinerary,
   parseValidationError,
+  singleStopMatchesIntent,
+  stampSingleStopFromIntent,
   validationErrorSchema,
 } from "../validation";
 
@@ -25,10 +30,5 @@ export {
   type PipelineStage,
   type PromptMetadata,
 } from "./prompt-loader";
-
-export {
-  stampSingleStopFromIntent,
-  singleStopMatchesIntent,
-} from "./single-stop";
 
 export { WRAP_USER_TEXT_MAX_CHARS, wrapUserText } from "./wrap-user-text";

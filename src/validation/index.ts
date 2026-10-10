@@ -21,18 +21,20 @@ export {
   intentSchema,
   type Intent,
 } from "./intent";
+export { STOPS_MAX, STOPS_MIN, STOPS_MIN_SINGLE } from "./bounds";
 export {
   ITINERARY_OPTIONS_MAX,
   ITINERARY_OPTIONS_MIN,
-  STOPS_MAX,
-  STOPS_MIN,
-  STOPS_MIN_SINGLE,
   itineraryOptionSchema,
   itineraryOptionSchemaFor,
   itinerarySchema,
   type Itinerary,
   type ItineraryOption,
 } from "./itinerary";
+export {
+  singleStopMatchesIntent,
+  stampSingleStopFromIntent,
+} from "./single-stop";
 export { stopSchema, travelToNextSchema, type Stop, type TravelToNext } from "./stop";
 export {
   validationErrorCodeSchema,

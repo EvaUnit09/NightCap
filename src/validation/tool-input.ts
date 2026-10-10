@@ -7,7 +7,7 @@ import {
   priceLevelSchema,
   stopTypeSchema,
 } from "./common";
-import { STOPS_MAX, STOPS_MIN_SINGLE } from "../contracts/itinerary";
+import { STOPS_MAX, STOPS_MIN_SINGLE } from "./bounds";
 import { itinerarySchema } from "./itinerary";
 
 const timeSlotSchema = z

@@ -1,14 +1,10 @@
 import { z } from "zod";
 
-import {
-  STOPS_MAX,
-  STOPS_MIN,
-  STOPS_MIN_SINGLE,
-} from "../contracts/itinerary";
+import { STOPS_MAX, STOPS_MIN, STOPS_MIN_SINGLE } from "./bounds";
 import { oneLineSchema } from "./common";
 import { stopSchema } from "./stop";
 
-export { STOPS_MAX, STOPS_MIN, STOPS_MIN_SINGLE } from "../contracts/itinerary";
+export { STOPS_MAX, STOPS_MIN, STOPS_MIN_SINGLE } from "./bounds";
 
 export const ITINERARY_OPTIONS_MIN = 2;
 export const ITINERARY_OPTIONS_MAX = 3;

@@ -159,11 +159,33 @@ describe("single-stop prompt rules", () => {
     );
   });
 
-  it("tells plan and repair never to set singleStop themselves", () => {
+  it("tells plan, repair, and refine never to set singleStop themselves", () => {
     const plan = loadPrompt("plan_itineraries", "v1").body;
     const repair = loadPrompt("repair_itinerary", "v1").body;
+    const refine = loadPrompt("refine_agent", "v1").body;
     assert.match(plan, /never.{0,40}set.{0,20}singleStop/i);
     assert.match(repair, /never.{0,40}set.{0,20}singleStop/i);
+    assert.match(refine, /never.{0,40}set.{0,20}singleStop/i);
+  });
+
+  it("omits singleStop from plan itinerary JSON examples", () => {
+    const plan = loadPrompt("plan_itineraries", "v1").body;
+    const blocks = extractFencedBlocks(plan);
+    const itineraries = blocks.filter((block) => block.schemaName === "itinerary");
+    assert.ok(itineraries.length >= 2, "expected default and single-stop plan examples");
+    for (const block of itineraries) {
+      const parsed = JSON.parse(block.blockText) as { singleStop?: unknown };
+      assert.equal(Object.hasOwn(parsed, "singleStop"), false);
+    }
+  });
+
+  it("explains that ‹ › inside user_text are escaped < and >", () => {
+    for (const stage of PIPELINE_STAGES) {
+      const body = loadPrompt(stage, "v1").body;
+      assert.match(body, /‹/, `${stage} should mention ‹`);
+      assert.match(body, /›/, `${stage} should mention ›`);
+      assert.match(body, /escap/i, `${stage} should say ‹ › are escaped brackets`);
+    }
   });
 
   it("requires exactly one stop when singleStop is true, not a 1–4 range", () => {

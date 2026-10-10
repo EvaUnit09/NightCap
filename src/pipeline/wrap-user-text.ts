@@ -1,14 +1,17 @@
 import "server-only";
 
-/** Test-visible cap. 300KB timing coverage sits well under this. */
-export const WRAP_USER_TEXT_MAX_CHARS = 1_048_576;
+/**
+ * 8 KiB after NFKC. A night-out request is a sentence or two; this is
+ * about 20× a long paste and still small enough to bound wrap CPU.
+ */
+export const WRAP_USER_TEXT_MAX_CHARS = 8 * 1024;
 
 const WRAPPER_OPEN = "<user_text>\n";
 const WRAPPER_CLOSE = "\n</user_text>";
 
-/** C0/C1 controls (except tab/LF/CR), soft hyphen, zero-width, and BOM. */
+/** C0/C1 (except tab/LF/CR), soft hyphen, zero-width except ZWJ (U+200D), BOM. */
 const STRIP_CHARS =
-  /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F\u00AD\u180E\u200B-\u200D\u2060\uFEFF]/g;
+  /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F\u00AD\u180E\u200B\u200C\u2060\uFEFF]/g;
 
 function unwrapIfWrapped(text: string): string {
   if (text.startsWith(WRAPPER_OPEN) && text.endsWith(WRAPPER_CLOSE)) {
@@ -19,18 +22,17 @@ function unwrapIfWrapped(text: string): string {
 
 /**
  * Wrap untrusted user text for prompt interpolation.
- * NFKC-normalizes, strips format/control characters, then escapes every
- * `<` and `>` so the wrapper pair is the only tag. Idempotent.
+ * NFKC-normalizes, caps length, strips format/control characters (keeps ZWJ),
+ * then escapes every `<` and `>` so the wrapper pair is the only tag. Idempotent.
  * Not wired into the pipeline yet (architecture action #15).
  */
 export function wrapUserText(text: string): string {
-  const unwrapped = unwrapIfWrapped(text);
-  if (unwrapped.length > WRAP_USER_TEXT_MAX_CHARS) {
+  const normalized = unwrapIfWrapped(text).normalize("NFKC");
+  if (normalized.length > WRAP_USER_TEXT_MAX_CHARS) {
     throw new Error("User text exceeds the maximum length.");
   }
 
-  const sanitized = unwrapped
-    .normalize("NFKC")
+  const sanitized = normalized
     .replace(STRIP_CHARS, "")
     .replaceAll("<", "‹")
     .replaceAll(">", "›");

@@ -2,6 +2,7 @@ import type { ZodType } from "zod";
 
 import { travelModeSchema } from "../../src/contracts/travel";
 import { candidateSchema } from "../../src/validation/candidate";
+import { stampSingleStopFromIntent } from "../../src/validation/single-stop";
 import { intentSchema } from "../../src/validation/intent";
 import {
   itineraryOptionSchema,
@@ -243,7 +244,13 @@ export function collectJsonFenceFailures(markdown: string): string[] {
     const modeFailures = collectDroppedTravelModeFailures(parsed.value, block.lineNumber);
     failures.push(...modeFailures);
 
-    const result = schema.safeParse(rewriteContractTravelModesForLegacySchema(parsed.value));
+    const stamped =
+      block.schemaName === "itinerary" &&
+      parsed.value !== null &&
+      typeof parsed.value === "object"
+        ? stampSingleStopFromIntent(parsed.value, block.singleStop)
+        : parsed.value;
+    const result = schema.safeParse(rewriteContractTravelModesForLegacySchema(stamped));
     if (!result.success) {
       failures.push(`Line ${block.lineNumber} schema=${block.schemaName}: ${result.error.message}`);
     } else {
