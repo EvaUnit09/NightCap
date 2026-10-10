@@ -1,7 +1,7 @@
 import { GIVEN_NAME_EXTRA_KEYS } from "./given-names-extra";
 import { GIVEN_NAME_KEYS } from "./given-names";
 import { NYC_NEIGHBORHOOD_TERMS } from "./nyc-neighborhoods";
-import { PLACE_TERMS } from "./place-terms";
+import { CALENDAR_TERMS, PLACE_TERMS } from "./place-terms";
 
 function foldKey(value: string): string {
   return value.normalize("NFKD").replace(/\p{M}/gu, "").toLowerCase();
@@ -12,6 +12,8 @@ export const GIVEN_NAME_SET: ReadonlySet<string> = new Set([...GIVEN_NAME_KEYS, 
 export const PLACE_TERM_SET: ReadonlySet<string> = new Set(
   [...PLACE_TERMS, ...NYC_NEIGHBORHOOD_TERMS].map(foldKey),
 );
+
+const CALENDAR_TERM_SET: ReadonlySet<string> = new Set(CALENDAR_TERMS.map(foldKey));
 
 export function foldedNameKey(token: string): string {
   return foldKey(token);
@@ -39,6 +41,10 @@ export function placePhraseLength(foldedTokens: readonly string[], start: number
 
 export function isPlaceTerm(token: string): boolean {
   return PLACE_TERM_SET.has(foldKey(token));
+}
+
+export function isCalendarTerm(token: string): boolean {
+  return CALENDAR_TERM_SET.has(foldKey(token));
 }
 
 export const GIVEN_NAME_COUNT = GIVEN_NAME_SET.size;

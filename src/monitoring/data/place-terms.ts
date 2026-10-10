@@ -7,8 +7,7 @@
  * holidays, and relative-time words are generic English terms.
  */
 
-export const PLACE_TERMS: readonly string[] = [
-  // Calendar
+export const CALENDAR_TERMS: readonly string[] = [
   "monday",
   "tuesday",
   "wednesday",
@@ -75,6 +74,10 @@ export const PLACE_TERMS: readonly string[] = [
   "memorial day",
   "labor day",
   "juneteenth",
+];
+
+export const PLACE_TERMS: readonly string[] = [
+  ...CALENDAR_TERMS,
   // Cuisines and food words
   "thai",
   "korean",

@@ -10,8 +10,10 @@ import "server-only";
  * Weak cues such as "with X" redact a bare capitalized token only when it is
  * in the bundled given-name list and is not a place/calendar/cuisine term.
  * Strong cues (relations, "X and I", "X's <event>") may redact any
- * proper-name-shaped token. Lowercase tokens are names only when they are in
- * the given-name list.
+ * proper-name-shaped token except calendar words and multi-word place
+ * phrases. Single-word NTAs that are also given names still redact after a
+ * strong cue. Lowercase tokens are names only when they are in the
+ * given-name list.
  *
  * Input length is measured in Unicode code points. Above MAX_INPUT_CHARS the
  * result is `{ ok: false, error: "too_long", text: "" }`. Callers must reject
@@ -29,14 +31,31 @@ import "server-only";
  *   is in the list (Ольга ≠ olga).
  * - Two-token venues without a listed given name (Le Coucou, Don Angie,
  *   Joe Allen) are left as a known limit unless they hit a strong person cue.
+ * - Landmark phrases after a bare "with" (Sutton Place, and similar) stay
+ *   a known limit unless they are listed place terms.
  */
 
 import {
   foldedNameKey,
+  isCalendarTerm,
   isGivenName,
   isPlaceTerm,
   placePhraseLength,
 } from "./data/lookup";
+
+let redactionWork = 0;
+
+export function resetRedactionWork(): void {
+  redactionWork = 0;
+}
+
+export function getRedactionWork(): number {
+  return redactionWork;
+}
+
+function noteWork(amount = 1): void {
+  redactionWork += amount;
+}
 
 export const MAX_INPUT_CHARS = 4096;
 
@@ -261,6 +280,7 @@ function tokenize(text: string): Tok[] {
     if (match.index === undefined) {
       continue;
     }
+    noteWork();
     tokens.push({
       raw: match[0],
       start: match.index,
@@ -354,7 +374,10 @@ function acceptsName(
   ) {
     return false;
   }
-  if (!allowPlaceName && isPlaceTerm(stripped.base)) {
+  if (!allowPlaceName && strength === "weak" && isPlaceTerm(stripped.base)) {
+    return false;
+  }
+  if (!allowPlaceName && strength === "strong" && isCalendarTerm(stripped.base)) {
     return false;
   }
   if (requireCapital && !isProperShape(stripped.base)) {
@@ -383,6 +406,26 @@ function nextNonConnector(text: string, tokens: Tok[], index: number): number {
   return cursor;
 }
 
+function placeBlocksName(
+  folded: readonly string[],
+  index: number,
+  tokenRaw: string,
+  strength: "strong" | "weak",
+  allowPlaceName: boolean,
+): boolean {
+  if (allowPlaceName) {
+    return false;
+  }
+  const phraseLen = placePhraseLength(folded, index);
+  if (strength === "weak") {
+    return phraseLen > 0 || isPlaceTerm(tokenRaw);
+  }
+  if (phraseLen >= 2) {
+    return true;
+  }
+  return isCalendarTerm(tokenRaw);
+}
+
 function consumeNameRun(
   text: string,
   tokens: Tok[],
@@ -396,7 +439,7 @@ function consumeNameRun(
   if (!token || !acceptsName(text, token, strength, requireCapital, allowPlaceName)) {
     return null;
   }
-  if (!allowPlaceName && placePhraseLength(folded, index) > 0) {
+  if (placeBlocksName(folded, index, token.raw, strength, allowPlaceName)) {
     return null;
   }
   let last = index;
@@ -409,10 +452,7 @@ function consumeNameRun(
     if (alreadyRedacted(text, next)) {
       break;
     }
-    if (!allowPlaceName && placePhraseLength(folded, index + offset) > 0) {
-      break;
-    }
-    if (isPlaceTerm(next.raw) && !allowPlaceName) {
+    if (placeBlocksName(folded, index + offset, next.raw, strength, allowPlaceName)) {
       break;
     }
     if (!isProperShape(next.raw) && !isGivenName(next.raw)) {
@@ -439,7 +479,7 @@ function collectListMembers(
   requireCapital = false,
   allowPlaceName = false,
 ): NameRun[] {
-  if (!allowPlaceName && placePhraseLength(folded, startIndex) > 0) {
+  if (placeBlocksName(folded, startIndex, tokens[startIndex]?.raw ?? "", strength, allowPlaceName)) {
     return [];
   }
   const first = consumeNameRun(text, tokens, folded, startIndex, strength, requireCapital, allowPlaceName);
@@ -515,6 +555,7 @@ function collectNames(text: string): Span[] {
   };
 
   for (let i = 0; i < tokens.length; i += 1) {
+    noteWork();
     const tok = tokens[i];
     if (alreadyRedacted(text, tok) || used.has(i)) {
       continue;
@@ -631,7 +672,7 @@ function collectNames(text: string): Span[] {
       !precededByWeakWith(tokens, i, text) &&
       !prevCapitalized &&
       (isProperShape(stripped.base) || isGivenName(stripped.base)) &&
-      !isPlaceTerm(stripped.base)
+      !isCalendarTerm(stripped.base)
     ) {
       const rest = text.slice(stripped.possessive ? tok.end : tok.end + 2);
       const event = rest.match(/^\s+([\p{L}'’-]{1,40}|\d{1,3}(?:st|nd|rd|th))/u);
@@ -651,6 +692,11 @@ function collectNames(text: string): Span[] {
         continue;
       }
       if (/['’]s/.test(next.raw)) {
+        continue;
+      }
+      const afterName = i + 2 < tokens.length ? tokens[i + 2] : undefined;
+      if (afterName?.folded === "from") {
+        markRun(consumeNameRun(text, tokens, folded, i + 1, "strong", false, false), i + 1);
         continue;
       }
       if (placePhraseLength(folded, i + 1) > 0) {
@@ -746,6 +792,7 @@ function mergeSpans(spans: Span[]): Span[] {
   }
   const sorted = [...spans].sort((a, b) => a.start - b.start || a.end - b.end);
   const merged: Span[] = [{ ...sorted[0] }];
+  noteWork(sorted.length);
   for (let i = 1; i < sorted.length; i += 1) {
     const current = sorted[i];
     const last = merged[merged.length - 1];
@@ -765,6 +812,7 @@ function applySpans(text: string, spans: Span[]): { text: string; count: number 
   }
   const parts: string[] = [];
   let cursor = 0;
+  noteWork(text.length + merged.length);
   for (const span of merged) {
     parts.push(text.slice(cursor, span.start), "[NAME]");
     cursor = span.end;
@@ -920,7 +968,7 @@ function walkValue(node: unknown, depth: number, ancestors: readonly object[], s
   if (Array.isArray(node)) {
     return node.map((item) => walkValue(item, depth + 1, nextAncestors, state));
   }
-  const output: Record<string, unknown> = {};
+  const output: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
   for (const [key, nested] of Object.entries(node)) {
     const safeKey = typeof key === "string" ? redactCappedString(key, state) : String(key);
     output[uniqueKey(output, safeKey)] = walkValue(nested, depth + 1, nextAncestors, state);
@@ -953,6 +1001,12 @@ export function redact(text: unknown): RedactionResult {
   }
 }
 
+/**
+ * Walk a value and redact strings in place. Fail-closed: cycles, depth/node
+ * budget, binaries, and walk errors become markers such as
+ * `[REDACTION_ERROR]` or `[BINARY]` with no ok/error signal. Callers that
+ * need `{ ok: false }` must use `redact()`.
+ */
 export function redactValue(value: unknown): unknown {
   try {
     return walkValue(value, 0, [], newWalkState());

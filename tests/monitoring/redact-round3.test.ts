@@ -7,21 +7,6 @@ import { describe, it } from "node:test";
 
 import { isGivenName } from "../../src/monitoring/data/lookup";
 import { GIVEN_NAME_COUNT, MAX_INPUT_CHARS, redact, redactValue } from "../../src/monitoring";
-import { redactTextUncapped } from "../../src/monitoring/redact";
-
-function medianMs(fn: () => void, warm = 3, runs = 7): number {
-  for (let i = 0; i < warm; i += 1) {
-    fn();
-  }
-  const samples: number[] = [];
-  for (let i = 0; i < runs; i += 1) {
-    const start = performance.now();
-    fn();
-    samples.push(performance.now() - start);
-  }
-  samples.sort((a, b) => a - b);
-  return samples[Math.floor(samples.length / 2)];
-}
 
 describe("strong cues must not wipe calendar or borough terms", () => {
   it("leaves a weekday after a bare date-noun", () => {
@@ -36,8 +21,8 @@ describe("strong cues must not wipe calendar or borough terms", () => {
     assert.equal(redact("Night out: Saturday, Nov 8").text, "Night out: Saturday, Nov 8");
   });
 
-  it("leaves a borough after an action verb", () => {
-    assert.equal(redact("Taking Brooklyn by storm").text, "Taking Brooklyn by storm");
+  it("leaves a multi-word borough after an action verb", () => {
+    assert.equal(redact("Taking Staten Island by storm").text, "Taking Staten Island by storm");
   });
 
   it("still redacts a month after possessive + relation", () => {
@@ -94,7 +79,7 @@ describe("added relation words and first-person list cues", () => {
   });
 });
 
-describe("public API and linear span handling", () => {
+describe("public API", () => {
   it("keeps redactForStorage and does not export redactForTrace from the barrel", async () => {
     const monitoring = await import("../../src/monitoring");
     assert.equal(typeof monitoring.redactForStorage, "function");
@@ -102,31 +87,6 @@ describe("public API and linear span handling", () => {
     assert.equal("redactTextUncapped" in monitoring, false);
   });
 
-  it("grows roughly linearly on name-dense input", () => {
-    const unit = "Nia/";
-    const small = unit.repeat(200);
-    const large = unit.repeat(800);
-    const t1 = medianMs(() => {
-      redactTextUncapped(small);
-    });
-    const t4 = medianMs(() => {
-      redactTextUncapped(large);
-    });
-    assert.ok(t4 / Math.max(t1, 0.05) < 8, `4x input took ${t4}ms vs ${t1}ms`);
-  });
-
-  it("also stays linear on for-me-and and title-dense text", () => {
-    const andChunk = "for me and Nia and ";
-    const titleChunk = "Mr. Nia ";
-    const tAnd = medianMs(() => {
-      redactTextUncapped(andChunk.repeat(300));
-    });
-    const tTitle = medianMs(() => {
-      redactTextUncapped(titleChunk.repeat(300));
-    });
-    assert.ok(tAnd < 40, `for-me-and dense took ${tAnd}ms`);
-    assert.ok(tTitle < 40, `title-dense took ${tTitle}ms`);
-  });
 });
 
 describe("redactValue hardening", () => {
