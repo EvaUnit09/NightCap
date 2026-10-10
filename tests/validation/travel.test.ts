@@ -1,9 +1,15 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { HaversineEstimator } from "../../src/validation/travel";
+import { TRAVEL_MODES } from "../../src/contracts/travel";
+import { HaversineEstimator, SUPPORTED_TRAVEL_MODES } from "../../src/validation/travel";
 
 describe("HaversineEstimator (offline fallback)", () => {
+  it("uses the contract travel-mode names", () => {
+    assert.deepEqual([...SUPPORTED_TRAVEL_MODES], [...TRAVEL_MODES]);
+    assert.deepEqual([...SUPPORTED_TRAVEL_MODES], ["TRANSIT", "BICYCLE", "WALK"]);
+  });
+
   const calculator = new HaversineEstimator();
 
   it("returns one result per leg", () => {
@@ -84,6 +90,15 @@ describe("HaversineEstimator (offline fallback)", () => {
     assert.ok(minutes !== null);
     assert.ok(minutes! >= 15, `expected >= 15, got ${minutes}`);
     assert.ok(minutes! <= 30, `expected <= 30, got ${minutes}`);
+  });
+
+  it("treats WALK the same as walk", () => {
+    const from = { lat: 40.734, lng: -74.002 };
+    const to = { lat: 40.729, lng: -73.987 };
+    assert.deepEqual(
+      calculator.calculateMinutes([{ from, to, mode: "WALK" }]),
+      calculator.calculateMinutes([{ from, to, mode: "walk" }])
+    );
   });
 
   it("models transit door-to-door so a ~2.5 mi hop is 20–30 min", () => {

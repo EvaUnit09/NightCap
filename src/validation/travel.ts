@@ -1,21 +1,27 @@
-/**
- * NightCap v1 travel modes. Rideshare, DRIVE, and taxi are out of scope;
- * the validator fails those closed as `travel_unverified`.
- */
-export const SUPPORTED_TRAVEL_MODES = ["walk", "transit", "bicycle"] as const;
-export type SupportedTravelMode = (typeof SUPPORTED_TRAVEL_MODES)[number];
+import { TRAVEL_MODES, type TravelMode } from "../contracts/travel";
 
-const MODE_ALIASES: Record<string, SupportedTravelMode> = {
-  walk: "walk",
-  WALK: "walk",
-  transit: "transit",
-  TRANSIT: "transit",
-  bicycle: "bicycle",
-  BICYCLE: "bicycle",
+export { TRAVEL_MODES, travelModeSchema, type TravelMode } from "../contracts/travel";
+
+/**
+ * NightCap v1 travel modes. Same names as `travelModeSchema` in
+ * `src/contracts/travel.ts`: TRANSIT, BICYCLE, WALK. Rideshare, DRIVE, and
+ * taxi are out of scope; the validator fails those closed as `travel_unverified`.
+ */
+export const SUPPORTED_TRAVEL_MODES = TRAVEL_MODES;
+export type SupportedTravelMode = TravelMode;
+
+const MODE_ALIASES: Record<string, TravelMode> = {
+  TRANSIT: "TRANSIT",
+  BICYCLE: "BICYCLE",
+  WALK: "WALK",
+  // Lowercase aliases until #8 replaces the itinerary enum.
+  transit: "TRANSIT",
+  bicycle: "BICYCLE",
+  walk: "WALK",
 };
 
-/** Accepts v1 lowercase and #8's contract enum (WALK / TRANSIT / BICYCLE). */
-export function normalizeTravelMode(mode: string): SupportedTravelMode | null {
+/** Map a hop mode onto the contract enum. Unknown values stay unsupported. */
+export function normalizeTravelMode(mode: string): TravelMode | null {
   return MODE_ALIASES[mode] ?? null;
 }
 
@@ -110,11 +116,11 @@ export class HaversineEstimator implements TravelCalculator {
 
   private speedFor(mode: SupportedTravelMode): number | null {
     switch (mode) {
-      case "walk":
+      case "WALK":
         return this.walkSpeedMph;
-      case "transit":
+      case "TRANSIT":
         return this.transitSpeedMph;
-      case "bicycle":
+      case "BICYCLE":
         return this.bicycleSpeedMph;
       default:
         return null;
@@ -123,9 +129,9 @@ export class HaversineEstimator implements TravelCalculator {
 
   private circuityFor(mode: SupportedTravelMode): number | null {
     switch (mode) {
-      case "walk":
-      case "transit":
-      case "bicycle":
+      case "WALK":
+      case "TRANSIT":
+      case "BICYCLE":
         return this.walkCircuity;
       default:
         return null;

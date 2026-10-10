@@ -456,7 +456,7 @@ function travelLegKey(leg: TravelLeg): string {
     to: leg.to,
     mode: leg.mode,
     departureTime:
-      normalizeTravelMode(leg.mode) === "transit"
+      normalizeTravelMode(leg.mode) === "TRANSIT"
         ? (leg.departureTime ?? null)
         : null,
   });
@@ -487,7 +487,7 @@ function applyTravelRules(
     errors.push(
       emitError({
         code: "travel_unverified",
-        message: `Travel mode "${leg.mode}" is not supported; v1 allows walk/WALK, transit/TRANSIT, and bicycle/BICYCLE`,
+        message: `Travel mode "${leg.mode}" is not supported; v1 allows TRANSIT, BICYCLE, and WALK`,
         optionIndex: leg.optionIndex,
         stopIndex: leg.stopIndex,
         placeId: leg.placeId,

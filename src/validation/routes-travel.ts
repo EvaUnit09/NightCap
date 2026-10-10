@@ -20,12 +20,12 @@ export const ROUTES_MATRIX_URL =
 export const ROUTES_ESSENTIALS_FIELD_MASK =
   "originIndex,destinationIndex,duration,condition,status";
 
-const TRAVEL_MODE: Record<SupportedTravelMode, "WALK" | "TRANSIT" | "BICYCLE"> =
-  {
-    walk: "WALK",
-    transit: "TRANSIT",
-    bicycle: "BICYCLE",
-  };
+/** Contract names are the Routes `travelMode` values. */
+const TRAVEL_MODE: Record<SupportedTravelMode, SupportedTravelMode> = {
+  TRANSIT: "TRANSIT",
+  BICYCLE: "BICYCLE",
+  WALK: "WALK",
+};
 
 export interface RoutesMatrixTravelOptions {
   apiKey?: string;
@@ -46,8 +46,8 @@ interface RouteMatrixElement {
  * leg is a 1×1 computeRouteMatrix call. A request has one travelMode, so mixed
  * modes are never packed into one matrix (and never N×N).
  *
- * v1 maps walk → WALK, transit → TRANSIT, bicycle → BICYCLE. Any other mode
- * returns null without fetching.
+ * v1 sends the contract enum as Routes `travelMode`: TRANSIT, BICYCLE, WALK.
+ * Any other mode returns null without fetching.
  *
  * Fail-closed: unsupported mode, missing key, HTTP 4xx/5xx, timeout,
  * ROUTE_NOT_FOUND, element status, missing duration, or malformed body → null.
@@ -107,7 +107,7 @@ export class RoutesMatrixTravelCalculator implements TravelCalculator {
         destinations: [waypoint(leg.to!)],
         travelMode: TRAVEL_MODE[leg.mode],
       };
-      if (leg.mode === "transit" && leg.departureTime) {
+      if (leg.mode === "TRANSIT" && leg.departureTime) {
         body.departureTime = leg.departureTime;
       }
 
@@ -153,7 +153,7 @@ function memoKey(leg: TravelLeg & { mode: SupportedTravelMode }): string {
     from: leg.from,
     to: leg.to,
     mode: leg.mode,
-    departureTime: leg.mode === "transit" ? (leg.departureTime ?? null) : null,
+    departureTime: leg.mode === "TRANSIT" ? (leg.departureTime ?? null) : null,
   });
 }
 
