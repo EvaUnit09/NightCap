@@ -6,6 +6,11 @@ export interface TravelLeg {
   from: { lat: number; lng: number } | null;
   to: { lat: number; lng: number } | null;
   mode: "walk" | "transit" | "rideshare";
+  /**
+   * RFC-3339 departure for TRANSIT / DRIVE. The originating stop's end time.
+   * Omitted for WALK. Do not pair with routingPreference — that leaves Essentials.
+   */
+  departureTime?: string;
 }
 
 /**

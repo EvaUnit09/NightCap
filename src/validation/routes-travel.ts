@@ -35,9 +35,9 @@ interface RouteMatrixElement {
 }
 
 /**
- * Production travel calculator. Batches same-mode legs into one
- * computeRouteMatrix call. TRANSIT is supported on this endpoint
- * (https://developers.google.com/maps/documentation/routes/transit-rm).
+ * Production travel calculator. One billed element per hop: each leg is a
+ * 1×1 computeRouteMatrix call (origins.length × destinations.length = 1).
+ * TRANSIT is limited to 100 elements per request; 1×1 stays at 1.
  *
  * Fail-closed: missing key, HTTP 4xx/5xx, timeout, ROUTE_NOT_FOUND,
  * element status, missing duration, or malformed body → null for those legs.
@@ -61,40 +61,35 @@ export class RoutesMatrixTravelCalculator implements TravelCalculator {
       return results;
     }
 
-    const groups = new Map<TravelLeg["mode"], number[]>();
-    for (const [index, leg] of legs.entries()) {
-      if (!leg.from || !leg.to) {
-        continue;
-      }
-      const list = groups.get(leg.mode) ?? [];
-      list.push(index);
-      groups.set(leg.mode, list);
-    }
-
     await Promise.all(
-      [...groups.entries()].map(async ([mode, indices]) => {
-        const minutes = await this.matrixForMode(
-          mode,
-          indices.map((index) => legs[index]!)
-        );
-        for (const [offset, index] of indices.entries()) {
-          results[index] = minutes[offset] ?? null;
+      legs.map(async (leg, index) => {
+        if (!leg.from || !leg.to) {
+          return;
         }
+        results[index] = await this.matrixForLeg(leg);
       })
     );
 
     return results;
   }
 
-  private async matrixForMode(
-    mode: TravelLeg["mode"],
-    legs: TravelLeg[]
-  ): Promise<Array<number | null>> {
-    const out: Array<number | null> = legs.map(() => null);
+  private async matrixForLeg(leg: TravelLeg): Promise<number | null> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
 
     try {
+      const body: Record<string, unknown> = {
+        origins: [waypoint(leg.from!)],
+        destinations: [waypoint(leg.to!)],
+        travelMode: TRAVEL_MODE[leg.mode],
+      };
+      if (
+        (leg.mode === "transit" || leg.mode === "rideshare") &&
+        leg.departureTime
+      ) {
+        body.departureTime = leg.departureTime;
+      }
+
       const response = await this.fetchImpl(ROUTES_MATRIX_URL, {
         method: "POST",
         headers: {
@@ -102,35 +97,30 @@ export class RoutesMatrixTravelCalculator implements TravelCalculator {
           "X-Goog-Api-Key": this.apiKey!,
           "X-Goog-FieldMask": ROUTES_ESSENTIALS_FIELD_MASK,
         },
-        body: JSON.stringify({
-          origins: legs.map((leg) => waypoint(leg.from!)),
-          destinations: legs.map((leg) => waypoint(leg.to!)),
-          travelMode: TRAVEL_MODE[mode],
-        }),
+        body: JSON.stringify(body),
         signal: controller.signal,
       });
 
       if (!response.ok) {
-        return out;
+        return null;
       }
 
-      const body: unknown = await response.json();
-      const elements = normalizeElements(body);
+      const parsed: unknown = await response.json();
+      const elements = normalizeElements(parsed);
       if (elements === null) {
-        return out;
+        return null;
       }
 
-      for (const element of elements) {
-        const origin = element.originIndex;
-        const dest = element.destinationIndex;
-        if (origin !== dest || origin === undefined || origin < 0 || origin >= legs.length) {
-          continue;
-        }
-        out[origin] = minutesFromElement(element);
+      const element = elements.find(
+        (item) =>
+          (item.originIndex ?? 0) === 0 && (item.destinationIndex ?? 0) === 0
+      );
+      if (!element) {
+        return null;
       }
-      return out;
+      return minutesFromElement(element);
     } catch {
-      return out;
+      return null;
     } finally {
       clearTimeout(timer);
     }

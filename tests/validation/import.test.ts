@@ -5,9 +5,10 @@ import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import {
-  effectiveStopBounds,
-  readItineraryBounds,
-} from "../../src/validation/schema-bounds";
+  STOPS_MAX,
+  STOPS_MIN,
+  STOPS_MIN_SINGLE,
+} from "../../src/validation/bounds";
 
 describe("validator importability", () => {
   it("imports from src/validation/validator in plain Node", async () => {
@@ -36,7 +37,7 @@ describe("validator importability", () => {
     assert.equal(source.includes("validateItinerary"), false);
   });
 
-  it("imports src/validation and evaluation/index.ts under plain node", () => {
+  it("imports src/validation, evaluation/index.ts, and the validator subpath under plain node", () => {
     const script = fileURLToPath(
       new URL("./plain-node-barrels.mts", import.meta.url)
     );
@@ -52,21 +53,9 @@ describe("validator importability", () => {
     assert.match(result.stdout, /ok/);
   });
 
-  it("reads option and stop bounds from the itinerary schemas", () => {
-    const bounds = readItineraryBounds();
-    assert.ok(Number.isFinite(bounds.options.min));
-    assert.ok(Number.isFinite(bounds.options.max));
-    assert.ok(Number.isFinite(bounds.stops.min));
-    assert.ok(Number.isFinite(bounds.stops.max));
-    assert.ok(bounds.options.min <= bounds.options.max);
-    assert.ok(bounds.stops.min <= bounds.stops.max);
-  });
-
-  it("lowers the stop minimum to 1 when intent.singleStop is true", () => {
-    const withFlag = effectiveStopBounds({ singleStop: true });
-    const without = effectiveStopBounds({});
-    assert.equal(withFlag.min, 1);
-    assert.ok(without.min >= 1);
-    assert.equal(withFlag.max, without.max);
+  it("exposes stop-count constants until #8 exports them from contracts", () => {
+    assert.equal(STOPS_MIN, 2);
+    assert.equal(STOPS_MIN_SINGLE, 1);
+    assert.equal(STOPS_MAX, 4);
   });
 });

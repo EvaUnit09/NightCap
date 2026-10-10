@@ -354,6 +354,13 @@ describe("Config module", () => {
       process.env.AGENT_MAX_COST_USD_PER_TURN = "0.05";
       assert.equal(getAgentMaxCostUsdPerTurn(), 0.05);
     });
+
+    it("rejects a price range whose min is greater than max", () => {
+      process.env.PRICE_RANGE_MODERATE = "120,20";
+      assert.throws(() => getConfig(), {
+        name: "ZodError",
+      });
+    });
   });
 
   describe("Config caching", () => {

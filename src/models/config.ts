@@ -2,6 +2,11 @@ import "server-only";
 import { z } from "zod";
 
 import { MAX_TRAVEL_LEGS_PER_REQUEST_DEFAULT } from "../validation/bounds";
+import {
+  DEFAULT_PRICE_RANGES,
+  DEFAULT_TRAVEL_CAP_MINUTES,
+  DEFAULT_TRAVEL_TOLERANCE_MINUTES,
+} from "../validation/defaults";
 
 /**
  * Preprocess an environment variable: treat empty or whitespace-only strings as undefined.
@@ -13,6 +18,13 @@ function preprocessEnvVar(value: string | undefined): string | undefined {
   return trimmed === "" ? undefined : trimmed;
 }
 
+/** Inclusive heuristic per-person USD pair. Rejects min > max. */
+const priceRangeSchema = z
+  .tuple([z.number(), z.number()])
+  .refine(([min, max]) => min <= max, {
+    message: "Price range min must not exceed max",
+  });
+
 /** Parse `min,max` range env vars. Empty/whitespace → undefined (Zod default). */
 function parseRange(value: string | undefined): [number, number] | undefined {
   const raw = preprocessEnvVar(value);
@@ -21,7 +33,7 @@ function parseRange(value: string | undefined): [number, number] | undefined {
   if (parts.length !== 2 || parts.some((n) => !Number.isFinite(n))) {
     throw new Error(`Invalid price range "${raw}". Expected "min,max".`);
   }
-  return [parts[0]!, parts[1]!];
+  return priceRangeSchema.parse([parts[0]!, parts[1]!]);
 }
 
 /**
@@ -50,7 +62,11 @@ const configSchema = z.object({
   rateLimitDailySpendUsd: z.coerce.number().positive().default(5),
 
   // Validation Caps - from architecture
-  travelCapMinutes: z.coerce.number().int().positive().default(25),
+  travelCapMinutes: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(DEFAULT_TRAVEL_CAP_MINUTES),
   agentMaxToolCalls: z.coerce.number().int().positive().default(6),
   agentMaxCostUsdPerTurn: z.coerce.number().positive().default(0.03),
   repairMaxRounds: z.coerce.number().int().positive().default(2),
@@ -64,14 +80,28 @@ const configSchema = z.object({
 
   // Routes API
   routesApiTimeoutMs: z.coerce.number().int().positive().default(5000),
-  travelClaimToleranceMinutes: z.coerce.number().int().nonnegative().default(5),
+  travelClaimToleranceMinutes: z.coerce
+    .number()
+    .int()
+    .nonnegative()
+    .default(DEFAULT_TRAVEL_TOLERANCE_MINUTES),
 
-  // Price level ranges (USD, "min,max")
-  priceRangeFree: z.tuple([z.number(), z.number()]).default([0, 0]),
-  priceRangeInexpensive: z.tuple([z.number(), z.number()]).default([0, 40]),
-  priceRangeModerate: z.tuple([z.number(), z.number()]).default([20, 120]),
-  priceRangeExpensive: z.tuple([z.number(), z.number()]).default([80, 250]),
-  priceRangeVeryExpensive: z.tuple([z.number(), z.number()]).default([150, 1000]),
+  // Heuristic per-person USD ranges (not from Google). Format "min,max".
+  priceRangeFree: priceRangeSchema.default([
+    ...DEFAULT_PRICE_RANGES.PRICE_LEVEL_FREE,
+  ]),
+  priceRangeInexpensive: priceRangeSchema.default([
+    ...DEFAULT_PRICE_RANGES.PRICE_LEVEL_INEXPENSIVE,
+  ]),
+  priceRangeModerate: priceRangeSchema.default([
+    ...DEFAULT_PRICE_RANGES.PRICE_LEVEL_MODERATE,
+  ]),
+  priceRangeExpensive: priceRangeSchema.default([
+    ...DEFAULT_PRICE_RANGES.PRICE_LEVEL_EXPENSIVE,
+  ]),
+  priceRangeVeryExpensive: priceRangeSchema.default([
+    ...DEFAULT_PRICE_RANGES.PRICE_LEVEL_VERY_EXPENSIVE,
+  ]),
 });
 
 type Config = z.infer<typeof configSchema>;
@@ -208,7 +238,7 @@ export function getRateLimitDailySpendUsd(): number {
   return getConfig().rateLimitDailySpendUsd;
 }
 
-/** Get travel cap in minutes (25 by default). */
+/** Get travel cap in minutes (DEFAULT_TRAVEL_CAP_MINUTES by default). */
 export function getTravelCapMinutes(): number {
   return getConfig().travelCapMinutes;
 }
@@ -238,12 +268,15 @@ export function getRoutesApiTimeoutMs(): number {
   return getConfig().routesApiTimeoutMs;
 }
 
-/** Get claimed-vs-computed travel tolerance in minutes (5 by default). */
+/** Get claimed-vs-computed travel tolerance in minutes. */
 export function getTravelClaimToleranceMinutes(): number {
   return getConfig().travelClaimToleranceMinutes;
 }
 
-/** Get price ranges for validation. */
+/**
+ * Heuristic per-person USD ranges for PRICE_LEVEL_* checks.
+ * Not from Google. Overridable via PRICE_RANGE_* env vars.
+ */
 export function getPriceRanges(): {
   free: [number, number];
   inexpensive: [number, number];

@@ -1,27 +1,32 @@
+import { z } from "zod";
+
+import { STOPS_MAX, STOPS_MIN, STOPS_MIN_SINGLE } from "./bounds";
 import type { Candidate } from "./candidate";
 import { candidateSchema } from "./candidate";
+import { oneLineSchema } from "./common";
+import {
+  DEFAULT_PRICE_RANGES,
+  DEFAULT_TRAVEL_CAP_MINUTES,
+  DEFAULT_TRAVEL_TOLERANCE_MINUTES,
+  type PriceLevelKey,
+  type PriceRanges,
+} from "./defaults";
 import type { Intent } from "./intent";
 import { intentSchema } from "./intent";
-import type { Itinerary } from "./itinerary";
-import { itinerarySchema } from "./itinerary";
-import { effectiveStopBounds, readItineraryBounds } from "./schema-bounds";
+import { stopSchema } from "./stop";
 import type { TravelCalculator, TravelLeg } from "./travel";
 import {
   validationErrorSchema,
   type ValidationError,
 } from "./validation-error";
 
-/** Couple-night USD per stop. Overridable via `ValidatorOptions.priceRanges`. */
-export const DEFAULT_PRICE_RANGES = {
-  PRICE_LEVEL_FREE: [0, 0],
-  PRICE_LEVEL_INEXPENSIVE: [0, 40],
-  PRICE_LEVEL_MODERATE: [20, 120],
-  PRICE_LEVEL_EXPENSIVE: [80, 250],
-  PRICE_LEVEL_VERY_EXPENSIVE: [150, 1000],
-} as const satisfies Record<string, readonly [number, number]>;
-
-export type PriceLevelKey = keyof typeof DEFAULT_PRICE_RANGES;
-export type PriceRanges = Partial<Record<PriceLevelKey, readonly [number, number]>>;
+export {
+  DEFAULT_PRICE_RANGES,
+  DEFAULT_TRAVEL_CAP_MINUTES,
+  DEFAULT_TRAVEL_TOLERANCE_MINUTES,
+  type PriceLevelKey,
+  type PriceRanges,
+} from "./defaults";
 
 export interface ValidatorInput {
   intent: unknown;
@@ -30,21 +35,26 @@ export interface ValidatorInput {
 }
 
 export interface ValidatorOptions {
-  /** Max travel minutes between stops. Default 25. */
+  /** Max travel minutes between stops. Default DEFAULT_TRAVEL_CAP_MINUTES. */
   travelCapMinutes?: number;
   /**
    * Travel calculator. No production default.
    * Omit it (or return null/NaN/Infinity / throw) and every hop fails closed.
    */
   travelCalculator?: TravelCalculator;
-  /** |claimed − computed| above this emits travel_too_long. Default 5. */
+  /** |claimed − computed| above this emits travel_mismatch. */
   travelToleranceMinutes?: number;
-  /** Inclusive USD ranges per PRICE_LEVEL_*. UNSPECIFIED skips the check. */
+  /**
+   * Inclusive heuristic per-person USD ranges per PRICE_LEVEL_*.
+   * Not from Google. UNSPECIFIED skips the check.
+   */
   priceRanges?: PriceRanges;
 }
 
 const MESSAGE_MAX = 300;
 const NYC_TIME_ZONE = "America/New_York";
+const OPTIONS_MIN = 2;
+const OPTIONS_MAX = 3;
 
 interface PendingTravel {
   optionIndex: number;
@@ -56,7 +66,64 @@ interface PendingTravel {
   from: { lat: number; lng: number } | null;
   to: { lat: number; lng: number } | null;
   mode: TravelLeg["mode"];
+  departureTime: string;
 }
+
+const validationOptionSchema = z
+  .object({
+    theme: oneLineSchema(80),
+    stops: z.array(stopSchema).min(STOPS_MIN_SINGLE).max(STOPS_MAX),
+  })
+  .strict()
+  .superRefine((option, ctx) => {
+    option.stops.forEach((stop, index) => {
+      const isLast = index === option.stops.length - 1;
+      if (isLast && stop.travelToNext !== null) {
+        ctx.addIssue({
+          code: "custom",
+          message: "The last stop has no travel to a next stop",
+          path: ["stops", index, "travelToNext"],
+        });
+      }
+      if (!isLast && stop.travelToNext === null) {
+        ctx.addIssue({
+          code: "custom",
+          message: "Every stop except the last needs travel to the next stop",
+          path: ["stops", index, "travelToNext"],
+        });
+      }
+      const previous = option.stops[index - 1];
+      if (previous && Date.parse(stop.start) < Date.parse(previous.end)) {
+        ctx.addIssue({
+          code: "custom",
+          message: "Stops must be in chronological order",
+          path: ["stops", index, "start"],
+        });
+      }
+    });
+  });
+
+const validationItinerarySchema = z
+  .object({
+    options: z.array(validationOptionSchema).min(OPTIONS_MIN).max(OPTIONS_MAX),
+  })
+  .strict()
+  .superRefine((itinerary, ctx) => {
+    const seen = new Set<string>();
+    itinerary.options.forEach((option, optionIndex) => {
+      option.stops.forEach((stop, stopIndex) => {
+        if (seen.has(stop.placeId)) {
+          ctx.addIssue({
+            code: "custom",
+            message: "A venue cannot be shared between options",
+            path: ["options", optionIndex, "stops", stopIndex, "placeId"],
+          });
+          return;
+        }
+        seen.add(stop.placeId);
+      });
+    });
+  });
 
 /**
  * Deterministic itinerary validator.
@@ -66,7 +133,8 @@ interface PendingTravel {
  *
  * Checks: invented venue, operational, open in America/New_York, name match,
  * budget (every stop's cost), price-level plausibility, travel
- * max(claimed, computed) ≤ cap, claimed-vs-computed tolerance.
+ * max(claimed, computed) ≤ cap, claimed-vs-computed tolerance,
+ * intent/itinerary singleStop agreement.
  *
  * Callable from the pipeline, repair loop, agent `validate_itinerary` tool,
  * and the eval runner via `src/validation/validator`.
@@ -75,33 +143,38 @@ export async function validateItinerary(
   input: ValidatorInput,
   options: ValidatorOptions = {}
 ): Promise<ValidationError[]> {
-  const intentParse = intentSchema.safeParse(input.intent);
+  const intentSingleStop = readOptionalBoolean(input.intent, "singleStop") ?? false;
+  const itinerarySingleStop =
+    readOptionalBoolean(input.itinerary, "singleStop") ?? false;
+
+  const intentParse = intentSchema.safeParse(omitKey(input.intent, "singleStop"));
   if (!intentParse.success) {
     return [
       emitError({
-        code: "not_found",
-        message: `Invalid intent format: ${intentParse.error.message}`,
+        code: "invalid_format",
+        message: `Invalid intent: ${formatZodError(intentParse.error)}`,
       }),
     ];
   }
 
-  const itineraryParse = itinerarySchema.safeParse(input.itinerary);
+  const itineraryParse = validationItinerarySchema.safeParse(
+    omitKey(input.itinerary, "singleStop")
+  );
   if (!itineraryParse.success) {
     return [
       emitError({
-        code: "not_found",
-        message: `Invalid itinerary format: ${itineraryParse.error.message}`,
+        code: "invalid_format",
+        message: `Invalid itinerary: ${formatZodError(itineraryParse.error)}`,
       }),
     ];
   }
 
   const intent: Intent = intentParse.data;
-  const itinerary: Itinerary = itineraryParse.data;
-  const planBounds = readItineraryBounds();
-  const stopBounds = effectiveStopBounds(intent);
+  const itinerary = itineraryParse.data;
   const candidates = parseCandidates(input.candidates);
-  const travelCapMinutes = options.travelCapMinutes ?? 25;
-  const travelToleranceMinutes = options.travelToleranceMinutes ?? 5;
+  const travelCapMinutes = options.travelCapMinutes ?? DEFAULT_TRAVEL_CAP_MINUTES;
+  const travelToleranceMinutes =
+    options.travelToleranceMinutes ?? DEFAULT_TRAVEL_TOLERANCE_MINUTES;
   const priceRanges = { ...DEFAULT_PRICE_RANGES, ...options.priceRanges };
 
   const candidateMap = new Map(
@@ -110,27 +183,23 @@ export async function validateItinerary(
   const errors: ValidationError[] = [];
   const pendingTravel: PendingTravel[] = [];
 
-  if (
-    itinerary.options.length < planBounds.options.min ||
-    itinerary.options.length > planBounds.options.max
-  ) {
+  if (intentSingleStop !== itinerarySingleStop) {
     errors.push(
       emitError({
-        code: "not_found",
-        message: `Itinerary must have ${planBounds.options.min}–${planBounds.options.max} options`,
+        code: "invalid_format",
+        message: `itinerary.singleStop (${itinerarySingleStop}) does not match intent.singleStop (${intentSingleStop})`,
       })
     );
   }
 
+  const minStops = intentSingleStop ? STOPS_MIN_SINGLE : STOPS_MIN;
+
   for (const [optionIndex, option] of itinerary.options.entries()) {
-    if (
-      option.stops.length < stopBounds.min ||
-      option.stops.length > stopBounds.max
-    ) {
+    if (option.stops.length < minStops || option.stops.length > STOPS_MAX) {
       errors.push(
         emitError({
-          code: "not_found",
-          message: `Option ${optionIndex + 1} must have ${stopBounds.min}–${stopBounds.max} stops`,
+          code: "invalid_format",
+          message: `Option ${optionIndex + 1} must have ${minStops}–${STOPS_MAX} stops`,
           optionIndex,
         })
       );
@@ -153,10 +222,10 @@ export async function validateItinerary(
           })
         );
       } else {
-        if (stop.name !== candidate.name) {
+        if (!namesMatch(stop.name, candidate.name)) {
           errors.push(
             emitError({
-              code: "not_found",
+              code: "name_mismatch",
               message: `Stop name "${stop.name}" does not match candidate "${candidate.name}"`,
               optionIndex,
               stopIndex,
@@ -227,6 +296,7 @@ export async function validateItinerary(
           from: candidate?.location ?? null,
           to: nextCandidate?.location ?? null,
           mode: stop.travelToNext.mode,
+          departureTime: stop.end,
         });
       }
     }
@@ -288,8 +358,8 @@ function implausibleCostError(
     return null;
   }
   return emitError({
-    code: "over_budget",
-    message: `Claimed $${claimedUsd} is outside ${level} range $${min}–$${max}`,
+    code: "implausible_cost",
+    message: `Claimed $${claimedUsd} is outside ${level} range $${min}–$${max} (heuristic, per person)`,
     optionIndex,
     stopIndex,
     placeId: candidate.placeId,
@@ -310,6 +380,7 @@ async function computeTravel(
     from: leg.from,
     to: leg.to,
     mode: leg.mode,
+    departureTime: leg.departureTime,
   }));
   try {
     const result = await calculator.calculateMinutes(legs);
@@ -332,7 +403,7 @@ function applyTravelRules(
   if (leg.from === null || leg.to === null) {
     errors.push(
       emitError({
-        code: "travel_too_long",
+        code: "travel_unverified",
         message: `Cannot compute travel from ${leg.fromName} to ${leg.toName}: missing coordinates`,
         optionIndex: leg.optionIndex,
         stopIndex: leg.stopIndex,
@@ -351,7 +422,7 @@ function applyTravelRules(
   if (invalid) {
     errors.push(
       emitError({
-        code: "travel_too_long",
+        code: "travel_unverified",
         message: `Travel calculation failed from ${leg.fromName} to ${leg.toName}`,
         optionIndex: leg.optionIndex,
         stopIndex: leg.stopIndex,
@@ -377,7 +448,7 @@ function applyTravelRules(
   if (Math.abs(leg.claimedMinutes - computed) > travelToleranceMinutes) {
     errors.push(
       emitError({
-        code: "travel_too_long",
+        code: "travel_mismatch",
         message: `Travel from ${leg.fromName} to ${leg.toName}: claimed ${leg.claimedMinutes} min vs computed ${computed} min (tolerance: ${travelToleranceMinutes} min)`,
         optionIndex: leg.optionIndex,
         stopIndex: leg.stopIndex,
@@ -400,6 +471,38 @@ function truncateMessage(message: string): string {
     return message;
   }
   return `${message.slice(0, MESSAGE_MAX - 3)}...`;
+}
+
+function formatZodError(error: z.ZodError): string {
+  return z.prettifyError(error);
+}
+
+function namesMatch(left: string, right: string): boolean {
+  return normalizeName(left) === normalizeName(right);
+}
+
+function normalizeName(name: string): string {
+  return name
+    .replace(/[\u2018\u2019\u201A\u201B]/g, "'")
+    .replace(/[\u201C\u201D\u201E\u201F]/g, '"')
+    .trim()
+    .toLowerCase();
+}
+
+function readOptionalBoolean(value: unknown, key: string): boolean | undefined {
+  if (value === null || typeof value !== "object" || !(key in value)) {
+    return undefined;
+  }
+  const field = (value as Record<string, unknown>)[key];
+  return typeof field === "boolean" ? field : undefined;
+}
+
+function omitKey(value: unknown, key: string): unknown {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return value;
+  }
+  const { [key]: _removed, ...rest } = value as Record<string, unknown>;
+  return rest;
 }
 
 /**

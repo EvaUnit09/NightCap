@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { z } from "zod";
 
-import type { Candidate } from "../../src/validation/candidate";
-import type { Intent } from "../../src/validation/intent";
-import type { Itinerary } from "../../src/validation/itinerary";
+import { candidateSchema } from "../../src/validation/candidate";
+import { intentSchema } from "../../src/validation/intent";
+import { itinerarySchema } from "../../src/validation/itinerary";
 import type { TravelCalculator } from "../../src/validation/travel";
 import { validationErrorSchema } from "../../src/validation/validation-error";
 import { validateItinerary } from "../../src/validation/validator";
@@ -12,7 +13,7 @@ const THU_HOURS = [
   { open: { day: 4, hour: 17, minute: 0 }, close: { day: 4, hour: 23, minute: 0 } },
 ];
 
-const intent: Intent = {
+const intent: z.input<typeof intentSchema> = {
   area: "Manhattan",
   window: {
     start: "2026-10-15T19:00:00-04:00",
@@ -27,8 +28,8 @@ const intent: Intent = {
 function candidate(
   placeId: string,
   name: string,
-  overrides: Partial<Candidate> = {}
-): Candidate {
+  overrides: Partial<z.input<typeof candidateSchema>> = {}
+): z.input<typeof candidateSchema> {
   return {
     placeId,
     name,
@@ -47,7 +48,7 @@ function candidate(
 function twoOptionPlan(overrides?: {
   costs?: [number, number, number, number];
   travelMinutes?: number;
-}): Itinerary {
+}): z.input<typeof itinerarySchema> {
   const costs = overrides?.costs ?? [40, 80, 40, 80];
   const minutes = overrides?.travelMinutes ?? 10;
   return {
@@ -102,7 +103,7 @@ function twoOptionPlan(overrides?: {
   };
 }
 
-function fourCandidates(): Candidate[] {
+function fourCandidates(): Array<z.input<typeof candidateSchema>> {
   return [
     candidate("ChIJ1", "Venue One"),
     candidate("ChIJ2", "Venue Two", { stopType: "dinner" }),
@@ -308,7 +309,7 @@ describe("validateItinerary", () => {
     assert.ok(
       errors.some(
         (e) =>
-          e.code === "travel_too_long" &&
+          e.code === "travel_mismatch" &&
           e.message.includes("claimed 10") &&
           e.message.includes("computed 20")
       )
@@ -320,7 +321,7 @@ describe("validateItinerary", () => {
       { intent, candidates: fourCandidates(), itinerary: twoOptionPlan() },
       { travelCapMinutes: 25, travelCalculator: calc(null) }
     );
-    assert.ok(errors.some((e) => e.code === "travel_too_long"));
+    assert.ok(errors.some((e) => e.code === "travel_unverified"));
   });
 
   it("fails closed when the calculator throws", async () => {
@@ -335,7 +336,7 @@ describe("validateItinerary", () => {
         },
       }
     );
-    assert.ok(errors.some((e) => e.code === "travel_too_long"));
+    assert.ok(errors.some((e) => e.code === "travel_unverified"));
   });
 
   it("fails closed when a calculator is omitted", async () => {
@@ -344,7 +345,7 @@ describe("validateItinerary", () => {
       candidates: fourCandidates(),
       itinerary: twoOptionPlan(),
     });
-    assert.ok(errors.some((e) => e.code === "travel_too_long"));
+    assert.ok(errors.some((e) => e.code === "travel_unverified"));
   });
 
   it("fails closed next to an invented stop", async () => {
@@ -359,19 +360,36 @@ describe("validateItinerary", () => {
     assert.ok(
       errors.some(
         (e) =>
-          e.code === "travel_too_long" && e.message.includes("missing coordinates")
+          e.code === "travel_unverified" && e.message.includes("missing coordinates")
       )
     );
   });
 
-  it("flags a name mismatch as not_found", async () => {
+  it("flags a name mismatch as name_mismatch", async () => {
     const itinerary = twoOptionPlan();
     itinerary.options[0]!.stops[0]!.name = "Wrong Name";
     const errors = await validateItinerary(
       { intent, candidates: fourCandidates(), itinerary },
       { travelCapMinutes: 25, travelCalculator: calc(10) }
     );
-    assert.ok(errors.some((e) => e.code === "not_found" && e.message.includes("Wrong Name")));
+    assert.ok(errors.some((e) => e.code === "name_mismatch" && e.message.includes("Wrong Name")));
+  });
+
+  it("matches names case-insensitively and normalizes curly quotes", async () => {
+    const itinerary = twoOptionPlan();
+    itinerary.options[0]!.stops[0]!.name = "venue one";
+    const candidates = fourCandidates();
+    candidates[1] = { ...candidates[1]!, name: "Venue Two\u2019s" };
+    itinerary.options[0]!.stops[1]!.name = "Venue Two's";
+    const errors = await validateItinerary(
+      { intent, candidates, itinerary },
+      { travelCapMinutes: 25, travelCalculator: calc(10) }
+    );
+    assert.equal(
+      errors.some((e) => e.code === "name_mismatch"),
+      false,
+      JSON.stringify(errors)
+    );
   });
 
   it("flags implausible claimed cost for a price level", async () => {
@@ -388,7 +406,7 @@ describe("validateItinerary", () => {
     assert.ok(
       errors.some(
         (e) =>
-          e.code === "over_budget" &&
+          e.code === "implausible_cost" &&
           e.message.includes("PRICE_LEVEL_INEXPENSIVE") &&
           e.stopIndex === 0
       )
@@ -421,7 +439,9 @@ describe("validateItinerary", () => {
     assert.ok(Array.isArray(result));
     assert.ok(result[0]);
     assert.doesNotThrow(() => validationErrorSchema.parse(result[0]));
-    assert.equal(result[0]!.code, "not_found");
+    assert.equal(result[0]!.code, "invalid_format");
+    assert.doesNotMatch(result[0]!.message, /\[\s*\{/);
+    assert.match(result[0]!.message, /options/i);
   });
 
   it("returns a schema-valid error for a 4-option itinerary instead of throwing", async () => {
@@ -447,7 +467,7 @@ describe("validateItinerary", () => {
       candidates: fourCandidates(),
       itinerary: extra,
     });
-    assert.equal(result[0]!.code, "not_found");
+    assert.equal(result[0]!.code, "invalid_format");
     assert.doesNotThrow(() => validationErrorSchema.parse(result[0]));
   });
 
@@ -480,4 +500,120 @@ describe("validateItinerary", () => {
       assert.doesNotThrow(() => validationErrorSchema.parse(error));
     }
   });
+
+  it("flags intent.singleStop false vs itinerary.singleStop true with 1 stop", async () => {
+    const errors = await validateItinerary(
+      {
+        intent: { ...intent, singleStop: false },
+        candidates: fourCandidates(),
+        itinerary: oneStopPlan(true),
+      },
+      { travelCapMinutes: 25, travelCalculator: calc(10) }
+    );
+    assert.ok(
+      errors.some(
+        (e) =>
+          e.code === "invalid_format" &&
+          e.message.includes("itinerary.singleStop") &&
+          e.message.includes("intent.singleStop")
+      ),
+      JSON.stringify(errors)
+    );
+  });
+
+  it("flags intent.singleStop true vs itinerary.singleStop false with 1 stop", async () => {
+    const errors = await validateItinerary(
+      {
+        intent: { ...intent, singleStop: true },
+        candidates: fourCandidates(),
+        itinerary: oneStopPlan(false),
+      },
+      { travelCapMinutes: 25, travelCalculator: calc(10) }
+    );
+    assert.ok(
+      errors.some(
+        (e) =>
+          e.code === "invalid_format" &&
+          e.message.includes("itinerary.singleStop") &&
+          e.message.includes("intent.singleStop")
+      ),
+      JSON.stringify(errors)
+    );
+  });
+
+  it("flags intent.singleStop false vs itinerary.singleStop true with 2 stops", async () => {
+    const errors = await validateItinerary(
+      {
+        intent: { ...intent, singleStop: false },
+        candidates: fourCandidates(),
+        itinerary: { ...twoOptionPlan(), singleStop: true },
+      },
+      { travelCapMinutes: 25, travelCalculator: calc(10) }
+    );
+    assert.ok(
+      errors.some(
+        (e) =>
+          e.code === "invalid_format" &&
+          e.message.includes("itinerary.singleStop") &&
+          e.message.includes("intent.singleStop")
+      ),
+      JSON.stringify(errors)
+    );
+  });
+
+  it("flags intent.singleStop true vs itinerary.singleStop false with 2 stops", async () => {
+    const errors = await validateItinerary(
+      {
+        intent: { ...intent, singleStop: true },
+        candidates: fourCandidates(),
+        itinerary: { ...twoOptionPlan(), singleStop: false },
+      },
+      { travelCapMinutes: 25, travelCalculator: calc(10) }
+    );
+    assert.ok(
+      errors.some(
+        (e) =>
+          e.code === "invalid_format" &&
+          e.message.includes("itinerary.singleStop") &&
+          e.message.includes("intent.singleStop")
+      ),
+      JSON.stringify(errors)
+    );
+  });
 });
+
+function oneStopPlan(singleStop: boolean) {
+  return {
+    singleStop,
+    options: [
+      {
+        theme: "Solo West",
+        stops: [
+          {
+            placeId: "ChIJ1",
+            name: "Venue One",
+            start: "2026-10-15T19:00:00-04:00",
+            end: "2026-10-15T20:00:00-04:00",
+            estimatedCostUsd: 40,
+            why: "Drinks",
+            travelToNext: null,
+          },
+        ],
+      },
+      {
+        theme: "Solo East",
+        stops: [
+          {
+            placeId: "ChIJ3",
+            name: "Venue Three",
+            start: "2026-10-15T19:00:00-04:00",
+            end: "2026-10-15T20:00:00-04:00",
+            estimatedCostUsd: 40,
+            why: "Drinks",
+            travelToNext: null,
+          },
+        ],
+      },
+    ],
+  };
+}

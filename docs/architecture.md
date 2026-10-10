@@ -86,9 +86,8 @@ wrapper are shared: the pipeline, repair loop, agent, and eval runner call the s
 **Out of v1:** embeddings and a review-text store, fine-tuning, a dynamic model router,
 friend-group mode. Opus 5 is an offline judge only. Anonymous use stays the default.
 
-**Open decision:** the scope requires travel minutes and a ≤ 25 min check, and does not name
-the source. Pick Routes, Distance Matrix, or a documented estimate, and record it in the
-decision log before the validator is treated as final.
+**Travel minutes:** Google Routes `computeRouteMatrix` Essentials, one billed element
+per hop. See decision log #25.
 
 **Cut order if 2026-10-25 slips:** (1) model comparison reduced to 2 models; (2) route map;
 (3) share links. The refinement agent stays.
