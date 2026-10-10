@@ -1,52 +1,45 @@
 -- Nightcap Database Schema
 -- Initial migration for requests, itineraries, feedback, places_cache, and saved_plans
 -- Implements data model from docs/architecture.md §1 Contracts action #4
--- 
--- Google Places API Caching Compliance:
--- Per Google Maps Platform Terms (https://cloud.google.com/maps-platform/terms/maps-service-terms):
--- - place_id: May be cached indefinitely (refresh recommended after 12 months)
--- - lat/lng coordinates: May be cached for up to 30 consecutive days
--- - Other content: Stored with 24-hour TTL (PLACES_CACHE_TTL_HOURS) for operational use,
---   which is significantly more conservative than Google's limits and aligns with
---   temporary caching for real-time query optimization
 --
--- The expires_at mechanism ensures automatic expiration; application code must not
--- serve expired rows. Consider adding a cleanup job for rows where expires_at < now().
+-- Google Places API caching (Noah, 2026-10-10):
+--   places_cache stores only terms-permitted fields:
+--     - place_id: may be stored indefinitely (refresh recommended after 12 months)
+--     - lat/lng: may be stored at most 30 consecutive calendar days via coords_expires_at
+--   There is no payload column. Hours, business_status, price_level, rating, and
+--   other Places content are not cached here.
+--   Venue names inside itineraries.stops are a separate storage question; see the
+--   column comment. Do not treat this table as a general Places response cache.
+--
+-- Share slugs are generated server-side with a CSPRNG (e.g. crypto.randomBytes).
+-- Application code must not invent guessable slugs.
 
--- Enable UUID extension for ID generation
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+-- gen_random_uuid() is built in on Postgres 13+ (no uuid-ossp).
 
 -- =============================================================================
--- REQUESTS TABLE
+-- REQUESTS
 -- =============================================================================
--- Stores user requests with PII-redacted text and parsed intent
-CREATE TABLE requests (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+CREATE TABLE public.requests (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   redacted_text TEXT NOT NULL,
   parsed_intent JSONB NOT NULL,
   client_hash TEXT,
-  
-  -- Indexes for common queries
   CONSTRAINT requests_redacted_text_not_empty CHECK (LENGTH(TRIM(redacted_text)) > 0)
 );
 
-CREATE INDEX idx_requests_created_at ON requests(created_at DESC);
-CREATE INDEX idx_requests_client_hash ON requests(client_hash) WHERE client_hash IS NOT NULL;
+CREATE INDEX idx_requests_created_at ON public.requests (created_at DESC);
+CREATE INDEX idx_requests_client_hash ON public.requests (client_hash) WHERE client_hash IS NOT NULL;
 
--- RLS: Anonymous read-only for now; write is server-side only
-ALTER TABLE requests ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "Requests are viewable by everyone" ON requests
-  FOR SELECT USING (true);
+ALTER TABLE public.requests ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.requests FORCE ROW LEVEL SECURITY;
 
 -- =============================================================================
--- ITINERARIES TABLE
+-- ITINERARIES
 -- =============================================================================
--- Stores generated itinerary options with validation results and metadata
-CREATE TABLE itineraries (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  request_id UUID NOT NULL REFERENCES requests(id) ON DELETE CASCADE,
+CREATE TABLE public.itineraries (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  request_id UUID NOT NULL REFERENCES public.requests (id) ON DELETE CASCADE,
   option_index INTEGER NOT NULL,
   stops JSONB NOT NULL,
   valid BOOLEAN NOT NULL DEFAULT false,
@@ -56,171 +49,213 @@ CREATE TABLE itineraries (
   cost_usd DECIMAL(10, 6) NOT NULL DEFAULT 0,
   latency_ms INTEGER NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  
-  -- Constraints
-  CONSTRAINT itineraries_option_index_positive CHECK (option_index >= 0),
+  CONSTRAINT itineraries_option_index_range CHECK (option_index BETWEEN 0 AND 2),
   CONSTRAINT itineraries_cost_non_negative CHECK (cost_usd >= 0),
   CONSTRAINT itineraries_latency_non_negative CHECK (latency_ms >= 0),
   CONSTRAINT itineraries_unique_option_per_request UNIQUE (request_id, option_index)
 );
 
-CREATE INDEX idx_itineraries_request_id ON itineraries(request_id);
-CREATE INDEX idx_itineraries_valid ON itineraries(valid);
-CREATE INDEX idx_itineraries_created_at ON itineraries(created_at DESC);
+CREATE INDEX idx_itineraries_valid ON public.itineraries (valid);
+CREATE INDEX idx_itineraries_created_at ON public.itineraries (created_at DESC);
 
--- RLS: Anonymous read-only for now; write is server-side only
-ALTER TABLE itineraries ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "Itineraries are viewable by everyone" ON itineraries
-  FOR SELECT USING (true);
+ALTER TABLE public.itineraries ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.itineraries FORCE ROW LEVEL SECURITY;
 
 -- =============================================================================
--- FEEDBACK TABLE
+-- FEEDBACK
 -- =============================================================================
--- Collects user feedback on itineraries: thumbs, intent signals, and issue reports
-CREATE TABLE feedback (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  itinerary_id UUID NOT NULL REFERENCES itineraries(id) ON DELETE CASCADE,
+CREATE TABLE public.feedback (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  itinerary_id UUID NOT NULL REFERENCES public.itineraries (id) ON DELETE CASCADE,
   thumbs SMALLINT CHECK (thumbs IN (-1, 1)),
   would_go BOOLEAN,
   did_go BOOLEAN,
   new_to_you JSONB,
   closed_report_place_id TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  
-  -- At least one feedback field must be provided
   CONSTRAINT feedback_has_content CHECK (
-    thumbs IS NOT NULL OR
-    would_go IS NOT NULL OR
-    did_go IS NOT NULL OR
-    new_to_you IS NOT NULL OR
-    closed_report_place_id IS NOT NULL
+    thumbs IS NOT NULL
+    OR would_go IS NOT NULL
+    OR did_go IS NOT NULL
+    OR new_to_you IS NOT NULL
+    OR closed_report_place_id IS NOT NULL
   )
 );
 
-CREATE INDEX idx_feedback_itinerary_id ON feedback(itinerary_id);
-CREATE INDEX idx_feedback_closed_report ON feedback(closed_report_place_id) WHERE closed_report_place_id IS NOT NULL;
-CREATE INDEX idx_feedback_created_at ON feedback(created_at DESC);
+CREATE INDEX idx_feedback_itinerary_id ON public.feedback (itinerary_id);
+CREATE INDEX idx_feedback_closed_report ON public.feedback (closed_report_place_id)
+  WHERE closed_report_place_id IS NOT NULL;
+CREATE INDEX idx_feedback_created_at ON public.feedback (created_at DESC);
 
--- RLS: Anonymous feedback submission allowed; read is server-side only
-ALTER TABLE feedback ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "Anyone can submit feedback" ON feedback
-  FOR INSERT WITH CHECK (true);
+ALTER TABLE public.feedback ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.feedback FORCE ROW LEVEL SECURITY;
 
 -- =============================================================================
--- PLACES_CACHE TABLE
+-- PLACES_CACHE
 -- =============================================================================
--- Caches Google Places API responses in compliance with Google's Terms of Service
--- 
--- Google Places API Caching Policy Compliance:
--- ✓ place_id: Cacheable indefinitely (Google recommends refresh if >12 months old)
--- ✓ lat/lng: Cacheable for up to 30 consecutive calendar days
--- ⚠ Other fields (business_status, opening_hours, price_level, rating, etc.):
---   Stored in payload JSONB with 24-hour TTL for operational query optimization.
---   This conservative approach (24h << 30d limit for coordinates) ensures compliance
---   while supporting the real-time retrieval pipeline.
---
--- Application code MUST NOT serve rows where expires_at < NOW().
--- The expires_at timestamp is set based on PLACES_CACHE_TTL_HOURS (default: 24h).
-CREATE TABLE places_cache (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  
-  -- Primary cache key (place_id for Place Details, query hash for Text/Nearby Search)
+-- Terms-permitted fields only. No payload of hours / status / price / rating.
+CREATE TABLE public.places_cache (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   cache_key TEXT NOT NULL UNIQUE,
-  
-  -- Google Place ID (cacheable indefinitely per Google's terms)
   place_id TEXT,
-  
-  -- Coordinates (cacheable for 30 days per Google's terms)
   lat DECIMAL(10, 8),
   lng DECIMAL(11, 8),
-  
-  -- Additional API response data stored with 24-hour TTL
-  -- Fields may include: business_status, opening_hours, price_level, rating,
-  -- user_ratings_total, types, formatted_address, etc.
-  -- Application code interprets this based on the response structure.
-  payload JSONB NOT NULL,
-  
-  -- Cache timing
   fetched_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  expires_at TIMESTAMPTZ NOT NULL,
-  
-  -- Enforce expiration policy
-  CONSTRAINT places_cache_valid_expiration CHECK (expires_at > fetched_at)
+  coords_expires_at TIMESTAMPTZ,
+  CONSTRAINT places_cache_coords_pair CHECK (
+    (lat IS NULL AND lng IS NULL AND coords_expires_at IS NULL)
+    OR (lat IS NOT NULL AND lng IS NOT NULL AND coords_expires_at IS NOT NULL)
+  ),
+  CONSTRAINT places_cache_coords_ttl CHECK (
+    coords_expires_at IS NULL
+    OR (
+      coords_expires_at > fetched_at
+      AND coords_expires_at <= fetched_at + INTERVAL '30 days'
+    )
+  )
 );
 
-CREATE INDEX idx_places_cache_cache_key ON places_cache(cache_key);
-CREATE INDEX idx_places_cache_place_id ON places_cache(place_id) WHERE place_id IS NOT NULL;
-CREATE INDEX idx_places_cache_expires_at ON places_cache(expires_at);
+CREATE INDEX idx_places_cache_place_id ON public.places_cache (place_id)
+  WHERE place_id IS NOT NULL;
+CREATE INDEX idx_places_cache_coords_expires_at ON public.places_cache (coords_expires_at)
+  WHERE coords_expires_at IS NOT NULL;
 
--- RLS: Cache is server-side only; no direct user access
-ALTER TABLE places_cache ENABLE ROW LEVEL SECURITY;
-
--- No public policies; server-side code bypasses RLS with service role
+ALTER TABLE public.places_cache ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.places_cache FORCE ROW LEVEL SECURITY;
 
 -- =============================================================================
--- SAVED_PLANS TABLE
+-- SAVED_PLANS
 -- =============================================================================
--- Allows authenticated users (via Supabase magic link) to save and share itineraries
-CREATE TABLE saved_plans (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  user_id UUID NOT NULL,
-  itinerary_id UUID NOT NULL REFERENCES itineraries(id) ON DELETE CASCADE,
+-- ON DELETE RESTRICT on itinerary_id: deleting a request/itinerary must not
+-- wipe a saved plan a user may have shared. Reload keeps working because the
+-- itinerary row stays until the saved_plan is removed first.
+CREATE TABLE public.saved_plans (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES auth.users (id) ON DELETE CASCADE,
+  itinerary_id UUID NOT NULL REFERENCES public.itineraries (id) ON DELETE RESTRICT,
   share_slug TEXT NOT NULL UNIQUE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  
-  -- Constraints
-  CONSTRAINT saved_plans_share_slug_format CHECK (share_slug ~ '^[a-z0-9-]{6,}$')
+  CONSTRAINT saved_plans_share_slug_format CHECK (share_slug ~ '^[A-Za-z0-9_-]{16,64}$')
 );
 
-CREATE INDEX idx_saved_plans_user_id ON saved_plans(user_id);
-CREATE INDEX idx_saved_plans_itinerary_id ON saved_plans(itinerary_id);
-CREATE INDEX idx_saved_plans_share_slug ON saved_plans(share_slug);
+CREATE INDEX idx_saved_plans_user_id ON public.saved_plans (user_id);
+CREATE INDEX idx_saved_plans_itinerary_id ON public.saved_plans (itinerary_id);
 
--- RLS: Users can only manage their own saved plans
-ALTER TABLE saved_plans ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.saved_plans ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.saved_plans FORCE ROW LEVEL SECURITY;
 
-CREATE POLICY "Users can view their own saved plans" ON saved_plans
-  FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY saved_plans_select_own ON public.saved_plans
+  FOR SELECT TO authenticated
+  USING (auth.uid() = user_id);
 
-CREATE POLICY "Users can create their own saved plans" ON saved_plans
-  FOR INSERT WITH CHECK (auth.uid() = user_id);
+CREATE POLICY saved_plans_insert_own ON public.saved_plans
+  FOR INSERT TO authenticated
+  WITH CHECK (auth.uid() = user_id);
 
-CREATE POLICY "Users can delete their own saved plans" ON saved_plans
-  FOR DELETE USING (auth.uid() = user_id);
-
--- Public read access via share_slug (for sharing functionality)
-CREATE POLICY "Anyone can view saved plans via share slug" ON saved_plans
-  FOR SELECT USING (share_slug IS NOT NULL);
+CREATE POLICY saved_plans_delete_own ON public.saved_plans
+  FOR DELETE TO authenticated
+  USING (auth.uid() = user_id);
 
 -- =============================================================================
--- HELPER FUNCTION: Cleanup expired cache entries
+-- SHARE RPC
 -- =============================================================================
--- Optional: Can be called by a periodic job (e.g., pg_cron) to remove stale cache
-CREATE OR REPLACE FUNCTION cleanup_expired_cache()
-RETURNS INTEGER AS $$
+-- Public path for a share slug. Returns only safe itinerary fields.
+-- Never returns user_id, request text, or client_hash.
+CREATE OR REPLACE FUNCTION public.get_shared_plan(slug text)
+RETURNS TABLE (
+  itinerary_id uuid,
+  option_index integer,
+  stops jsonb,
+  valid boolean,
+  created_at timestamptz
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+BEGIN
+  RETURN QUERY
+  SELECT
+    i.id,
+    i.option_index,
+    i.stops,
+    i.valid,
+    i.created_at
+  FROM public.saved_plans AS sp
+  JOIN public.itineraries AS i ON i.id = sp.itinerary_id
+  WHERE sp.share_slug = get_shared_plan.slug;
+END;
+$$;
+
+-- =============================================================================
+-- CACHE CLEANUP
+-- =============================================================================
+CREATE OR REPLACE FUNCTION public.cleanup_expired_cache()
+RETURNS INTEGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
 DECLARE
   deleted_count INTEGER;
 BEGIN
-  DELETE FROM places_cache WHERE expires_at < NOW();
+  DELETE FROM public.places_cache
+  WHERE coords_expires_at IS NOT NULL
+    AND coords_expires_at < NOW();
   GET DIAGNOSTICS deleted_count = ROW_COUNT;
   RETURN deleted_count;
 END;
-$$ LANGUAGE plpgsql;
+$$;
 
 -- =============================================================================
--- COMMENTS FOR DOCUMENTATION
+-- GRANTS
+-- Server (service_role) reads/writes all tables. The only public path is the
+-- share RPC. Feedback writes go through the API after Turnstile, not anon INSERT.
 -- =============================================================================
-COMMENT ON TABLE requests IS 'User requests with PII-redacted text and parsed intent';
-COMMENT ON TABLE itineraries IS 'Generated itinerary options with validation results and trace metadata';
-COMMENT ON TABLE feedback IS 'User feedback: thumbs up/down, would-go/did-go signals, new-to-you per venue, closed venue reports';
-COMMENT ON TABLE places_cache IS 'Google Places API response cache. Complies with Google terms: place_id indefinite, lat/lng 30d, other fields 24h TTL via expires_at.';
-COMMENT ON TABLE saved_plans IS 'User-owned saved plans with shareable slugs (Supabase magic-link auth)';
+GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
 
-COMMENT ON COLUMN places_cache.cache_key IS 'Unique cache key: place_id for Place Details, or hash of query params for Text/Nearby Search';
-COMMENT ON COLUMN places_cache.place_id IS 'Google Place ID (cacheable indefinitely per Google Maps Platform Terms)';
-COMMENT ON COLUMN places_cache.lat IS 'Latitude (cacheable for 30 consecutive days per Google Maps Platform Terms)';
-COMMENT ON COLUMN places_cache.lng IS 'Longitude (cacheable for 30 consecutive days per Google Maps Platform Terms)';
-COMMENT ON COLUMN places_cache.payload IS 'Additional response fields stored as JSONB. Served only if expires_at > NOW(). Contains business_status, hours, price_level, rating, etc.';
-COMMENT ON COLUMN places_cache.expires_at IS 'Expiration timestamp based on PLACES_CACHE_TTL_HOURS (default 24h). Application MUST NOT serve rows where expires_at < NOW().';
+GRANT ALL ON TABLE public.requests TO service_role;
+GRANT ALL ON TABLE public.itineraries TO service_role;
+GRANT ALL ON TABLE public.feedback TO service_role;
+GRANT ALL ON TABLE public.places_cache TO service_role;
+GRANT ALL ON TABLE public.saved_plans TO service_role;
+
+REVOKE ALL ON TABLE public.requests FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON TABLE public.itineraries FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON TABLE public.feedback FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON TABLE public.places_cache FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON TABLE public.saved_plans FROM PUBLIC, anon;
+
+GRANT SELECT, INSERT, DELETE ON TABLE public.saved_plans TO authenticated;
+
+REVOKE ALL ON FUNCTION public.get_shared_plan(text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.get_shared_plan(text) TO anon, authenticated, service_role;
+
+REVOKE ALL ON FUNCTION public.cleanup_expired_cache() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.cleanup_expired_cache() FROM anon;
+REVOKE ALL ON FUNCTION public.cleanup_expired_cache() FROM authenticated;
+GRANT EXECUTE ON FUNCTION public.cleanup_expired_cache() TO service_role;
+
+-- =============================================================================
+-- COMMENTS
+-- =============================================================================
+COMMENT ON TABLE public.requests IS 'User requests with PII-redacted text and parsed intent. service_role only.';
+COMMENT ON TABLE public.itineraries IS 'Generated options with validation and trace metadata. service_role only; public reads go through get_shared_plan().';
+COMMENT ON TABLE public.feedback IS 'Thumbs, would-go/did-go, new-to-you, closed-venue reports. Writes via service_role after Turnstile.';
+COMMENT ON TABLE public.places_cache IS 'Terms-permitted Places cache only: place_id (indefinite) and lat/lng (coords_expires_at <= 30 days). No payload.';
+COMMENT ON TABLE public.saved_plans IS 'Magic-link owned saved plans. Shared reads use get_shared_plan(slug), not a table policy.';
+
+COMMENT ON COLUMN public.itineraries.stops IS
+  'JSON stop list. Venue names, if present, are part of the same Google Places terms decision as places_cache and are not independently cacheable beyond terms-permitted fields.';
+COMMENT ON COLUMN public.places_cache.cache_key IS 'place_id for Place Details, or a hash of query params for Text/Nearby Search.';
+COMMENT ON COLUMN public.places_cache.place_id IS 'Google Place ID; may be stored indefinitely.';
+COMMENT ON COLUMN public.places_cache.lat IS 'Latitude; must expire via coords_expires_at within 30 days.';
+COMMENT ON COLUMN public.places_cache.lng IS 'Longitude; must expire via coords_expires_at within 30 days.';
+COMMENT ON COLUMN public.places_cache.coords_expires_at IS 'Coord expiry, at most fetched_at + 30 days. Application must not serve expired coordinates.';
+COMMENT ON COLUMN public.saved_plans.share_slug IS '16-64 URL-safe chars, generated server-side with a CSPRNG. Not user-chosen.';
+COMMENT ON COLUMN public.saved_plans.itinerary_id IS 'ON DELETE RESTRICT so deleting a request cannot cascade-delete a saved/shared plan.';
+
+COMMENT ON FUNCTION public.get_shared_plan(text) IS
+  'Share RPC. SECURITY DEFINER, search_path empty. Returns only safe itinerary fields.';
+COMMENT ON FUNCTION public.cleanup_expired_cache() IS
+  'service_role only. Deletes places_cache rows whose coordinates have expired.';
