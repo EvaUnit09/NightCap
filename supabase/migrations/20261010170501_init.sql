@@ -93,30 +93,27 @@ ALTER TABLE public.feedback FORCE ROW LEVEL SECURITY;
 -- =============================================================================
 -- PLACES_CACHE
 -- =============================================================================
--- Terms-permitted fields only. No payload of hours / status / price / rating.
+-- Noah 2026-10-10: place_id indefinitely; lat/lng for ≤ 30 days; details live.
+-- No payload, name, hours, price, or rating columns.
 CREATE TABLE public.places_cache (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  cache_key TEXT NOT NULL UNIQUE,
-  place_id TEXT,
+  place_id TEXT PRIMARY KEY,
   lat DECIMAL(10, 8),
   lng DECIMAL(11, 8),
-  fetched_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  coords_fetched_at TIMESTAMPTZ,
   coords_expires_at TIMESTAMPTZ,
   CONSTRAINT places_cache_coords_pair CHECK (
-    (lat IS NULL AND lng IS NULL AND coords_expires_at IS NULL)
-    OR (lat IS NOT NULL AND lng IS NOT NULL AND coords_expires_at IS NOT NULL)
+    (lat IS NULL AND lng IS NULL AND coords_fetched_at IS NULL AND coords_expires_at IS NULL)
+    OR (lat IS NOT NULL AND lng IS NOT NULL AND coords_fetched_at IS NOT NULL AND coords_expires_at IS NOT NULL)
   ),
   CONSTRAINT places_cache_coords_ttl CHECK (
     coords_expires_at IS NULL
     OR (
-      coords_expires_at > fetched_at
-      AND coords_expires_at <= fetched_at + INTERVAL '30 days'
+      coords_expires_at > coords_fetched_at
+      AND coords_expires_at <= coords_fetched_at + INTERVAL '30 days'
     )
   )
 );
 
-CREATE INDEX idx_places_cache_place_id ON public.places_cache (place_id)
-  WHERE place_id IS NOT NULL;
 CREATE INDEX idx_places_cache_coords_expires_at ON public.places_cache (coords_expires_at)
   WHERE coords_expires_at IS NOT NULL;
 
@@ -199,7 +196,13 @@ AS $$
 DECLARE
   deleted_count INTEGER;
 BEGIN
-  DELETE FROM public.places_cache
+  -- Keep place_id rows; only drop expired coordinates.
+  UPDATE public.places_cache
+  SET
+    lat = NULL,
+    lng = NULL,
+    coords_fetched_at = NULL,
+    coords_expires_at = NULL
   WHERE coords_expires_at IS NOT NULL
     AND coords_expires_at < NOW();
   GET DIAGNOSTICS deleted_count = ROW_COUNT;
@@ -239,23 +242,24 @@ GRANT EXECUTE ON FUNCTION public.cleanup_expired_cache() TO service_role;
 -- =============================================================================
 -- COMMENTS
 -- =============================================================================
-COMMENT ON TABLE public.requests IS 'User requests with PII-redacted text and parsed intent. service_role only.';
+COMMENT ON TABLE public.requests IS 'User requests with heuristic-redacted text and parsed intent. service_role only.';
+COMMENT ON COLUMN public.requests.redacted_text IS 'Heuristic-redacted free text (decision #27). PII must not be stored in the clear.';
 COMMENT ON TABLE public.itineraries IS 'Generated options with validation and trace metadata. service_role only; public reads go through get_shared_plan().';
 COMMENT ON TABLE public.feedback IS 'Thumbs, would-go/did-go, new-to-you, closed-venue reports. Writes via service_role after Turnstile.';
-COMMENT ON TABLE public.places_cache IS 'Terms-permitted Places cache only: place_id (indefinite) and lat/lng (coords_expires_at <= 30 days). No payload.';
+COMMENT ON TABLE public.places_cache IS 'place_id indefinitely; lat/lng with coords_expires_at <= 30 days. Hours, price, rating, and names are fetched live — not stored.';
 COMMENT ON TABLE public.saved_plans IS 'Magic-link owned saved plans. Shared reads use get_shared_plan(slug), not a table policy.';
 
 COMMENT ON COLUMN public.itineraries.stops IS
-  'JSON stop list. Venue names, if present, are part of the same Google Places terms decision as places_cache and are not independently cacheable beyond terms-permitted fields.';
-COMMENT ON COLUMN public.places_cache.cache_key IS 'place_id for Place Details, or a hash of query params for Text/Nearby Search.';
-COMMENT ON COLUMN public.places_cache.place_id IS 'Google Place ID; may be stored indefinitely.';
-COMMENT ON COLUMN public.places_cache.lat IS 'Latitude; must expire via coords_expires_at within 30 days.';
-COMMENT ON COLUMN public.places_cache.lng IS 'Longitude; must expire via coords_expires_at within 30 days.';
-COMMENT ON COLUMN public.places_cache.coords_expires_at IS 'Coord expiry, at most fetched_at + 30 days. Application must not serve expired coordinates.';
+  'JSON stop list. Venue names are not cached in places_cache; hours, price, rating, and names are fetched live per request.';
+COMMENT ON COLUMN public.places_cache.place_id IS 'Google Place ID; stored indefinitely (PK).';
+COMMENT ON COLUMN public.places_cache.lat IS 'Latitude; expire via coords_expires_at within 30 days.';
+COMMENT ON COLUMN public.places_cache.lng IS 'Longitude; expire via coords_expires_at within 30 days.';
+COMMENT ON COLUMN public.places_cache.coords_fetched_at IS 'When lat/lng were last written. Used with PLACES_COORDS_CACHE_TTL_DAYS (default 30).';
+COMMENT ON COLUMN public.places_cache.coords_expires_at IS 'Coord expiry, at most coords_fetched_at + 30 days. Do not serve expired coordinates.';
 COMMENT ON COLUMN public.saved_plans.share_slug IS '16-64 URL-safe chars, generated server-side with a CSPRNG. Not user-chosen.';
 COMMENT ON COLUMN public.saved_plans.itinerary_id IS 'ON DELETE RESTRICT so deleting a request cannot cascade-delete a saved/shared plan.';
 
 COMMENT ON FUNCTION public.get_shared_plan(text) IS
   'Share RPC. SECURITY DEFINER, search_path empty. Returns only safe itinerary fields.';
 COMMENT ON FUNCTION public.cleanup_expired_cache() IS
-  'service_role only. Deletes places_cache rows whose coordinates have expired.';
+  'service_role only. Clears expired lat/lng; keeps place_id.';

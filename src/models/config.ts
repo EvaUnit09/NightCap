@@ -77,8 +77,8 @@ const configSchema = z.object({
   repairModelId: z.string().min(1).default("claude-sonnet-5"),
   agentModelId: z.string().min(1).default("claude-sonnet-5"),
 
-  // Cache TTL - 24 hours from architecture
-  placesCacheTtlHours: z.coerce.number().int().positive().default(24),
+  // Coord cache TTL — Google allows lat/lng for at most 30 days; details are live
+  placesCoordsCacheTtlDays: z.coerce.number().int().positive().max(30).default(30),
 
   // Rate Limits - from architecture: 5 plans/hour/IP
   rateLimitRequestsPerHour: z.coerce.number().int().positive().default(5),
@@ -162,8 +162,8 @@ function loadConfig(): Config {
     repairModelId: preprocessEnvVar(process.env.REPAIR_MODEL_ID),
     agentModelId: preprocessEnvVar(process.env.AGENT_MODEL_ID),
 
-    // Cache TTL
-    placesCacheTtlHours: preprocessEnvVar(process.env.PLACES_CACHE_TTL_HOURS),
+    // Coord cache TTL
+    placesCoordsCacheTtlDays: preprocessEnvVar(process.env.PLACES_COORDS_CACHE_TTL_DAYS),
 
     // Rate Limits
     rateLimitRequestsPerHour: preprocessEnvVar(process.env.RATE_LIMIT_REQUESTS_PER_HOUR),
@@ -256,9 +256,9 @@ export function getAgentModelId(): string {
   return getConfig().agentModelId;
 }
 
-/** Get Places cache TTL in hours (24 by default). */
-export function getPlacesCacheTtlHours(): number {
-  return getConfig().placesCacheTtlHours;
+/** Get Places coordinate cache TTL in days (30 by default, max 30). */
+export function getPlacesCoordsCacheTtlDays(): number {
+  return getConfig().placesCoordsCacheTtlDays;
 }
 
 /** Get rate limit: requests per hour per IP (5 by default). */

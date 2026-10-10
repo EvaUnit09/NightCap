@@ -10,7 +10,7 @@ import {
   getDatadogApiKey,
   getGooglePlacesApiKey,
   getParseModelId,
-  getPlacesCacheTtlHours,
+  getPlacesCoordsCacheTtlDays,
   getPlanModelId,
   getRateLimitDailySpendUsd,
   getRateLimitRequestsPerHour,
@@ -54,9 +54,9 @@ describe("Config module", () => {
       assert.equal(getAgentModelId(), "claude-sonnet-5");
     });
 
-    it("applies default cache TTL", () => {
-      delete process.env.PLACES_CACHE_TTL_HOURS;
-      assert.equal(getPlacesCacheTtlHours(), 24);
+    it("applies default coord cache TTL", () => {
+      delete process.env.PLACES_COORDS_CACHE_TTL_DAYS;
+      assert.equal(getPlacesCoordsCacheTtlDays(), 30);
     });
 
     it("applies default rate limits", () => {
@@ -102,9 +102,9 @@ describe("Config module", () => {
       assert.equal(getAgentModelId(), "claude-opus-5");
     });
 
-    it("overrides cache TTL from environment", () => {
-      process.env.PLACES_CACHE_TTL_HOURS = "12";
-      assert.equal(getPlacesCacheTtlHours(), 12);
+    it("overrides coord cache TTL from environment", () => {
+      process.env.PLACES_COORDS_CACHE_TTL_DAYS = "7";
+      assert.equal(getPlacesCoordsCacheTtlDays(), 7);
     });
 
     it("overrides rate limits from environment", () => {
@@ -166,8 +166,8 @@ describe("Config module", () => {
     });
 
     it("applies default when numeric var is empty string", () => {
-      process.env.PLACES_CACHE_TTL_HOURS = "";
-      assert.equal(getPlacesCacheTtlHours(), 24);
+      process.env.PLACES_COORDS_CACHE_TTL_DAYS = "";
+      assert.equal(getPlacesCoordsCacheTtlDays(), 30);
     });
 
     it("applies default when numeric var is whitespace-only", () => {
@@ -246,7 +246,7 @@ describe("Config module", () => {
       let errorMessage = "";
       try {
         // Force a config error with an invalid numeric value while a secret is set
-        process.env.PLACES_CACHE_TTL_HOURS = "not-a-number";
+        process.env.PLACES_COORDS_CACHE_TTL_DAYS = "not-a-number";
         getConfig();
       } catch (error) {
         errorMessage = String(error);
@@ -258,16 +258,24 @@ describe("Config module", () => {
   });
 
   describe("Invalid values", () => {
-    it("rejects negative cache TTL", () => {
-      process.env.PLACES_CACHE_TTL_HOURS = "-1";
+    it("rejects negative coord cache TTL", () => {
+      process.env.PLACES_COORDS_CACHE_TTL_DAYS = "-1";
 
       assert.throws(() => getConfig(), {
         name: "ZodError",
       });
     });
 
-    it("rejects zero cache TTL", () => {
-      process.env.PLACES_CACHE_TTL_HOURS = "0";
+    it("rejects zero coord cache TTL", () => {
+      process.env.PLACES_COORDS_CACHE_TTL_DAYS = "0";
+
+      assert.throws(() => getConfig(), {
+        name: "ZodError",
+      });
+    });
+
+    it("rejects coord cache TTL above 30 days", () => {
+      process.env.PLACES_COORDS_CACHE_TTL_DAYS = "31";
 
       assert.throws(() => getConfig(), {
         name: "ZodError",
@@ -334,8 +342,8 @@ describe("Config module", () => {
       assert.equal(getParseModelId(), "claude-haiku-4-5");
     });
 
-    it("rejects non-numeric cache TTL", () => {
-      process.env.PLACES_CACHE_TTL_HOURS = "not-a-number";
+    it("rejects non-numeric coord cache TTL", () => {
+      process.env.PLACES_COORDS_CACHE_TTL_DAYS = "not-a-number";
 
       assert.throws(() => getConfig(), {
         name: "ZodError",

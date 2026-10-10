@@ -73,7 +73,7 @@ By **2026-10-25** (4 weeks), ship a deployed v1 that:
 - `requests`: redacted request text, parsed intent, timestamps
 - `itineraries`: generated options, validation results, prompt/model versions
 - `feedback`: thumbs, would-go, did-you-go, new-to-you, closed-venue reports
-- `places_cache`: Places responses, 24h TTL, only fields Google's terms allow storing
+- `places_cache`: `place_id` indefinitely, lat/lng for 30 days; hours, price, rating, and names fetched live
 
 Anonymous by default. A magic link saves and shares plans. Names and other PII are redacted from the free text before storage and logging.
 
@@ -222,7 +222,7 @@ Nightcap retrieves from a structured API, not from a document corpus. This secti
 
 | Source                                                          | Type                                                                                     | Volume                        | Update Frequency | Notes                              |
 | --------------------------------------------------------------- | ---------------------------------------------------------------------------------------- | ----------------------------- | ---------------- | ---------------------------------- |
-| Google Places API (Text Search / Nearby Search / Place Details) | Structured venue data: hours, price level, rating, review count, coords, business_status | ~20–60 candidates per request | Live, cached 24h | Only terms-permitted fields stored |
+| Google Places API (Text Search / Nearby Search / Place Details) | Structured venue data: hours, price level, rating, review count, coords, business_status | ~20–60 candidates per request | Details live; `place_id` cached indefinitely; lat/lng ≤ 30 days | Hours, price, rating, and names are not cached |
 | Beta "closed venue" reports                                     | User feedback                                                                            | Low                           | Continuous       | Staleness signal                   |
 
 
@@ -432,7 +432,7 @@ Weekly:
 4. Add representative cases to test set v2, then re-run the eval.
 5. Record in `docs/error-analysis.md`: date, counts, fix, before/after metrics.
 
-**Staleness (top risk):** drop venues that aren't `OPERATIONAL`; track the reported-closed rate. A spike in week 1 → shorten the cache TTL or re-check Place Details at plan time.
+**Staleness (top risk):** drop venues that aren't `OPERATIONAL`; track the reported-closed rate. Hours, price, rating, and names are fetched live, so a spike is not fixed by shortening a details TTL.
 
 **Alerts:** daily spend > 80% of cap; 1h error rate > 10%. Weekly dashboard snapshot (validity, p50/p99, cost/request).
 

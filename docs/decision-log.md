@@ -6,7 +6,7 @@ Scope details: [scope.md](scope.md).
 | # | Date | Decision | Alternatives considered | Reason |
 |---|---|---|---|---|
 | 1 | 2026-09-28 | v1 targets couples on a date | Friend groups (3–8); both equally | One shared budget and simpler logistics make eval tractable. Groups in v2. |
-| 2 | 2026-09-28 | Venues come only from the Google Places API, cached 24h | Yelp Fusion; Foursquare; curated seed DB + OSM | Best NYC coverage, with the hours, price, coords and business status needed for validation. Cost is controlled by the cache. |
+| 2 | 2026-09-28 | Venues come only from the Google Places API. Cache `place_id` indefinitely and lat/lng for 30 days; hours, price, rating, and names are fetched live on every request. (Amended 2026-10-10; was "cached 24h".) | Yelp Fusion; Foursquare; curated seed DB + OSM; 24h details cache | Best NYC coverage. Google terms allow indefinite `place_id` and ≤30-day coords; other Places content is not cached. |
 | 3 | 2026-09-28 | Primary metric: itinerary validity rate ≥ 90%, 0% invented venues | LLM-judge score; beta "would go" rate; validity + judge combined | Objective, automatable, and directly tests grounding. The judge is a secondary metric. |
 | 4 | 2026-09-28 | Add diversity/novelty metrics | Validity only; beta "new to you" only | Validity alone could be maxed by always suggesting famous places, and the core problem is "same few places". |
 | 5 | 2026-09-28 | 4-week timeline | 6 weeks (recommended); 8–10 weeks | Owner's choice. Accepted risk; cut order defined in scope §10. |

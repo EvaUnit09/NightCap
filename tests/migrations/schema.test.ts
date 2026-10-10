@@ -242,19 +242,68 @@ describe("Supabase migration with real Postgres", { concurrency: 1 }, () => {
       assert.match(check.rows[0].definition, /64/);
     });
 
-    it("stores only terms-permitted places_cache columns (no payload)", async () => {
+    it("uses place_id as the places_cache primary key", async () => {
+      const pk = await db.query<{ attname: string }>(`
+        SELECT a.attname
+        FROM pg_index i
+        JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY (i.indkey)
+        WHERE i.indrelid = 'public.places_cache'::regclass
+          AND i.indisprimary
+      `);
+      assert.deepEqual(pk.rows.map((row) => row.attname), ["place_id"]);
+    });
+
+    it("stores exactly the terms-permitted places_cache columns", async () => {
       const columns = await db.query<{ column_name: string }>(`
         SELECT column_name
         FROM information_schema.columns
         WHERE table_schema = 'public' AND table_name = 'places_cache'
-        ORDER BY ordinal_position
+        ORDER BY column_name
       `);
       const names = columns.rows.map((row) => row.column_name);
-      assert.ok(names.includes("place_id"));
-      assert.ok(names.includes("lat"));
-      assert.ok(names.includes("lng"));
-      assert.ok(names.includes("coords_expires_at"));
-      assert.ok(!names.includes("payload"));
+      assert.deepEqual(names, [
+        "coords_expires_at",
+        "coords_fetched_at",
+        "lat",
+        "lng",
+        "place_id",
+      ]);
+    });
+
+    it("rejects disallowed Places details columns on places_cache", async () => {
+      const columns = await db.query<{ column_name: string }>(`
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'places_cache'
+      `);
+      const names = new Set(columns.rows.map((row) => row.column_name));
+      const disallowed = [
+        "payload",
+        "name",
+        "hours",
+        "opening_hours",
+        "price",
+        "price_level",
+        "rating",
+        "user_ratings_total",
+        "formatted_address",
+        "business_status",
+        "cache_key",
+      ];
+      for (const column of disallowed) {
+        assert.equal(names.has(column), false, `disallowed column ${column}`);
+      }
+    });
+
+    it("stores heuristic-redacted request text on requests.redacted_text", async () => {
+      const columns = await db.query<{ column_name: string }>(`
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'requests'
+          AND column_name = 'redacted_text'
+      `);
+      assert.equal(columns.rows.length, 1);
     });
   });
 
