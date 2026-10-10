@@ -111,26 +111,30 @@ describe("wrapUserText", () => {
     assert.ok(inner.includes(family) || inner.includes("\u200D"));
   });
 
-  it("rejects input over the documented length cap after NFKC", () => {
+  it("rejects input over the documented length cap after NFKC and strip", () => {
     assert.ok(WRAP_USER_TEXT_MAX_CHARS >= 4 * 1024);
     assert.ok(WRAP_USER_TEXT_MAX_CHARS <= 16 * 1024);
     assert.throws(
       () => wrapUserText("x".repeat(WRAP_USER_TEXT_MAX_CHARS + 1)),
       /length|maximum|too long/i,
     );
+    assert.doesNotThrow(() => wrapUserText("x".repeat(WRAP_USER_TEXT_MAX_CHARS)));
     const wrapped = wrapUserText("ok");
     assert.equal(wrapUserText(wrapped), wrapped);
   });
 
-  it("finishes '<' + 50k spaces well under 100ms", () => {
-    const payload = `<${" ".repeat(50_000)}`;
+  it("finishes '<' plus ~8000 spaces well under 20ms without hitting the cap", () => {
+    const spaces = 8000;
+    const payload = `<${" ".repeat(spaces)}`;
+    assert.ok(payload.length <= WRAP_USER_TEXT_MAX_CHARS);
     const start = performance.now();
-    try {
-      wrapUserText(payload);
-    } catch {
-      // Cap may reject after NFKC; the old \\s* regex would still have scanned first.
-    }
+    const wrapped = wrapUserText(payload);
     const elapsed = performance.now() - start;
-    assert.ok(elapsed < 100, `'<' + 50k spaces took ${elapsed.toFixed(1)}ms`);
+    assert.equal(openingCount(wrapped), 1);
+    assert.equal(closingCount(wrapped), 1);
+    assert.ok(
+      elapsed < 20,
+      `'<' + ${spaces} spaces took ${elapsed.toFixed(1)}ms (old /<\\s*\\/?\\s*user_text\\s*>/gi is ~60ms here)`,
+    );
   });
 });

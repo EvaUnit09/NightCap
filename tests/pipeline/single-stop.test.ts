@@ -28,6 +28,22 @@ describe("singleStopMatchesIntent", () => {
   it("rejects a non-boolean model singleStop even if it looks true", () => {
     assert.equal(singleStopMatchesIntent({ singleStop: "true" }, true), false);
   });
+
+  it("returns false for null and non-objects and never reads inherited singleStop", () => {
+    assert.equal(singleStopMatchesIntent(null, false), true);
+    assert.equal(singleStopMatchesIntent(null, true), false);
+    assert.equal(singleStopMatchesIntent(undefined, false), true);
+    assert.equal(singleStopMatchesIntent(42, false), true);
+    assert.equal(singleStopMatchesIntent("nope", true), false);
+
+    const inherited = Object.create({ singleStop: true });
+    assert.equal(Object.hasOwn(inherited, "singleStop"), false);
+    assert.equal(singleStopMatchesIntent(inherited, true), false);
+    assert.equal(singleStopMatchesIntent(inherited, false), true);
+
+    const inheritedIntent = Object.create({ singleStop: true });
+    assert.equal(singleStopMatchesIntent({ singleStop: false }, inheritedIntent), true);
+  });
 });
 
 describe("stampSingleStopFromIntent", () => {

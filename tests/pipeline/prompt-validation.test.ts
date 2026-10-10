@@ -124,6 +124,25 @@ describe("prompt JSON validation", () => {
       });
     });
   }
+
+  it("validates all 18 prompt JSON examples as written", () => {
+    let count = 0;
+    for (const stage of PIPELINE_STAGES) {
+      const body = loadPrompt(stage, "v1").body;
+      assert.deepEqual(collectJsonFenceFailures(body), []);
+      for (const block of extractFencedBlocks(body)) {
+        try {
+          JSON.parse(block.blockText);
+        } catch {
+          continue;
+        }
+        if (block.schemaName && block.schemaName !== "none") {
+          count += 1;
+        }
+      }
+    }
+    assert.equal(count, 18);
+  });
 });
 
 describe("repair_itinerary error codes", () => {

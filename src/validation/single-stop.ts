@@ -8,7 +8,10 @@ function singleStopOf(value: unknown): boolean {
   if (value === null || typeof value !== "object") {
     return false;
   }
-  return (Reflect.get(value, "singleStop") as boolean | undefined) ?? false;
+  if (!Object.hasOwn(value, "singleStop")) {
+    return false;
+  }
+  return (value as { singleStop: unknown }).singleStop === true;
 }
 
 export function singleStopMatchesIntent(itinerary: unknown, intent: unknown): boolean {

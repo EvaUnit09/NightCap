@@ -1,8 +1,9 @@
 import "server-only";
 
 /**
- * 8 KiB after NFKC. A night-out request is a sentence or two; this is
- * about 20× a long paste and still small enough to bound wrap CPU.
+ * 8 KiB after NFKC (CPU bound, before the strip regex) and again after
+ * stripping zero-width/control characters (content bound). Strip only
+ * shortens, so both checks use this constant.
  */
 export const WRAP_USER_TEXT_MAX_CHARS = 8 * 1024;
 
@@ -23,7 +24,8 @@ function unwrapIfWrapped(text: string): string {
 /**
  * Wrap untrusted user text for prompt interpolation.
  * NFKC-normalizes, caps length, strips format/control characters (keeps ZWJ),
- * then escapes every `<` and `>` so the wrapper pair is the only tag. Idempotent.
+ * caps again after the strip, then escapes every `<` and `>` so the wrapper
+ * pair is the only tag. Idempotent.
  * Not wired into the pipeline yet (architecture action #15).
  */
 export function wrapUserText(text: string): string {
@@ -32,10 +34,12 @@ export function wrapUserText(text: string): string {
     throw new Error("User text exceeds the maximum length.");
   }
 
-  const sanitized = normalized
-    .replace(STRIP_CHARS, "")
-    .replaceAll("<", "‹")
-    .replaceAll(">", "›");
+  const stripped = normalized.replace(STRIP_CHARS, "");
+  if (stripped.length > WRAP_USER_TEXT_MAX_CHARS) {
+    throw new Error("User text exceeds the maximum length.");
+  }
+
+  const sanitized = stripped.replaceAll("<", "‹").replaceAll(">", "›");
 
   return `${WRAPPER_OPEN}${sanitized}${WRAPPER_CLOSE}`;
 }
