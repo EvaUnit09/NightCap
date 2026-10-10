@@ -126,6 +126,28 @@ describe("prompt JSON validation", () => {
   }
 });
 
+describe("repair_itinerary error codes", () => {
+  const NEW_CODES = [
+    "invalid_format",
+    "name_mismatch",
+    "implausible_cost",
+    "travel_unverified",
+    "travel_mismatch",
+  ] as const;
+
+  it("lists #7 validation codes with one-line repair guidance and no premature JSON examples", () => {
+    const repair = loadPrompt("repair_itinerary", "v1").body;
+    for (const code of NEW_CODES) {
+      const fence = new RegExp(`\`\`\`json[^\n]*schema=validationError[\\s\\S]*?"code":\\s*"${code}"`);
+      assert.doesNotMatch(repair, fence, `${code} must not appear in a validationError JSON block yet`);
+      const listed = new RegExp(`\`${code}\`[^\\n]+`);
+      const line = repair.match(listed)?.[0];
+      assert.ok(line, `expected a \`${code}\` list line with guidance`);
+      assert.ok(line.length > code.length + 8, `expected one-line repair guidance for ${code}`);
+    }
+  });
+});
+
 describe("single-stop prompt rules", () => {
   it("lets repair emit a 1-stop option when singleStop is true", () => {
     const repair = loadPrompt("repair_itinerary", "v1").body;
