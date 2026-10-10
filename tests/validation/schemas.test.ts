@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import type { z } from "zod";
 
 import { itinerarySchema as agentItinerarySchema, toolInputSchema } from "../../src/agent";
+import {
+  STOPS_MAX,
+  STOPS_MIN,
+  STOPS_MIN_SINGLE,
+} from "../../src/contracts/itinerary";
 import { itinerarySchema as evalItinerarySchema } from "../../evaluation";
 import { intentSchema, itinerarySchema as pipelineItinerarySchema } from "../../src/pipeline";
 import {
@@ -12,7 +18,7 @@ import {
   parseItinerary,
   validationErrorSchema,
 } from "../../src/validation";
-import type { Itinerary, Stop } from "../../src/validation";
+import type { Stop } from "../../src/validation";
 
 const START = "2026-10-10T19:00:00-04:00";
 const MID = "2026-10-10T20:30:00-04:00";
@@ -35,9 +41,8 @@ function option(theme: string, stops: Stop[]) {
   return { theme, stops };
 }
 
-function validItinerary(): Itinerary {
+function validItinerary(): z.input<typeof itinerarySchema> {
   return {
-    singleStop: false,
     options: [
       option("Low-key West Village", [
         stop("place-a", START, MID, { mode: "walk", minutes: 12 }),
@@ -52,9 +57,19 @@ function validItinerary(): Itinerary {
   };
 }
 
+describe("itinerary contracts", () => {
+  it("exports named stop-count constants for the validator", () => {
+    assert.equal(STOPS_MIN, 2);
+    assert.equal(STOPS_MIN_SINGLE, 1);
+    assert.equal(STOPS_MAX, 4);
+  });
+});
+
 describe("itinerary schema", () => {
   it("accepts 2–3 options of 2–4 timed stops with no shared venue", () => {
-    assert.deepEqual(parseItinerary(validItinerary()), validItinerary());
+    const parsed = parseItinerary(validItinerary());
+    assert.equal(parsed.singleStop, false);
+    assert.deepEqual(parsed.options, validItinerary().options);
   });
 
   it("rejects fewer than 2 options", () => {

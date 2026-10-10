@@ -7,6 +7,7 @@ import {
   priceLevelSchema,
   stopTypeSchema,
 } from "./common";
+import { STOPS_MAX, STOPS_MIN_SINGLE } from "../contracts/itinerary";
 import { itinerarySchema } from "./itinerary";
 
 const timeSlotSchema = z
@@ -34,7 +35,7 @@ const replaceStopInputSchema = z
   .object({
     tool: z.literal("replace_stop"),
     optionIndex: z.int().min(0).max(2),
-    stopIndex: z.int().min(0).max(3),
+    stopIndex: z.int().min(0).max(STOPS_MAX - 1),
     placeId: placeIdSchema,
   })
   .strict();
@@ -43,8 +44,8 @@ const reorderStopsInputSchema = z
   .object({
     tool: z.literal("reorder_stops"),
     optionIndex: z.int().min(0).max(2),
-    order: z.array(z.int().min(0).max(3)).min(1).max(4),
-    times: z.array(timeSlotSchema).min(1).max(4),
+    order: z.array(z.int().min(0).max(STOPS_MAX - 1)).min(STOPS_MIN_SINGLE).max(STOPS_MAX),
+    times: z.array(timeSlotSchema).min(STOPS_MIN_SINGLE).max(STOPS_MAX),
   })
   .strict()
   .superRefine((input, ctx) => {

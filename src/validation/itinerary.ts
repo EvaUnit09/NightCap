@@ -1,13 +1,17 @@
 import { z } from "zod";
 
+import {
+  STOPS_MAX,
+  STOPS_MIN,
+  STOPS_MIN_SINGLE,
+} from "../contracts/itinerary";
 import { oneLineSchema } from "./common";
 import { stopSchema } from "./stop";
 
+export { STOPS_MAX, STOPS_MIN, STOPS_MIN_SINGLE } from "../contracts/itinerary";
+
 export const ITINERARY_OPTIONS_MIN = 2;
 export const ITINERARY_OPTIONS_MAX = 3;
-export const STOPS_MIN = 2;
-export const STOPS_MIN_SINGLE = 1;
-export const STOPS_MAX = 4;
 
 function optionTimingRefine(
   option: { stops: Array<{ start: string; end: string; travelToNext: unknown }> },

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import type { z } from "zod";
 
 import {
   getAgentMaxCostUsdPerTurn,
@@ -24,10 +25,11 @@ import {
   ITINERARY_OPTIONS_MIN,
   STOPS_MAX,
   STOPS_MIN,
+  STOPS_MIN_SINGLE,
   itineraryOptionSchema,
   itinerarySchema,
 } from "../../src/validation/itinerary";
-import type { Itinerary, Stop } from "../../src/validation";
+import type { Stop } from "../../src/validation";
 
 const FIXTURE_VERSION = "v2";
 
@@ -269,8 +271,7 @@ describe("prompt-loader", () => {
         false
       );
 
-      const itinerary: Itinerary = {
-        singleStop: false,
+      const itinerary: z.input<typeof itinerarySchema> = {
         options: [
           { theme: "One", stops: twoStop },
           { theme: "Two", stops: [stop("c", { mode: "walk", minutes: 10 }), stop("d", null)] },
@@ -284,6 +285,7 @@ describe("prompt-loader", () => {
       assert.equal(PROMPT_SCHEMA_BOUNDS.minOptions, ITINERARY_OPTIONS_MIN);
       assert.equal(PROMPT_SCHEMA_BOUNDS.maxOptions, ITINERARY_OPTIONS_MAX);
       assert.equal(PROMPT_SCHEMA_BOUNDS.minStops, STOPS_MIN);
+      assert.equal(PROMPT_SCHEMA_BOUNDS.minStopsSingle, STOPS_MIN_SINGLE);
       assert.equal(PROMPT_SCHEMA_BOUNDS.maxStops, STOPS_MAX);
     });
   });
