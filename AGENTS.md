@@ -8,10 +8,14 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 <!-- END:nextjs-agent-rules -->
 
-## Vendored pstack skills
+## Entry point
+- **poteto-mode** — Default router. Describe the outcome; it picks the playbook (bug-fix, feature, investigation, etc.) and drives verification.
 
-- **architect** - Sketch types/signatures/module structure before non-trivial code
-- **tdd** - Test-first for new behavior/bug fixes
-- **blast-radius** - Check what a change could break beyond the diff before shipping
-- **maintain-verification-skill** - Keep verify-nightcap current when app behavior changes
-- **typescript-best-practices** - TypeScript patterns/types for this codebase
+## Vendored pstack skills
+- poteto-mode (router + all playbooks)
+- architect
+- tdd
+- blast-radius
+- maintain-verification-skill
+- typescript-best-practices
+- verify-nightcap (project-specific control skill)

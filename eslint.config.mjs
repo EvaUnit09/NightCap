@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Vendored pstack skills (including poteto-mode scripts/*.ts and *.mjs)
+    ".cursor/**",
   ]),
 ]);
 
