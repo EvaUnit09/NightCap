@@ -1,6 +1,11 @@
 import "server-only";
 
-import type { TravelCalculator, TravelLeg } from "./travel";
+import {
+  isSupportedTravelMode,
+  type SupportedTravelMode,
+  type TravelCalculator,
+  type TravelLeg,
+} from "./travel";
 
 /** POST https://routes.googleapis.com/distanceMatrix/v2:computeRouteMatrix */
 export const ROUTES_MATRIX_URL =
@@ -8,17 +13,19 @@ export const ROUTES_MATRIX_URL =
 
 /**
  * Essentials-only field mask. Omits Pro fields (distanceMeters, transitFare)
- * and does not send routingPreference (TRAFFIC_AWARE* is Pro).
+ * and never sends routingPreference (that field is only valid for DRIVE /
+ * TWO_WHEELER and would fail WALK, BICYCLE, and TRANSIT requests).
  * Fields: https://developers.google.com/maps/documentation/routes/compute_route_matrix
  */
 export const ROUTES_ESSENTIALS_FIELD_MASK =
   "originIndex,destinationIndex,duration,condition,status";
 
-const TRAVEL_MODE: Record<TravelLeg["mode"], "WALK" | "TRANSIT" | "DRIVE"> = {
-  walk: "WALK",
-  transit: "TRANSIT",
-  rideshare: "DRIVE",
-};
+const TRAVEL_MODE: Record<SupportedTravelMode, "WALK" | "TRANSIT" | "BICYCLE"> =
+  {
+    walk: "WALK",
+    transit: "TRANSIT",
+    bicycle: "BICYCLE",
+  };
 
 export interface RoutesMatrixTravelOptions {
   apiKey?: string;
@@ -35,12 +42,15 @@ interface RouteMatrixElement {
 }
 
 /**
- * Production travel calculator. One billed element per hop: each leg is a
- * 1×1 computeRouteMatrix call (origins.length × destinations.length = 1).
- * TRANSIT is limited to 100 elements per request; 1×1 stays at 1.
+ * Production travel calculator. One billed element per consecutive hop: each
+ * leg is a 1×1 computeRouteMatrix call. A request has one travelMode, so mixed
+ * modes are never packed into one matrix (and never N×N).
  *
- * Fail-closed: missing key, HTTP 4xx/5xx, timeout, ROUTE_NOT_FOUND,
- * element status, missing duration, or malformed body → null for those legs.
+ * v1 maps walk → WALK, transit → TRANSIT, bicycle → BICYCLE. Any other mode
+ * returns null without fetching.
+ *
+ * Fail-closed: unsupported mode, missing key, HTTP 4xx/5xx, timeout,
+ * ROUTE_NOT_FOUND, element status, missing duration, or malformed body → null.
  */
 export class RoutesMatrixTravelCalculator implements TravelCalculator {
   private readonly apiKey: string | undefined;
@@ -63,7 +73,7 @@ export class RoutesMatrixTravelCalculator implements TravelCalculator {
 
     await Promise.all(
       legs.map(async (leg, index) => {
-        if (!leg.from || !leg.to) {
+        if (!leg.from || !leg.to || !isSupportedTravelMode(leg.mode)) {
           return;
         }
         results[index] = await this.matrixForLeg(leg);
@@ -73,7 +83,9 @@ export class RoutesMatrixTravelCalculator implements TravelCalculator {
     return results;
   }
 
-  private async matrixForLeg(leg: TravelLeg): Promise<number | null> {
+  private async matrixForLeg(
+    leg: TravelLeg & { mode: SupportedTravelMode }
+  ): Promise<number | null> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
 
@@ -83,10 +95,7 @@ export class RoutesMatrixTravelCalculator implements TravelCalculator {
         destinations: [waypoint(leg.to!)],
         travelMode: TRAVEL_MODE[leg.mode],
       };
-      if (
-        (leg.mode === "transit" || leg.mode === "rideshare") &&
-        leg.departureTime
-      ) {
+      if (leg.mode === "transit" && leg.departureTime) {
         body.departureTime = leg.departureTime;
       }
 

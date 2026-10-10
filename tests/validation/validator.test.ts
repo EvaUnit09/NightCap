@@ -112,6 +112,16 @@ function fourCandidates(): Array<z.input<typeof candidateSchema>> {
   ];
 }
 
+function setHopMode(
+  itinerary: z.input<typeof itinerarySchema>,
+  mode: string
+): void {
+  itinerary.options[0]!.stops[0]!.travelToNext = {
+    mode,
+    minutes: 10,
+  } as { mode: "walk"; minutes: number };
+}
+
 function calc(minutes: number | null | (() => number | null)): TravelCalculator {
   return {
     calculateMinutes(legs) {
@@ -363,6 +373,35 @@ describe("validateItinerary", () => {
           e.code === "travel_unverified" && e.message.includes("missing coordinates")
       )
     );
+  });
+
+  it("fails closed as travel_unverified for rideshare, drive, and taxi", async () => {
+    for (const mode of ["rideshare", "drive", "taxi"] as const) {
+      const itinerary = twoOptionPlan();
+      setHopMode(itinerary, mode);
+      const errors = await validateItinerary(
+        { intent, candidates: fourCandidates(), itinerary },
+        { travelCapMinutes: 25, travelCalculator: calc(10) }
+      );
+      assert.ok(
+        errors.some(
+          (e) =>
+            e.code === "travel_unverified" &&
+            e.message.toLowerCase().includes(mode)
+        ),
+        `expected travel_unverified for ${mode}: ${JSON.stringify(errors)}`
+      );
+    }
+  });
+
+  it("accepts bicycle when the calculator returns minutes", async () => {
+    const itinerary = twoOptionPlan();
+    setHopMode(itinerary, "bicycle");
+    const errors = await validateItinerary(
+      { intent, candidates: fourCandidates(), itinerary },
+      { travelCapMinutes: 25, travelCalculator: calc(10) }
+    );
+    assert.deepEqual(errors, [], JSON.stringify(errors));
   });
 
   it("flags a name mismatch as name_mismatch", async () => {

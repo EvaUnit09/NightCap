@@ -1,14 +1,28 @@
 /**
+ * NightCap v1 travel modes. Rideshare, DRIVE, and taxi are out of scope;
+ * the validator fails those closed as `travel_unverified`.
+ */
+export const SUPPORTED_TRAVEL_MODES = ["walk", "transit", "bicycle"] as const;
+export type SupportedTravelMode = (typeof SUPPORTED_TRAVEL_MODES)[number];
+
+export function isSupportedTravelMode(
+  mode: string
+): mode is SupportedTravelMode {
+  return (SUPPORTED_TRAVEL_MODES as readonly string[]).includes(mode);
+}
+
+/**
  * One origin → destination hop the validator asks a calculator to time.
  * `from` or `to` is null when that side has no coordinates (invented stop).
+ * `mode` is a string so unsupported values can fail closed at runtime.
  */
 export interface TravelLeg {
   from: { lat: number; lng: number } | null;
   to: { lat: number; lng: number } | null;
-  mode: "walk" | "transit" | "rideshare";
+  mode: string;
   /**
-   * RFC-3339 departure for TRANSIT / DRIVE. The originating stop's end time.
-   * Omitted for WALK. Do not pair with routingPreference — that leaves Essentials.
+   * RFC-3339 departure for TRANSIT. The originating stop's end time.
+   * Omitted for WALK and BICYCLE.
    */
   departureTime?: string;
 }
@@ -31,8 +45,6 @@ export interface TravelCalculator {
 export interface HaversineOptions {
   /** Manhattan walking circuity. Boeing 2019. Default 1.14. */
   walkCircuity?: number;
-  /** Manhattan driving circuity. Boeing 2019. Default 1.21. */
-  driveCircuity?: number;
   /** Walking speed in mph. Default 3.0. */
   walkSpeedMph?: number;
   /**
@@ -40,8 +52,8 @@ export interface HaversineOptions {
    * Default 8.0 so a ~2–3 mi borough hop lands around 20–30 min.
    */
   transitSpeedMph?: number;
-  /** Manhattan CBD average speed, mph. NYC IBO 2025. Default 7.1. */
-  rideshareSpeedMph?: number;
+  /** Urban cycling speed in mph. Default 10. */
+  bicycleSpeedMph?: number;
 }
 
 /**
@@ -52,17 +64,15 @@ export interface HaversineOptions {
 export class HaversineEstimator implements TravelCalculator {
   private readonly earthRadiusMi = 3958.8;
   private readonly walkCircuity: number;
-  private readonly driveCircuity: number;
   private readonly walkSpeedMph: number;
   private readonly transitSpeedMph: number;
-  private readonly rideshareSpeedMph: number;
+  private readonly bicycleSpeedMph: number;
 
   constructor(options: HaversineOptions = {}) {
     this.walkCircuity = options.walkCircuity ?? 1.14;
-    this.driveCircuity = options.driveCircuity ?? 1.21;
     this.walkSpeedMph = options.walkSpeedMph ?? 3.0;
     this.transitSpeedMph = options.transitSpeedMph ?? 8.0;
-    this.rideshareSpeedMph = options.rideshareSpeedMph ?? 7.1;
+    this.bicycleSpeedMph = options.bicycleSpeedMph ?? 10.0;
   }
 
   calculateMinutes(legs: readonly TravelLeg[]): Array<number | null> {
@@ -71,6 +81,9 @@ export class HaversineEstimator implements TravelCalculator {
 
   private oneLeg(leg: TravelLeg): number | null {
     if (!leg.from || !leg.to) {
+      return null;
+    }
+    if (!isSupportedTravelMode(leg.mode)) {
       return null;
     }
     const speedMph = this.speedFor(leg.mode);
@@ -82,26 +95,25 @@ export class HaversineEstimator implements TravelCalculator {
     return Math.ceil((routeMi / speedMph) * 60);
   }
 
-  private speedFor(mode: TravelLeg["mode"]): number | null {
+  private speedFor(mode: SupportedTravelMode): number | null {
     switch (mode) {
       case "walk":
         return this.walkSpeedMph;
       case "transit":
         return this.transitSpeedMph;
-      case "rideshare":
-        return this.rideshareSpeedMph;
+      case "bicycle":
+        return this.bicycleSpeedMph;
       default:
         return null;
     }
   }
 
-  private circuityFor(mode: TravelLeg["mode"]): number | null {
+  private circuityFor(mode: SupportedTravelMode): number | null {
     switch (mode) {
       case "walk":
       case "transit":
+      case "bicycle":
         return this.walkCircuity;
-      case "rideshare":
-        return this.driveCircuity;
       default:
         return null;
     }

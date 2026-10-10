@@ -3,7 +3,7 @@ import { z } from "zod";
 import { STOPS_MAX, STOPS_MIN, STOPS_MIN_SINGLE } from "./bounds";
 import type { Candidate } from "./candidate";
 import { candidateSchema } from "./candidate";
-import { oneLineSchema } from "./common";
+import { isBefore, isoDateTimeSchema, oneLineSchema, placeIdSchema } from "./common";
 import {
   DEFAULT_PRICE_RANGES,
   DEFAULT_TRAVEL_CAP_MINUTES,
@@ -13,8 +13,11 @@ import {
 } from "./defaults";
 import type { Intent } from "./intent";
 import { intentSchema } from "./intent";
-import { stopSchema } from "./stop";
-import type { TravelCalculator, TravelLeg } from "./travel";
+import {
+  isSupportedTravelMode,
+  type TravelCalculator,
+  type TravelLeg,
+} from "./travel";
 import {
   validationErrorSchema,
   type ValidationError,
@@ -69,10 +72,34 @@ interface PendingTravel {
   departureTime: string;
 }
 
+/** Local parse: accept any mode string so bicycle works before #8 updates the enum. */
+const validationTravelToNextSchema = z
+  .object({
+    mode: z.string().trim().min(1).max(40),
+    minutes: z.int().nonnegative().max(24 * 60),
+  })
+  .strict();
+
+const validationStopSchema = z
+  .object({
+    placeId: placeIdSchema,
+    name: z.string().trim().min(1).max(200),
+    start: isoDateTimeSchema,
+    end: isoDateTimeSchema,
+    estimatedCostUsd: z.int().nonnegative().max(100_000),
+    why: oneLineSchema(200),
+    travelToNext: validationTravelToNextSchema.nullable(),
+  })
+  .strict()
+  .refine((stop) => isBefore(stop.start, stop.end), {
+    message: "Stop start must be before stop end",
+    path: ["end"],
+  });
+
 const validationOptionSchema = z
   .object({
     theme: oneLineSchema(80),
-    stops: z.array(stopSchema).min(STOPS_MIN_SINGLE).max(STOPS_MAX),
+    stops: z.array(validationStopSchema).min(STOPS_MIN_SINGLE).max(STOPS_MAX),
   })
   .strict()
   .superRefine((option, ctx) => {
@@ -400,6 +427,19 @@ function applyTravelRules(
   travelCapMinutes: number,
   travelToleranceMinutes: number
 ): void {
+  if (!isSupportedTravelMode(leg.mode)) {
+    errors.push(
+      emitError({
+        code: "travel_unverified",
+        message: `Travel mode "${leg.mode}" is not supported; v1 allows walk, transit, and bicycle`,
+        optionIndex: leg.optionIndex,
+        stopIndex: leg.stopIndex,
+        placeId: leg.placeId,
+      })
+    );
+    return;
+  }
+
   if (leg.from === null || leg.to === null) {
     errors.push(
       emitError({

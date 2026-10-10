@@ -68,7 +68,7 @@ describe("RoutesMatrixTravelCalculator", () => {
     assert.equal(result[1], 10);
   });
 
-  it("maps rideshare to DRIVE and transit to TRANSIT", async () => {
+  it("maps walk, transit, and bicycle only", async () => {
     const modes: string[] = [];
     const calculator = new RoutesMatrixTravelCalculator({
       apiKey: "test-key",
@@ -78,10 +78,29 @@ describe("RoutesMatrixTravelCalculator", () => {
       },
     });
     await calculator.calculateMinutes([
-      { ...walkLeg, mode: "rideshare" },
+      { ...walkLeg, mode: "walk" },
       { ...walkLeg, mode: "transit" },
+      { ...walkLeg, mode: "bicycle" },
     ]);
-    assert.deepEqual(modes.sort(), ["DRIVE", "TRANSIT"]);
+    assert.deepEqual(modes.sort(), ["BICYCLE", "TRANSIT", "WALK"]);
+  });
+
+  it("fails closed on rideshare, drive, and taxi without fetching", async () => {
+    let calls = 0;
+    const calculator = new RoutesMatrixTravelCalculator({
+      apiKey: "test-key",
+      fetchImpl: async () => {
+        calls += 1;
+        return jsonResponse(success);
+      },
+    });
+    const result = await calculator.calculateMinutes([
+      { ...walkLeg, mode: "rideshare" },
+      { ...walkLeg, mode: "drive" },
+      { ...walkLeg, mode: "taxi" },
+    ]);
+    assert.equal(calls, 0);
+    assert.deepEqual(result, [null, null, null]);
   });
 
   it("returns null when the API key is missing and does not fetch", async () => {
@@ -140,13 +159,17 @@ describe("RoutesMatrixTravelCalculator", () => {
     assert.equal(result[0], null);
   });
 
-  it("bills one matrix element per leg (9 same-mode legs bill 9)", async () => {
+  it("bills one matrix element per consecutive leg across mixed modes (9 legs bill 9)", async () => {
     let billedElements = 0;
+    const modesSent: string[] = [];
     const calculator = new RoutesMatrixTravelCalculator({
       apiKey: "test-key",
       fetchImpl: async (_url, init) => {
         const body = JSON.parse(String(init?.body));
         billedElements += body.origins.length * body.destinations.length;
+        modesSent.push(body.travelMode);
+        assert.equal(body.origins.length, 1);
+        assert.equal(body.destinations.length, 1);
         return jsonResponse([
           {
             originIndex: 0,
@@ -158,8 +181,10 @@ describe("RoutesMatrixTravelCalculator", () => {
         ]);
       },
     });
+    const cycle = ["walk", "transit", "bicycle"] as const;
     const legs = Array.from({ length: 9 }, (_, index) => ({
       ...walkLeg,
+      mode: cycle[index % 3]!,
       from: { lat: 40.73 + index * 0.001, lng: -74.002 },
       to: { lat: 40.74 + index * 0.001, lng: -73.99 },
     }));
@@ -167,9 +192,10 @@ describe("RoutesMatrixTravelCalculator", () => {
     assert.equal(billedElements, 9);
     assert.equal(result.length, 9);
     assert.ok(result.every((minutes) => minutes === 10));
+    assert.deepEqual(new Set(modesSent), new Set(["WALK", "TRANSIT", "BICYCLE"]));
   });
 
-  it("sends departureTime for TRANSIT and DRIVE and omits it for WALK", async () => {
+  it("sends departureTime for TRANSIT only and omits it for WALK and BICYCLE", async () => {
     const bodies: Array<Record<string, unknown>> = [];
     const calculator = new RoutesMatrixTravelCalculator({
       apiKey: "test-key",
@@ -190,17 +216,17 @@ describe("RoutesMatrixTravelCalculator", () => {
     await calculator.calculateMinutes([
       { ...walkLeg, mode: "walk", departureTime },
       { ...walkLeg, mode: "transit", departureTime },
-      { ...walkLeg, mode: "rideshare", departureTime },
+      { ...walkLeg, mode: "bicycle", departureTime },
     ]);
     const byMode = Object.fromEntries(
       bodies.map((body) => [body.travelMode, body])
     ) as Record<string, { departureTime?: string; routingPreference?: string }>;
     assert.equal(byMode.WALK?.departureTime, undefined);
     assert.equal(byMode.TRANSIT?.departureTime, departureTime);
-    assert.equal(byMode.DRIVE?.departureTime, departureTime);
+    assert.equal(byMode.BICYCLE?.departureTime, undefined);
     assert.equal(byMode.WALK?.routingPreference, undefined);
     assert.equal(byMode.TRANSIT?.routingPreference, undefined);
-    assert.equal(byMode.DRIVE?.routingPreference, undefined);
+    assert.equal(byMode.BICYCLE?.routingPreference, undefined);
   });
 
   it("returns null for a leg with missing coordinates without calling fetch for it", async () => {
