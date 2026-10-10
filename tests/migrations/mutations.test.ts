@@ -286,9 +286,17 @@ GRANT ALL ON TABLE public.saved_plans TO authenticated;
         "REVOKE ALL ON TABLE public.saved_plans FROM PUBLIC, anon;"
       ),
   },
+  {
+    name: "stops placeId-only CHECK dropped",
+    apply: (sql) =>
+      sql.replace(
+        "  CONSTRAINT itineraries_stops_place_ids_only CHECK (public.itineraries_stops_are_place_ids_only(stops)),\n",
+        ""
+      ),
+  },
 ];
 
-assert.equal(MUTATIONS.length, 32, "mutation suite must list 32 breaks");
+assert.equal(MUTATIONS.length, 33, "mutation suite must list 33 breaks");
 
 describe("migration mutation suite", { concurrency: 1 }, () => {
   it("unmutated migration satisfies the oracle", async () => {
@@ -300,7 +308,7 @@ describe("migration mutation suite", { concurrency: 1 }, () => {
     }
   });
 
-  it("catches all 32 listed breaks", async () => {
+  it("catches all 33 listed breaks", async () => {
     const missed: string[] = [];
 
     for (const mutation of MUTATIONS) {
@@ -329,7 +337,7 @@ describe("migration mutation suite", { concurrency: 1 }, () => {
     assert.equal(
       missed.length,
       0,
-      `caught ${32 - missed.length}/32 mutations; missed: ${missed.join("; ")}`
+      `caught ${33 - missed.length}/33 mutations; missed: ${missed.join("; ")}`
     );
   });
 });

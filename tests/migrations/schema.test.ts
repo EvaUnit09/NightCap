@@ -185,6 +185,25 @@ describe("Supabase migration with real Postgres", { concurrency: 1 }, () => {
       });
     });
 
+    it("rejects a service_role itinerary stop that includes name", async () => {
+      const request = await db.query<{ id: string }>(
+        `INSERT INTO public.requests (redacted_text, parsed_intent)
+         VALUES ('named-stop', '{}'::jsonb) RETURNING id`
+      );
+      await asRole(db, "service_role", null, async () => {
+        await expectRejects(
+          () =>
+            db.query(
+              `INSERT INTO public.itineraries
+                 (request_id, option_index, stops, prompt_versions, models)
+               VALUES ($1, 0, $2::jsonb, '{}'::jsonb, '{}'::jsonb)`,
+              [request.rows[0].id, JSON.stringify([{ placeId: "ChIJ_x", name: "Cafe" }])]
+            ),
+          /check constraint|stops|place_id|forbidden|details/i
+        );
+      });
+    });
+
     it("blocks deleting a request that still has a saved plan", async () => {
       const user = await db.query<{ id: string }>(
         `INSERT INTO auth.users (email) VALUES ('restrict@test.com') RETURNING id`

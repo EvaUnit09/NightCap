@@ -73,7 +73,8 @@ By **2026-10-25** (4 weeks), ship a deployed v1 that:
 - `requests`: redacted request text, parsed intent, timestamps
 - `itineraries`: generated options, validation results, prompt/model versions
 - `feedback`: thumbs, would-go, did-you-go, new-to-you, closed-venue reports
-- `places_cache`: `place_id` indefinitely, lat/lng for 30 days; hours, price, and rating fetched live. Venue names, when present, are stored on `itineraries.stops` and served by `get_shared_plan`
+- `places_cache`: `place_id` indefinitely, lat/lng for 30 days; hours, price, rating, and names fetched live
+- `itineraries.stops`: `placeId` plus planning fields only (times, stopType, estimatedCostUsd, travelToNext, why). Names and Places details are hydrated live on view/share (decision #29)
 
 Anonymous by default. A magic link saves and shares plans. Names and other PII are redacted from the free text before storage and logging.
 
@@ -222,7 +223,7 @@ Nightcap retrieves from a structured API, not from a document corpus. This secti
 
 | Source                                                          | Type                                                                                     | Volume                        | Update Frequency | Notes                              |
 | --------------------------------------------------------------- | ---------------------------------------------------------------------------------------- | ----------------------------- | ---------------- | ---------------------------------- |
-| Google Places API (Text Search / Nearby Search / Place Details) | Structured venue data: hours, price level, rating, review count, coords, business_status | ~20–60 candidates per request | Details live; `place_id` cached indefinitely; lat/lng ≤ 30 days | Hours, price, and rating are not cached. Names may be stored on itinerary stops. |
+| Google Places API (Text Search / Nearby Search / Place Details) | Structured venue data: hours, price level, rating, review count, coords, business_status | ~20–60 candidates per request | Details live; `place_id` cached indefinitely; lat/lng ≤ 30 days | Hours, price, rating, and names are not cached. Saved stops store `placeId` only; names and details are hydrated live on view/share. |
 | Beta "closed venue" reports                                     | User feedback                                                                            | Low                           | Continuous       | Staleness signal                   |
 
 

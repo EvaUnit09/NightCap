@@ -6,10 +6,10 @@
 --   places_cache stores only terms-permitted fields:
 --     - place_id: may be stored indefinitely (refresh recommended after 12 months)
 --     - lat/lng: may be stored at most 30 consecutive calendar days via coords_expires_at
---   There is no payload column. Hours, business_status, price_level, and rating
---   are fetched live and are not cached here.
---   Venue names are stored on itineraries.stops (and returned by get_shared_plan).
---   Whether to store only placeId and hydrate names live is an open question for Noah.
+--   There is no payload column. Hours, business_status, price_level, rating,
+--   and names are fetched live and are not cached here.
+--   Saved itineraries.stops store placeId plus planning fields only (decision #29).
+--   The app hydrates names and Places details live at view/share time.
 --
 -- Share slugs are generated server-side by save_plan() (CSPRNG / gen_random_uuid).
 -- Application clients must not insert saved_plans or invent slugs.
@@ -50,6 +50,52 @@ ALTER TABLE public.requests FORCE ROW LEVEL SECURITY;
 -- =============================================================================
 -- ITINERARIES
 -- =============================================================================
+-- Persisted stops are placeId + our planning fields only. Venue names and
+-- Places details (address, rating, hours, price, …) are hydrated live by the
+-- app at view/share time. The pipeline must strip those keys before INSERT.
+CREATE OR REPLACE FUNCTION public.itineraries_stops_are_place_ids_only(stops jsonb)
+RETURNS boolean
+LANGUAGE plpgsql
+IMMUTABLE
+SET search_path = ''
+AS $$
+DECLARE
+  stop jsonb;
+  key text;
+  allowed text[] := ARRAY[
+    'placeId',
+    'start',
+    'end',
+    'stopType',
+    'estimatedCostUsd',
+    'why',
+    'travelToNext'
+  ];
+BEGIN
+  IF jsonb_typeof(stops) <> 'array' THEN
+    RETURN false;
+  END IF;
+
+  FOR stop IN SELECT value FROM jsonb_array_elements(stops)
+  LOOP
+    IF jsonb_typeof(stop) <> 'object' THEN
+      RETURN false;
+    END IF;
+    IF NULLIF(btrim(stop->>'placeId'), '') IS NULL THEN
+      RETURN false;
+    END IF;
+    FOR key IN SELECT jsonb_object_keys(stop)
+    LOOP
+      IF NOT (key = ANY (allowed)) THEN
+        RETURN false;
+      END IF;
+    END LOOP;
+  END LOOP;
+
+  RETURN true;
+END;
+$$;
+
 CREATE TABLE public.itineraries (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   request_id UUID NOT NULL REFERENCES public.requests (id) ON DELETE CASCADE,
@@ -65,6 +111,7 @@ CREATE TABLE public.itineraries (
   CONSTRAINT itineraries_option_index_range CHECK (option_index BETWEEN 0 AND 2),
   CONSTRAINT itineraries_cost_non_negative CHECK (cost_usd IS NULL OR cost_usd >= 0),
   CONSTRAINT itineraries_latency_non_negative CHECK (latency_ms IS NULL OR latency_ms >= 0),
+  CONSTRAINT itineraries_stops_place_ids_only CHECK (public.itineraries_stops_are_place_ids_only(stops)),
   CONSTRAINT itineraries_unique_option_per_request UNIQUE (request_id, option_index)
 );
 
@@ -206,6 +253,8 @@ CREATE POLICY saved_plans_delete_own ON public.saved_plans
 -- =============================================================================
 -- Public path for a share slug. Returns only safe fields of a valid itinerary.
 -- Never returns user_id, request text, or client_hash.
+-- stops are placeIds plus planning fields only; the app hydrates names and
+-- Places details live through Places at view time (decision #29).
 -- Owner must be a BYPASSRLS role so SECURITY DEFINER can read itineraries.
 CREATE OR REPLACE FUNCTION public.get_shared_plan(slug text)
 RETURNS TABLE (
@@ -343,6 +392,10 @@ REVOKE ALL ON FUNCTION public.places_cache_guard_fetched_at() FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.places_cache_guard_fetched_at() FROM anon;
 REVOKE ALL ON FUNCTION public.places_cache_guard_fetched_at() FROM authenticated;
 
+REVOKE ALL ON FUNCTION public.itineraries_stops_are_place_ids_only(jsonb) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.itineraries_stops_are_place_ids_only(jsonb) FROM anon;
+REVOKE ALL ON FUNCTION public.itineraries_stops_are_place_ids_only(jsonb) FROM authenticated;
+
 -- =============================================================================
 -- COMMENTS
 -- =============================================================================
@@ -353,7 +406,7 @@ COMMENT ON COLUMN public.requests.redacted_text IS
 COMMENT ON COLUMN public.requests.user_id IS
   'Nullable owner (magic-link user). Null means an anonymous request. save_plan refuses to attach a plan when this belongs to someone else.';
 COMMENT ON TABLE public.itineraries IS
-  'Generated options with validation and trace metadata. service_role only; public reads go through get_shared_plan().';
+  'Generated options with validation and trace metadata. service_role only; public reads go through get_shared_plan(). stops store placeId plus planning fields; names are hydrated live.';
 COMMENT ON TABLE public.feedback IS
   'Thumbs, would-go/did-go, new-to-you, closed-venue reports. Writes via service_role after Turnstile.';
 COMMENT ON TABLE public.places_cache IS
@@ -362,7 +415,7 @@ COMMENT ON TABLE public.saved_plans IS
   'Magic-link owned saved plans. Inserts via save_plan() only. Shared reads use get_shared_plan(slug).';
 
 COMMENT ON COLUMN public.itineraries.stops IS
-  'JSON stop list. Venue names, when present, are stored here and returned by get_shared_plan. They are not stored in places_cache.';
+  'JSON stop list: placeId plus planning fields only (start, end, stopType, estimatedCostUsd, why, travelToNext). Names and Places details are hydrated live at view/share time. Pipeline must strip names before persist.';
 COMMENT ON COLUMN public.itineraries.cost_usd IS
   'Measured plan cost in USD. Nullable; no zero default (unset is not free).';
 COMMENT ON COLUMN public.itineraries.latency_ms IS
@@ -380,7 +433,9 @@ COMMENT ON COLUMN public.saved_plans.itinerary_id IS
   'ON DELETE RESTRICT so deleting a request cannot cascade-delete a saved/shared plan. Retention cleanup must skip referenced requests.';
 
 COMMENT ON FUNCTION public.get_shared_plan(text) IS
-  'Share RPC. SECURITY DEFINER, search_path empty, owner must be BYPASSRLS. Returns only safe fields of valid itineraries.';
+  'Share RPC. SECURITY DEFINER, search_path empty, owner must be BYPASSRLS. Returns placeIds plus planning fields only; the app hydrates names and details live through Places at view time.';
+COMMENT ON FUNCTION public.itineraries_stops_are_place_ids_only(jsonb) IS
+  'CHECK helper: itineraries.stops must be an array of objects with placeId and planning keys only. Rejects name, address, rating, hours, and other Places details.';
 COMMENT ON FUNCTION public.save_plan(uuid, uuid) IS
   'service_role only. Generates the slug. Refuses when the itinerary request belongs to another user.';
 COMMENT ON FUNCTION public.cleanup_expired_cache() IS

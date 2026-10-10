@@ -55,7 +55,7 @@ user text is treated as data.
 | Table | Key fields |
 |---|---|
 | `requests` | id, created_at, redacted_text, parsed_intent (jsonb), client_hash |
-| `itineraries` | id, request_id, option_index, stops (jsonb), valid (bool), validation_errors (jsonb), prompt_versions, models, cost_usd, latency_ms |
+| `itineraries` | id, request_id, option_index, stops (jsonb: `placeId` + planning fields only; no name/address/rating/hours), valid (bool), validation_errors (jsonb), prompt_versions, models, cost_usd, latency_ms |
 | `feedback` | id, itinerary_id, thumbs, would_go, did_go, new_to_you (jsonb per venue), closed_report_place_id |
 | `places_cache` | place_id (PK), lat, lng, coords_fetched_at, coords_expires_at (≤ 30d). No payload. Query-result cache dropped. |
 | `saved_plans` | id, user_id (magic link), itinerary_id, share_slug |
@@ -99,7 +99,7 @@ per hop. See decision log #25.
 | 1 | Scaffold one Next.js app with the domain folders in scope §9. | `app/`, `src/`, `prompts/`, `evaluation/`, `tests/` | Strict TypeScript builds. Domain folders exist. |
 | 2 | Define shared Zod schemas: intent, candidate, stop, itinerary, validation error, tool input. | `src/validation/` | Every boundary parses with Zod. An itinerary is 2–3 options of 2–4 timed stops (exactly 1 stop when singleStop is true), with no venue shared between options. Travel modes are TRANSIT, BICYCLE, and WALK. |
 | 3 | Move model IDs, cache TTL, rate limits, travel cap, and spend caps into config. | `src/models/`, `.env.example` | No key, model id, TTL, or threshold is hardcoded. |
-| 4 | Create `requests`, `itineraries`, `feedback`, `places_cache`, `saved_plans`. | Supabase migration | Columns match the data model above. `places_cache` stores only fields Google's terms allow. |
+| 4 | Create `requests`, `itineraries`, `feedback`, `places_cache`, `saved_plans`. | Supabase migration | Columns match the data model above. `places_cache` stores only fields Google's terms allow. `itineraries.stops` store `placeId` plus planning fields; names and details are hydrated live on view/share. |
 | 5 | Redact names and other PII from free text before any database write or Datadog span. | `src/monitoring/` | A request containing a name is stored and traced only in redacted form. |
 
 ### 2. Shared kernel
@@ -119,7 +119,7 @@ Do this before prompt iteration. Later phases call these modules; they do not re
 | # | Action | Lands in | Done when |
 |---|---|---|---|
 | 11 | Call Places Text Search, Nearby Search, and Place Details. Venues come only from these responses. | `src/retrieval/` | A query returns Place IDs plus hours, price, coords, rating, review count, and business status. |
-| 12 | Cache `place_id` indefinitely and lat/lng for ≤ 30 days. Hours, price, and rating are fetched live. The previous query-keyed 24h details cache is dropped (raises Places cost; pending Noah's cost decision). | `places_cache` | Expired coordinates are not served. A repeat details query still calls Places. |
+| 12 | Cache `place_id` indefinitely and lat/lng for ≤ 30 days. Hours, price, rating, and names are fetched live. Saved stops store `placeId` only; the app hydrates names and details on view/share (decision #29). The previous query-keyed 24h details cache is dropped. Extra Places calls on view/share are covered by #30 (new beta target, lands in PR #7). | `places_cache` | Expired coordinates are not served. A repeat details query still calls Places. |
 | 13 | Filter to `OPERATIONAL` venues that are open for the slot and inside the price band, then re-rank. | `src/retrieval/` | Top-K per stop type prefers vibe-tag fit and penalizes very high review counts. Closed venues never reach the planner. |
 | 14 | Retry a Places 429 or timeout once, then surface a partial result with a clear error. | `src/retrieval/` | The failure is a span with status error. The user is not shown an invented stop. |
 
@@ -141,7 +141,7 @@ Do this before prompt iteration. Later phases call these modules; they do not re
 |---|---|---|---|
 | 22 | Cap anonymous use: 5 plans per hour per IP, plus a global daily spend cap. | Upstash or Vercel KV, `src/monitoring/` | Over the daily cap, the API returns a come-back-tomorrow response and stops calling models. |
 | 23 | Require Turnstile on the first request. Keep API keys server-side. | `app/` route handler | A request with no captcha token is rejected. The browser never sees the Anthropic or Places key. |
-| 24 | Persist the redacted request, parsed intent, options, validation result, prompt versions, model, cost, and latency. | `requests`, `itineraries` | A finished plan can be reloaded from Postgres without re-calling the model. |
+| 24 | Persist the redacted request, parsed intent, options (placeIds + planning fields), validation result, prompt versions, model, cost, and latency. Pipeline must strip venue names before persist. | `requests`, `itineraries` | A finished plan reloads placeIds from Postgres; names and Places details are hydrated live on view. |
 | 25 | Build the request screen: free text plus optional date, budget, and neighborhood, then side-by-side stop timelines. | `app/` | A beta user can submit a request and see 2–3 streamed itineraries with a one-line why on each stop. |
 | 26 | Collect thumbs, would-go, did-you-go, new-to-you, and closed-venue reports. | `feedback`, UI | Each signal is stored against the itinerary or place id and can be joined back to the Datadog trace. |
 | 27 | Add the route map. Cut this second if the date slips. | Google Maps JS | Stops for the selected itinerary render on a map. |

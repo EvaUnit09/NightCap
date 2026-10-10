@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import type { PGlite } from "@electric-sql/pglite";
 
 import { asRole, expectPermissionDenied, expectRejects } from "./harness";
+import { PERSISTED_STOP_FORBIDDEN_KEYS } from "./persisted-stop";
 
 type Seed = {
   userAId: string;
@@ -33,7 +34,7 @@ async function seed(db: PGlite): Promise<Seed> {
   const itinerary = await db.query<{ id: string }>(
     `INSERT INTO public.itineraries
        (request_id, option_index, stops, valid, prompt_versions, models)
-     VALUES ($1, 0, '[{"place_id":"abc","name":"Cafe"}]'::jsonb, true, '{}'::jsonb, '{}'::jsonb)
+     VALUES ($1, 0, '[{"placeId":"abc"}]'::jsonb, true, '{}'::jsonb, '{}'::jsonb)
      RETURNING id`,
     [requestAId]
   );
@@ -42,7 +43,7 @@ async function seed(db: PGlite): Promise<Seed> {
   const invalid = await db.query<{ id: string }>(
     `INSERT INTO public.itineraries
        (request_id, option_index, stops, valid, prompt_versions, models)
-     VALUES ($1, 1, '[{"place_id":"def"}]'::jsonb, false, '{}'::jsonb, '{}'::jsonb)
+     VALUES ($1, 1, '[{"placeId":"def"}]'::jsonb, false, '{}'::jsonb, '{}'::jsonb)
      RETURNING id`,
     [requestAId]
   );
@@ -83,6 +84,7 @@ export async function assertInvariants(db: PGlite): Promise<void> {
   await assertNullableCostLatency(db);
   await assertNoPayloadColumn(db);
   await assertRequestDeleteRestricted(db, data);
+  await assertStopsRejectPlacesDetails(db);
 }
 
 async function assertOptionIndexBounds(db: PGlite, requestId: string): Promise<void> {
@@ -277,6 +279,15 @@ async function assertShareRpc(db: PGlite, data: Seed): Promise<void> {
     assert.ok(!columns.includes("redacted_text"));
     assert.ok(!columns.includes("client_hash"));
     assert.equal(valid.rows[0].valid, true);
+    const stops = valid.rows[0].stops;
+    assert.ok(Array.isArray(stops));
+    for (const stop of stops as Array<Record<string, unknown>>) {
+      assert.ok(stop.placeId);
+      assert.ok(!("name" in stop));
+      assert.ok(!("rating" in stop));
+      assert.ok(!("hours" in stop));
+      assert.ok(!("address" in stop));
+    }
   });
 }
 
@@ -367,4 +378,44 @@ async function assertRequestDeleteRestricted(db: PGlite, data: Seed): Promise<vo
     [data.itineraryAId]
   );
   assert.equal(plan.rows.length, 1);
+}
+
+async function assertStopsRejectPlacesDetails(db: PGlite): Promise<void> {
+  const request = await db.query<{ id: string }>(
+    `INSERT INTO public.requests (redacted_text, parsed_intent)
+     VALUES ('stops-shape', '{}'::jsonb)
+     RETURNING id`
+  );
+  const requestId = request.rows[0].id;
+
+  for (const key of PERSISTED_STOP_FORBIDDEN_KEYS) {
+    const stops = JSON.stringify([{ placeId: "xyz", [key]: "x" }]);
+    await asRole(db, "service_role", null, async () => {
+      await expectRejects(
+        () =>
+          db.query(
+            `INSERT INTO public.itineraries
+               (request_id, option_index, stops, prompt_versions, models)
+             VALUES ($1, 0, $2::jsonb, '{}'::jsonb, '{}'::jsonb)`,
+            [requestId, stops]
+          ),
+        /check constraint|stops|place_id|forbidden|details/i
+      );
+    });
+  }
+
+  await asRole(db, "service_role", null, async () => {
+    await db.query(
+      `INSERT INTO public.itineraries
+         (request_id, option_index, stops, prompt_versions, models)
+       VALUES (
+         $1,
+         0,
+         '[{"placeId":"ok","stopType":"dinner","estimatedCostUsd":40,"travelToNext":{"mode":"walk","minutes":8}}]'::jsonb,
+         '{}'::jsonb,
+         '{}'::jsonb
+       )`,
+      [requestId]
+    );
+  });
 }
