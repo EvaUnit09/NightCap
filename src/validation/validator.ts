@@ -17,6 +17,7 @@ import { intentSchema } from "./intent";
 import { itinerarySchema } from "./itinerary";
 import {
   isSupportedTravelMode,
+  normalizeTravelMode,
   type TravelCalculator,
   type TravelLeg,
 } from "./travel";
@@ -454,7 +455,10 @@ function travelLegKey(leg: TravelLeg): string {
     from: leg.from,
     to: leg.to,
     mode: leg.mode,
-    departureTime: leg.mode === "transit" ? (leg.departureTime ?? null) : null,
+    departureTime:
+      normalizeTravelMode(leg.mode) === "transit"
+        ? (leg.departureTime ?? null)
+        : null,
   });
 }
 
@@ -483,7 +487,7 @@ function applyTravelRules(
     errors.push(
       emitError({
         code: "travel_unverified",
-        message: `Travel mode "${leg.mode}" is not supported; v1 allows walk, transit, and bicycle`,
+        message: `Travel mode "${leg.mode}" is not supported; v1 allows walk/WALK, transit/TRANSIT, and bicycle/BICYCLE`,
         optionIndex: leg.optionIndex,
         stopIndex: leg.stopIndex,
         placeId: leg.placeId,

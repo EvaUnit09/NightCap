@@ -5,10 +5,22 @@
 export const SUPPORTED_TRAVEL_MODES = ["walk", "transit", "bicycle"] as const;
 export type SupportedTravelMode = (typeof SUPPORTED_TRAVEL_MODES)[number];
 
-export function isSupportedTravelMode(
-  mode: string
-): mode is SupportedTravelMode {
-  return (SUPPORTED_TRAVEL_MODES as readonly string[]).includes(mode);
+const MODE_ALIASES: Record<string, SupportedTravelMode> = {
+  walk: "walk",
+  WALK: "walk",
+  transit: "transit",
+  TRANSIT: "transit",
+  bicycle: "bicycle",
+  BICYCLE: "bicycle",
+};
+
+/** Accepts v1 lowercase and #8's contract enum (WALK / TRANSIT / BICYCLE). */
+export function normalizeTravelMode(mode: string): SupportedTravelMode | null {
+  return MODE_ALIASES[mode] ?? null;
+}
+
+export function isSupportedTravelMode(mode: string): boolean {
+  return normalizeTravelMode(mode) !== null;
 }
 
 /**
@@ -83,11 +95,12 @@ export class HaversineEstimator implements TravelCalculator {
     if (!leg.from || !leg.to) {
       return null;
     }
-    if (!isSupportedTravelMode(leg.mode)) {
+    const mode = normalizeTravelMode(leg.mode);
+    if (mode === null) {
       return null;
     }
-    const speedMph = this.speedFor(leg.mode);
-    const circuity = this.circuityFor(leg.mode);
+    const speedMph = this.speedFor(mode);
+    const circuity = this.circuityFor(mode);
     if (speedMph === null || circuity === null) {
       return null;
     }

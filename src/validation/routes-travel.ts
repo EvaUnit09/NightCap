@@ -1,7 +1,7 @@
 import "server-only";
 
 import {
-  isSupportedTravelMode,
+  normalizeTravelMode,
   type SupportedTravelMode,
   type TravelCalculator,
   type TravelLeg,
@@ -77,16 +77,15 @@ export class RoutesMatrixTravelCalculator implements TravelCalculator {
 
     await Promise.all(
       legs.map(async (leg, index) => {
-        if (!leg.from || !leg.to || !isSupportedTravelMode(leg.mode)) {
+        const mode = normalizeTravelMode(leg.mode);
+        if (!leg.from || !leg.to || mode === null) {
           return;
         }
-        const key = memoKey({ ...leg, mode: leg.mode });
+        const normalized = { ...leg, mode };
+        const key = memoKey(normalized);
         let pending = memo.get(key);
         if (!pending) {
-          pending = this.matrixForLeg({
-            ...leg,
-            mode: leg.mode,
-          });
+          pending = this.matrixForLeg(normalized);
           memo.set(key, pending);
         }
         results[index] = await pending;

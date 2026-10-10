@@ -404,6 +404,18 @@ describe("validateItinerary", () => {
     assert.deepEqual(errors, [], JSON.stringify(errors));
   });
 
+  it("accepts #8 contract modes WALK, TRANSIT, and BICYCLE", async () => {
+    for (const mode of ["WALK", "TRANSIT", "BICYCLE"] as const) {
+      const itinerary = twoOptionPlan();
+      setHopMode(itinerary, mode);
+      const errors = await validateItinerary(
+        { intent, candidates: fourCandidates(), itinerary },
+        { travelCapMinutes: 25, travelCalculator: calc(10) }
+      );
+      assert.deepEqual(errors, [], `expected ${mode} to pass: ${JSON.stringify(errors)}`);
+    }
+  });
+
   it("flags a name mismatch as name_mismatch", async () => {
     const itinerary = twoOptionPlan();
     itinerary.options[0]!.stops[0]!.name = "Wrong Name";

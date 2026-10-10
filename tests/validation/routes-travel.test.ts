@@ -93,6 +93,23 @@ describe("RoutesMatrixTravelCalculator", () => {
     assert.deepEqual(modes.sort(), ["BICYCLE", "TRANSIT", "WALK"]);
   });
 
+  it("maps #8 contract modes WALK, TRANSIT, and BICYCLE", async () => {
+    const modes: string[] = [];
+    const calculator = new RoutesMatrixTravelCalculator({
+      apiKey: "test-key",
+      fetchImpl: async (_url, init) => {
+        modes.push(JSON.parse(String(init?.body)).travelMode);
+        return jsonResponse(success);
+      },
+    });
+    await calculator.calculateMinutes([
+      { ...walkLeg, mode: "WALK" },
+      { ...walkLeg, mode: "TRANSIT" },
+      { ...walkLeg, mode: "BICYCLE" },
+    ]);
+    assert.deepEqual(modes.sort(), ["BICYCLE", "TRANSIT", "WALK"]);
+  });
+
   it("fails closed on rideshare, drive, and taxi without fetching", async () => {
     let calls = 0;
     const calculator = new RoutesMatrixTravelCalculator({
