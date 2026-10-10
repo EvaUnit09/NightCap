@@ -1,24 +1,31 @@
 /**
- * PII redaction module for NightCap.
+ * PII redaction for NightCap.
  *
- * Deterministically redacts person names, emails, phone numbers, addresses, and
- * other PII from free text before database writes or tracing. Preserves venue,
- * neighborhood, and food terms as required for itinerary planning.
+ * Deterministic, no network, no LLM. This is the only choke point later code
+ * should call before a database write or a Datadog span attribute.
  *
- * Input size: capped at 4KB to prevent ReDoS attacks.
+ * Input cap: 4096 characters. Longer input fails closed with
+ * `[REDACTION_ERROR: input exceeds 4KB limit]` so adversarial strings never
+ * reach the regexes.
  *
- * Known limitations:
- * - Context-free single names without relationship/greeting context may not be caught
- * - Non-English text and non-Latin scripts have limited support
- * - Months/days used as names after relationship words ARE redacted ("my girlfriend June")
- * - Business names in possessive form are partially protected ("Joe's Pizza" preserved, but "with Joe" may redact)
+ * Markers actually emitted: [NAME], [EMAIL], [PHONE], [ADDRESS], [ZIP],
+ * and [REDACTION_ERROR] / [REDACTION_ERROR: ...] on failure. ZIP matches are
+ * counted under `counts.addresses`.
+ *
+ * Known limits:
+ * - Context-free given names ("Sarah went there") are not redacted. A bare
+ *   capitalized word is too often a venue, neighborhood, or dish.
+ * - CJK names have no uppercase and are not matched by the name-token rule.
+ * - Cyrillic and other cased scripts work when they sit after a person cue.
+ * - A small NYC gazetteer plus possessive-'s skipping keeps "with Chelsea"
+ *   and "Joe's Pizza" intact; an unknown venue that looks like a person name
+ *   after "with" can still be redacted.
+ * - 7-digit local phones are redacted; bare 5-digit numbers are not ZIPs
+ *   unless a "zip" cue is present.
  */
 
-const MAX_INPUT_LENGTH = 4096; // 4KB cap to prevent ReDoS
+const MAX_INPUT_LENGTH = 4096;
 
-/**
- * Counts of redactions by category.
- */
 export interface RedactionCounts {
   readonly names: number;
   readonly emails: number;
@@ -26,417 +33,671 @@ export interface RedactionCounts {
   readonly addresses: number;
 }
 
-/**
- * Result of redacting PII from text.
- */
 export interface RedactionResult {
-  /** Text with PII replaced by category-specific markers */
   readonly text: string;
-  /** Count of redactions by category */
   readonly counts: RedactionCounts;
 }
 
-/**
- * Bounded email pattern - prevents ReDoS by capping local/domain part lengths.
- * local: 1-64 chars, domain: 1-253 chars, TLD: 2-24 chars
- */
+const EMPTY_COUNTS: RedactionCounts = {
+  names: 0,
+  emails: 0,
+  phones: 0,
+  addresses: 0,
+};
+
+/** Bounded local/domain/TLD lengths. No nested optional repeats. */
 const EMAIL_PATTERN = /\b[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9.-]{1,253}\.[A-Za-z]{2,24}\b/gi;
 
 /**
- * Phone patterns: US and international formats.
- * Handles: (123) 456-7890, 123-456-7890, 1234567890, +1 123 456 7890,
- * international: +44 20 7946 0958, +33 6 12 34 56 78
- * Extensions handled separately.
+ * Phones consume the country code and extension so nothing identifiable is
+ * left over. Quantifiers are bounded; no overlapping `\d*\w*` runs.
  */
-const PHONE_PATTERNS = [
-  // International with + country code: +44 20 7946 0958, +33 6 12 34 56 78
-  /\+\d{1,3}\s+\d{1,4}\s+\d{3,4}\s+\d{4}(?:\s+\d{2,4})?/g,
-  // International compact: +442079460958
-  /\+\d{10,15}/g,
-  // US with country code: +1 (212) 555-1234
-  /\+1\s*\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/g,
-  // US formats: (123) 456-7890, 123-456-7890, 123.456.7890
-  /\(?\d{3}\)?[-.\s]\d{3}[-.\s]\d{4}\b/g,
-  // 10-digit unformatted US
-  /\b\d{10}\b/g,
+const PHONE_PATTERNS: readonly RegExp[] = [
+  /\+\d{1,3}[\s.-]*\(\d{1,4}\)[\s.-]*\d{3,4}[\s.-]*\d{4}(?:\s*(?:ext\.?|x|extension)\s*\d{1,6})?/gi,
+  /\+\d{1,3}(?:[\s.-]+\d{1,4}){2,5}(?:\s*(?:ext\.?|x|extension)\s*\d{1,6})?/gi,
+  /\(\d{3}\)[\s.-]?\d{3}[\s.-]?\d{4}(?:\s*(?:ext\.?|x|extension)\s*\d{1,6})?/g,
+  /\b\d{3}[\s.-]\d{3}[\s.-]\d{4}(?:\s*(?:ext\.?|x|extension)\s*\d{1,6})?\b/g,
+  /\b\d{10}(?:\s*(?:ext\.?|x|extension)\s*\d{1,6})?\b/g,
+  /\b\d{3}[-.]\d{4}\b/g,
 ];
 
-/**
- * Street address pattern - bounded to prevent ReDoS.
- * Matches: "123 Main St", "45 W 23rd Street", "350 5th Ave", "200 E 10th St"
- * Handles: directionals, numbered streets/avenues, apartment numbers
- */
-const STREET_ADDRESS_PATTERN =
-  /\b\d{1,6}\s+(?:(?:North|South|East|West|N|S|E|W)\.?\s+)?(?:\d+(?:st|nd|rd|th))?\s*[A-Z][a-z]{1,20}(?:\s+[A-Z][a-z]{1,20}){0,3}\s+(?:Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd|Lane|Ln|Drive|Dr|Court|Ct|Place|Pl|Way|Parkway|Pkwy|Plaza|Plz)\b(?:\s+(?:Apt|Unit|Suite|Ste|#)\s*[A-Za-z0-9]{1,6})?\b/gi;
+const STREET_SUFFIX =
+  "Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd|Lane|Ln|Drive|Dr|Court|Ct|Place|Pl|Way|Parkway|Pkwy|Plaza|Plz";
+const UNIT = String.raw`(?:\s+(?:Apt|Unit|Suite|Ste|#)\s*[A-Za-z0-9]{1,6})?`;
+const DIRECTIONAL = String.raw`(?:(?:North|South|East|West|N|S|E|W)\.?\s+)`;
 
 /**
- * ZIP code pattern - only with context cue to avoid false positives.
+ * Street addresses. Suffixes stay case-sensitive and end with `\b` so
+ * "drinks" cannot match `Dr`. No `/i`, no overlapping `\d*\w*`.
  */
-const ZIP_CODE_WITH_CONTEXT = /\b(?:ZIP|zip|Zip)\s+(\d{5}(?:-\d{4})?)\b/g;
+const STREET_ADDRESS_PATTERNS: readonly RegExp[] = [
+  new RegExp(
+    String.raw`\b\d{1,6}\s+${DIRECTIONAL}?\d{1,4}(?:st|nd|rd|th)\s+(?:${STREET_SUFFIX})\b\.?${UNIT}`,
+    "g",
+  ),
+  new RegExp(
+    String.raw`\b\d{1,6}\s+${DIRECTIONAL}[A-Z][A-Za-z]{1,24}(?:\s+[A-Z][A-Za-z]{1,24}){0,2}\s+(?:${STREET_SUFFIX})\b\.?(?:\s+(?:North|South|East|West))?${UNIT}`,
+    "g",
+  ),
+  new RegExp(
+    String.raw`\b\d{1,6}\s+[A-Z][A-Za-z]{1,24}(?:\s+[A-Za-z]{1,24}){0,2}\s+(?:${STREET_SUFFIX})\b\.?(?:\s+(?:North|South|East|West))?${UNIT}`,
+    "g",
+  ),
+];
 
-/**
- * Name token: 1-3 capitalized Unicode tokens, supporting diacritics, hyphens, apostrophes.
- * Matches: Sarah, José, Zoë, Mary-Kate, O'Brien, McKenzie, DeShawn, John Smith, Dr. Patel
- * Requires at least one letter character after the initial uppercase.
- */
-const NAME_TOKEN = /(?:\p{Lu}[\p{L}'''-]{1,19}(?:\s+\p{Lu}[\p{L}'''-]{1,19}){0,2})/u;
+/** ZIP only with an explicit cue. Bare neighborhood ZIPs stay (planner signal). */
+const ZIP_PATTERN = /\b(?:ZIP|zip|Zip)(?:\s+code)?(?:\s+is)?[:\s]+(\d{5}(?:-\d{4})?)\b/g;
 
-/**
- * Relationship words (case-insensitive)
- */
 const RELATIONS =
-  "friend|girlfriend|boyfriend|partner|spouse|husband|wife|brother|sister|cousin|mom|dad|mother|father|son|daughter|aunt|uncle|nephew|niece|colleague|coworker|boss|manager|fiancée?|bf|gf|date";
+  "friend|girlfriend|boyfriend|partner|spouse|husband|wife|brother|sister|cousin|mom|dad|mother|father|son|daughter|aunt|uncle|nephew|niece|colleague|coworker|boss|manager|fianc[eé]e?|bf|gf|date";
 
-/**
- * Titles
- */
 const TITLES = "Dr|Mr|Mrs|Ms|Mx";
 
+const NAME_PART = /^\p{Lu}[\p{L}'’-]*$/u;
+const LOWER_NAME_PART = /^[\p{Ll}][\p{L}'’-]*$/u;
+const SINGLE_NAME = String.raw`[\p{L}'’-]+`;
+
+const STOP_WORDS = new Set([
+  "a",
+  "an",
+  "the",
+  "and",
+  "or",
+  "is",
+  "are",
+  "in",
+  "at",
+  "on",
+  "for",
+  "to",
+  "of",
+  "out",
+  "after",
+  "before",
+  "with",
+  "my",
+  "his",
+  "her",
+  "their",
+  "our",
+  "me",
+  "i",
+  "tonight",
+  "today",
+  "tomorrow",
+  "night",
+  "later",
+  "now",
+  "then",
+  "near",
+  "under",
+  "over",
+  "from",
+  "visiting",
+  "wants",
+  "loves",
+  "need",
+  "needs",
+  "birthday",
+  "anniversary",
+  "party",
+  "engagement",
+  "friend",
+  "girlfriend",
+  "boyfriend",
+  "partner",
+  "spouse",
+  "husband",
+  "wife",
+  "brother",
+  "sister",
+  "cousin",
+  "mom",
+  "dad",
+  "mother",
+  "father",
+  "son",
+  "daughter",
+  "aunt",
+  "uncle",
+  "nephew",
+  "niece",
+  "colleague",
+  "coworker",
+  "boss",
+  "manager",
+  "fiance",
+  "fiancee",
+  "fiancé",
+  "fiancée",
+  "bf",
+  "gf",
+  "date",
+]);
+
 /**
- * Name context patterns - case-insensitive cues with case-sensitive name capture.
- * Ordered by specificity.
+ * NYC neighborhoods, landmarks, and venues that follow "with" in real requests.
+ * Lowercase, longest phrases first when scanning.
  */
-function buildNamePatterns(): RegExp[] {
-  const nameCapture = NAME_TOKEN.source;
-
-  return [
-    // "my girlfriend, Name" (relationship + comma + name)
-    new RegExp(`\\b(?:my|his|her|their|our)\\s+(?:${RELATIONS})\\s*,\\s*(${nameCapture})`, "giu"),
-
-    // "my girlfriend Name" (relationship + name)
-    new RegExp(`\\b(?:my|his|her|their|our)\\s+(?:${RELATIONS})\\s+(${nameCapture})`, "giu"),
-
-    // "for Name and me/I" or "for me and Name"
-    new RegExp(`\\bfor\\s+(?:(${nameCapture})\\s+and\\s+(?:me|I)|me\\s+and\\s+(${nameCapture}))`, "giu"),
-
-    // "Name and me/I" at start
-    new RegExp(`^\\s*(${nameCapture})\\s+and\\s+(?:me|I)\\b`, "giu"),
-
-    // "Name and his/her"
-    new RegExp(`\\b(${nameCapture})\\s+and\\s+(?:his|her)\\b`, "giu"),
-
-    // "Name's birthday/anniversary/party"
-    new RegExp(`\\b(${nameCapture})'s\\s+(?:birthday|anniversary|party|engagement)`, "giu"),
-
-    // "taking/surprise/treat Name"
-    new RegExp(`\\b(?:taking|surprise|treat)\\s+(${nameCapture})`, "giu"),
-
-    // Title + Name (Dr. Patel, Mr. Smith)
-    new RegExp(`\\b(?:${TITLES})\\.?\\s+(${nameCapture})`, "giu"),
-
-    // "meeting with Name, Name, and Name" (Oxford comma)
-    new RegExp(`\\bmeeting\\s+with\\s+(${nameCapture}(?:\\s*,\\s*${nameCapture})*(?:\\s*,?\\s*and\\s+${nameCapture})?)`, "giu"),
-
-    // "with Name, Name, and Name" - BUT require person context (and me/I, or relationship word nearby)
-    // This helps avoid "with Chelsea vibes"
-    new RegExp(`\\bwith\\s+(${nameCapture})\\s+and\\s+(?:me|I)\\b`, "giu"),
-
-    // "Name, Name, and Name" at start (Oxford comma list)
-    new RegExp(`^\\s*(${nameCapture}(?:\\s*,\\s*${nameCapture})*(?:\\s*,?\\s*and\\s+${nameCapture}))\\s+(?:are|is)\\b`, "giu"),
-
-    // Direct address: Hi/Hey/Hello Name
-    new RegExp(`\\b(?:hi|hey|hello|dear)\\s+(${nameCapture})\\b`, "giu"),
-
-    // Named (person context) - not "called" because that often refers to venues
-    new RegExp(`\\b(?:named)\\s+(${nameCapture})\\b`, "giu"),
-
-    // "with Name" only with clear person context:
-    // - followed by "and me/I" (already handled above)
-    // - OR in a personal context like "dinner|date|drinks with Name"
-    new RegExp(`\\b(?:dinner|date|drinks|lunch|meal)\\s+with\\s+(${nameCapture})(?!\\s+(?:vibes?|food|views?|style|nearby|cocktails?|then|after))\\b`, "giu"),
-  ];
-}
-
-/**
- * Terms to preserve - venue types, neighborhoods, food terms.
- * Also includes possessive markers ('s) which indicate venue names.
- */
-const PRESERVE_TERMS = new Set([
-  // Days
+const GAZETTEER = [
+  "washington square park",
+  "madison square garden",
+  "lower east side",
+  "jackson heights",
+  "murray hill",
+  "little italy",
+  "union square",
+  "east village",
+  "west village",
+  "greenwich village",
+  "soho house",
+  "joe's pizza",
+  "via carota",
+  "hi-collar",
+  "the bowery",
+  "houston st",
+  "central park",
+  "times square",
+  "prospect park",
+  "battery park",
+  "high line",
+  "chelsea",
+  "nolita",
+  "soho",
+  "tribeca",
+  "brooklyn",
+  "manhattan",
+  "williamsburg",
+  "astoria",
+  "bushwick",
+  "flushing",
+  "harlem",
+  "bowery",
+  "houston",
+  "village",
+  "queens",
+  "bronx",
+  "midtown",
+  "downtown",
+  "chinatown",
+  "nolita",
+  "dante",
+  "sunday",
   "monday",
   "tuesday",
   "wednesday",
   "thursday",
   "friday",
   "saturday",
-  "sunday",
-  // Months (these ARE redacted if they appear as names after relationship words)
-  // NYC neighborhoods
-  "manhattan",
-  "brooklyn",
-  "queens",
-  "bronx",
-  "harlem",
-  "chelsea",
-  "soho",
-  "tribeca",
-  "village",
-  "williamsburg",
-  "bushwick",
-  "astoria",
-  "flushing",
-  "murray",
-  "hill",
-  "jackson",
-  "heights",
-  "washington",
-  "square",
-  "madison",
-  "garden",
-  "bowery",
-  "houston",
-  "nolita",
-  "east",
-  "west",
-  "lower",
-  "side",
-  "greenwich",
-  "union",
-  "rockefeller",
-  "little",
-  "italy",
-  // Common food/cuisine
-  "italian",
-  "french",
-  "chinese",
-  "japanese",
-  "korean",
-  "thai",
-  "vietnamese",
-  "indian",
-  "mexican",
-  "american",
-  "mediterranean",
-  "greek",
-  "spanish",
-  // Venue types
   "bar",
   "restaurant",
-  "cafe",
-  "lounge",
-  "club",
-  "bistro",
-  "tavern",
-  "grill",
   "pizza",
-  "sushi",
-  "ramen",
-  "tapas",
-  "house",
-  "plaza",
-  "park",
-  // Food words
   "brunch",
-  "dinner",
-  "drinks",
-  "cocktails",
-  "vibes",
-  "food",
-  "views",
-  "style",
-]);
+  "house",
+  "park",
+  "garden",
+  "italy",
+  "heights",
+  "hill",
+  "square",
+];
 
-/**
- * Check if a captured name should be preserved (venue/place term or possessive venue).
- */
-function shouldPreserve(text: string, fullMatch: string): boolean {
-  const normalized = text.trim().toLowerCase();
+const GAZETTEER_SET = new Set(GAZETTEER);
 
-  // Check for possessive form (venue name like "Joe's")
-  if (fullMatch.includes("'s ") && !fullMatch.match(/\b(?:birthday|anniversary|party|engagement)\b/i)) {
-    return true; // Possessive not followed by birthday/party is likely a venue
+interface Span {
+  start: number;
+  end: number;
+}
+
+function isNamePart(token: string, allowLowercase: boolean): boolean {
+  if (NAME_PART.test(token)) {
+    return token.length >= 1;
+  }
+  return allowLowercase && token.length >= 2 && LOWER_NAME_PART.test(token);
+}
+
+function stripPossessive(token: string): { base: string; possessive: boolean } {
+  const possessive = /['’]s$/u.exec(token);
+  if (!possessive || token.length <= 2) {
+    return { base: token, possessive: false };
+  }
+  const base = token.slice(0, -possessive[0].length);
+  if (base.length === 0) {
+    return { base: token, possessive: false };
+  }
+  return { base, possessive: true };
+}
+
+function takeNameTokens(
+  captured: string,
+  allowLowercase: boolean,
+): { raw: string; endInCapture: number; possessive: boolean } | null {
+  const tokens: string[] = [];
+  let cursor = 0;
+  let possessive = false;
+
+  while (tokens.length < 3 && cursor < captured.length) {
+    const rest = captured.slice(cursor);
+    const space = rest.match(/^\s+/);
+    const tokenOffset = space ? space[0].length : 0;
+    const match = rest.slice(tokenOffset).match(/^[\p{L}'’-]+/u);
+    if (!match) {
+      break;
+    }
+    const stripped = stripPossessive(match[0]);
+    if (STOP_WORDS.has(stripped.base.toLowerCase())) {
+      break;
+    }
+    if (stripped.base.startsWith("[") && stripped.base.endsWith("]")) {
+      break;
+    }
+    if (!isNamePart(stripped.base, allowLowercase && tokens.length === 0)) {
+      break;
+    }
+    tokens.push(stripped.base);
+    cursor += tokenOffset + stripped.base.length;
+    if (stripped.possessive) {
+      possessive = true;
+      break;
+    }
   }
 
-  // Check word-by-word
-  const words = normalized.split(/\s+/);
-  return words.every((word) => PRESERVE_TERMS.has(word));
+  if (tokens.length === 0) {
+    return null;
+  }
+  return { raw: tokens.join(" "), endInCapture: cursor, possessive };
+}
+
+function gazetteerAt(text: string, index: number): boolean {
+  const slice = text.slice(index).toLowerCase();
+  for (const place of GAZETTEER) {
+    if (!slice.startsWith(place)) {
+      continue;
+    }
+    const next = slice[place.length];
+    if (next === undefined || !/\p{L}/u.test(next)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function isGazetteerName(name: string): boolean {
+  return GAZETTEER_SET.has(name.toLowerCase());
+}
+
+function isPossessiveVenue(text: string, nameEnd: number): boolean {
+  const rest = text.slice(nameEnd);
+  if (!rest.startsWith("'s") && !rest.startsWith("’s")) {
+    return false;
+  }
+  return !/^[’']s\s+(?:birthday|anniversary|party|engagement|\d{1,3}(?:st|nd|rd|th))\b/i.test(rest);
+}
+
+function addSpan(spans: Span[], start: number, end: number): void {
+  if (end <= start) {
+    return;
+  }
+  spans.push({ start, end });
+}
+
+function takeNameList(
+  source: string,
+  allowLowercase: boolean,
+): { raw: string; endInCapture: number; possessive: boolean } | null {
+  const first = takeNameTokens(source, allowLowercase);
+  if (!first) {
+    return null;
+  }
+  let end = first.endInCapture;
+  let possessive = first.possessive;
+  if (possessive) {
+    return first;
+  }
+  while (end < source.length) {
+    const sep = source.slice(end).match(/^\s*(?:,\s*)?(?:and|&|&amp;)\s+/i) ?? source.slice(end).match(/^\s*,\s+/);
+    if (!sep) {
+      break;
+    }
+    const next = takeNameTokens(source.slice(end + sep[0].length), allowLowercase);
+    if (!next) {
+      break;
+    }
+    end = end + sep[0].length + next.raw.length;
+    possessive = next.possessive;
+    if (possessive) {
+      break;
+    }
+  }
+  return { raw: source.slice(0, end), endInCapture: end, possessive };
+}
+
+function namesAfterCue(
+  text: string,
+  cueEnd: number,
+  allowLowercase: boolean,
+  list: boolean,
+): { start: number; end: number; possessive: boolean } | null {
+  const gap = text.slice(cueEnd).match(/^\s*,?\s+/);
+  if (!gap) {
+    return null;
+  }
+  const start = cueEnd + gap[0].length;
+  const taken = list
+    ? takeNameList(text.slice(start), allowLowercase)
+    : takeNameTokens(text.slice(start), allowLowercase);
+  if (!taken) {
+    return null;
+  }
+  return { start, end: start + taken.raw.length, possessive: taken.possessive };
+}
+
+function collectAfterCue(
+  text: string,
+  pattern: RegExp,
+  spans: Span[],
+  options: { allowLowercase: boolean; skipGazetteer: boolean; list?: boolean },
+): void {
+  for (const match of text.matchAll(pattern)) {
+    if (match.index === undefined) {
+      continue;
+    }
+    const found = namesAfterCue(text, match.index + match[0].length, options.allowLowercase, options.list === true);
+    if (!found) {
+      continue;
+    }
+    if (options.skipGazetteer && (gazetteerAt(text, found.start) || isGazetteerName(text.slice(found.start, found.end)))) {
+      continue;
+    }
+    if (options.skipGazetteer && (found.possessive || isPossessiveVenue(text, found.end))) {
+      continue;
+    }
+    addSpan(spans, found.start, found.end);
+  }
+}
+
+function collectNames(text: string): Span[] {
+  const spans: Span[] = [];
+  const cue = "giu";
+
+  // Relation + optional comma + name. Strong cue: lowercase allowed.
+  // Months/weekdays after a relation stay names (do not gazetteer-skip).
+  collectAfterCue(
+    text,
+    new RegExp(String.raw`\b(?:my|his|her|their|our)\s+(?:${RELATIONS})`, cue),
+    spans,
+    { allowLowercase: true, skipGazetteer: false },
+  );
+
+  collectAfterCue(
+    text,
+    new RegExp(String.raw`\bfor\s+me\s+and`, cue),
+    spans,
+    { allowLowercase: true, skipGazetteer: false },
+  );
+
+  const relationWords = new Set(RELATIONS.split("|").map((word) => word.normalize("NFKD").toLowerCase()));
+  relationWords.add("fiancé");
+  relationWords.add("fiance");
+  relationWords.add("fiancée");
+  relationWords.add("fiancee");
+
+  for (const match of text.matchAll(new RegExp(String.raw`\bfor\s+(${SINGLE_NAME})\s+and\s+(?:me|i)\b`, `${cue}d`))) {
+    if (match.index === undefined || !match[1]) {
+      continue;
+    }
+    if (relationWords.has(match[1].toLowerCase())) {
+      continue;
+    }
+    const taken = takeNameTokens(match[1], true);
+    if (!taken) {
+      continue;
+    }
+    const start = match.indices?.[1]?.[0] ?? match.index + match[0].indexOf(match[1]);
+    addSpan(spans, start, start + taken.raw.length);
+  }
+
+  for (const match of text.matchAll(new RegExp(String.raw`\b(${SINGLE_NAME})\s+and\s+(?:me|i)\b`, `${cue}d`))) {
+    if (match.index === undefined || !match[1]) {
+      continue;
+    }
+    if (relationWords.has(match[1].toLowerCase())) {
+      continue;
+    }
+    const taken = takeNameTokens(match[1], true);
+    if (!taken) {
+      continue;
+    }
+    const start = match.indices?.[1]?.[0] ?? match.index;
+    addSpan(spans, start, start + taken.raw.length);
+  }
+
+  for (const match of text.matchAll(new RegExp(String.raw`\b(${SINGLE_NAME})\s+and\s+(?:his|her)\b`, `${cue}d`))) {
+    if (match.index === undefined || !match[1]) {
+      continue;
+    }
+    const taken = takeNameTokens(match[1], false);
+    if (!taken || isGazetteerName(taken.raw)) {
+      continue;
+    }
+    const start = match.indices?.[1]?.[0] ?? match.index;
+    addSpan(spans, start, start + taken.raw.length);
+  }
+
+  for (const match of text.matchAll(
+    new RegExp(
+      String.raw`\b(${SINGLE_NAME})['’]s\s+(?:birthday|anniversary|party|engagement|\d{1,3}(?:st|nd|rd|th))\b`,
+      `${cue}d`,
+    ),
+  )) {
+    if (match.index === undefined || !match[1]) {
+      continue;
+    }
+    const taken = takeNameTokens(match[1], false);
+    if (!taken) {
+      continue;
+    }
+    addSpan(spans, match.index, match.index + taken.raw.length);
+  }
+
+  collectAfterCue(
+    text,
+    new RegExp(String.raw`\b(?:taking|surprise|treat)`, cue),
+    spans,
+    { allowLowercase: false, skipGazetteer: true },
+  );
+
+  for (const match of text.matchAll(new RegExp(String.raw`\b(?:${TITLES})\.?\s+(${SINGLE_NAME}(?:\s+${SINGLE_NAME}){0,2})`, `${cue}d`))) {
+    if (match.index === undefined || !match[1]) {
+      continue;
+    }
+    const taken = takeNameTokens(match[1], false);
+    if (!taken) {
+      continue;
+    }
+    addSpan(spans, match.index, match.index + match[0].length - (match[1].length - taken.raw.length));
+  }
+
+  for (const match of text.matchAll(
+    new RegExp(
+      String.raw`\b(${SINGLE_NAME})\s*,\s*(${SINGLE_NAME})\s*,\s*(?:and|&|&amp;)\s+(${SINGLE_NAME})\b`,
+      `${cue}d`,
+    ),
+  )) {
+    if (match.index === undefined) {
+      continue;
+    }
+    const parts = [match[1], match[2], match[3]];
+    if (parts.every((part) => part && takeNameTokens(part, false) && !isGazetteerName(part))) {
+      addSpan(spans, match.index, match.index + match[0].length);
+    }
+  }
+
+  collectAfterCue(
+    text,
+    new RegExp(String.raw`\bwith`, cue),
+    spans,
+    { allowLowercase: false, skipGazetteer: true, list: true },
+  );
+
+  collectAfterCue(
+    text,
+    new RegExp(String.raw`\b(?:hi|hey|hello|dear)`, cue),
+    spans,
+    { allowLowercase: false, skipGazetteer: true },
+  );
+  collectAfterCue(
+    text,
+    new RegExp(String.raw`\bnamed`, cue),
+    spans,
+    { allowLowercase: true, skipGazetteer: true },
+  );
+
+  return spans;
+}
+
+function isNameConnector(between: string): boolean {
+  return /^\s*(?:,\s*)?(?:and|&|&amp;)\s*$/i.test(between);
+}
+
+function mergeSpans(spans: Span[], text: string): Span[] {
+  if (spans.length === 0) {
+    return [];
+  }
+  const sorted = [...spans].sort((a, b) => a.start - b.start || a.end - b.end);
+  const merged: Span[] = [{ ...sorted[0] }];
+  for (let i = 1; i < sorted.length; i += 1) {
+    const current = sorted[i];
+    const last = merged[merged.length - 1];
+    const between = text.slice(last.end, current.start);
+    if (current.start <= last.end || isNameConnector(between)) {
+      last.end = Math.max(last.end, current.end);
+    } else {
+      merged.push({ ...current });
+    }
+  }
+  return merged;
+}
+
+function applySpans(text: string, spans: Span[]): { text: string; count: number } {
+  const merged = mergeSpans(spans, text);
+  if (merged.length === 0) {
+    return { text, count: 0 };
+  }
+  let result = text;
+  for (let i = merged.length - 1; i >= 0; i -= 1) {
+    const { start, end } = merged[i];
+    result = `${result.slice(0, start)}[NAME]${result.slice(end)}`;
+  }
+  return { text: result, count: merged.length };
+}
+
+function replaceAll(source: string, pattern: RegExp, replacement: string, onHit: () => void): string {
+  pattern.lastIndex = 0;
+  return source.replace(pattern, () => {
+    onHit();
+    return replacement;
+  });
 }
 
 /**
- * Redact person names from text based on context patterns.
+ * Redact PII from free text or a coerced primitive.
+ * Never throws. Oversized input and internal errors fail closed.
  */
-function redactNames(text: string): { text: string; count: number } {
-  let result = text;
-  let count = 0;
-  const TEMP_MARKER = "___REDACTED_NAME___";
-  const patterns = buildNamePatterns();
-
-  for (const pattern of patterns) {
-    result = result.replace(pattern, (match, ...groups) => {
-      // Skip if already redacted
-      if (match.includes(TEMP_MARKER) || match.includes("[NAME]")) {
-        return match;
-      }
-
-      // Find the captured name (first non-undefined group)
-      const nameCapture = groups.find((g) => g && typeof g === "string");
-      if (!nameCapture) {
-        return match;
-      }
-
-      // Check preservation
-      if (shouldPreserve(nameCapture, match)) {
-        return match;
-      }
-
-      // Redact
-      count++;
-      const prefix = match.substring(0, match.indexOf(nameCapture));
-      const suffix = match.substring(match.indexOf(nameCapture) + nameCapture.length);
-      return prefix + TEMP_MARKER + suffix;
-    });
-  }
-
-  // Replace temp markers
-  result = result.replace(new RegExp(TEMP_MARKER, "g"), "[NAME]");
-
-  return { text: result, count };
-}
-
-/**
- * Redact PII from free text.
- *
- * Returns the redacted text and counts of each redaction category.
- * Deterministic and does not make external calls.
- *
- * Input is capped at 4KB to prevent ReDoS attacks. Oversized input fails closed
- * by replacing the entire text with [REDACTION_ERROR].
- *
- * @param text - The input text potentially containing PII
- * @returns Redaction result with sanitized text and counts
- */
-export function redact(text: string): RedactionResult {
-  // Coerce to string
-  if (typeof text !== "string") {
-    text = String(text ?? "");
-  }
-
-  // Fail closed on oversized input
-  if (text.length > MAX_INPUT_LENGTH) {
-    return {
-      text: "[REDACTION_ERROR: input exceeds 4KB limit]",
-      counts: { names: 0, emails: 0, phones: 0, addresses: 0 },
-    };
-  }
-
-  let result = text;
-  const counts: { names: number; emails: number; phones: number; addresses: number } = {
-    names: 0,
-    emails: 0,
-    phones: 0,
-    addresses: 0,
-  };
-
+export function redact(text: unknown): RedactionResult {
   try {
-    // 1. Redact emails
-    result = result.replace(EMAIL_PATTERN, () => {
-      counts.emails++;
-      return "[EMAIL]";
+    const input = typeof text === "string" ? text : String(text ?? "");
+    if (input.length > MAX_INPUT_LENGTH) {
+      return {
+        text: "[REDACTION_ERROR: input exceeds 4KB limit]",
+        counts: EMPTY_COUNTS,
+      };
+    }
+
+    let result = input;
+    const counts = { names: 0, emails: 0, phones: 0, addresses: 0 };
+
+    result = replaceAll(result, EMAIL_PATTERN, "[EMAIL]", () => {
+      counts.emails += 1;
     });
 
-    // 2. Redact phone numbers
-    for (const phonePattern of PHONE_PATTERNS) {
-      result = result.replace(phonePattern, () => {
-        counts.phones++;
-        return "[PHONE]";
+    for (const pattern of PHONE_PATTERNS) {
+      result = replaceAll(result, pattern, "[PHONE]", () => {
+        counts.phones += 1;
       });
     }
 
-    // 3. Redact street addresses
-    result = result.replace(STREET_ADDRESS_PATTERN, () => {
-      counts.addresses++;
-      return "[ADDRESS]";
+    for (const pattern of STREET_ADDRESS_PATTERNS) {
+      result = replaceAll(result, pattern, "[ADDRESS]", () => {
+        counts.addresses += 1;
+      });
+    }
+
+    result = result.replace(ZIP_PATTERN, (_full, zip: string) => {
+      counts.addresses += 1;
+      return _full.replace(zip, "[ZIP]");
     });
 
-    // 4. Redact ZIP codes (only with context)
-    result = result.replace(ZIP_CODE_WITH_CONTEXT, (match, zip) => {
-      counts.addresses++;
-      return match.replace(zip, "[ZIP]");
-    });
+    const names = applySpans(result, collectNames(result));
+    result = names.text;
+    counts.names = names.count;
 
-    // 5. Redact person names (do this last to preserve context for other patterns)
-    const nameRedaction = redactNames(result);
-    result = nameRedaction.text;
-    counts.names = nameRedaction.count;
-  } catch (error) {
-    // Fail closed on any internal error
-    return {
-      text: "[REDACTION_ERROR]",
-      counts: { names: 0, emails: 0, phones: 0, addresses: 0 },
-    };
+    return { text: result, counts };
+  } catch {
+    return { text: "[REDACTION_ERROR]", counts: EMPTY_COUNTS };
   }
-
-  return {
-    text: result,
-    counts,
-  };
 }
 
 /**
- * Recursively redact PII from any value (objects, arrays, primitives).
- *
- * Never throws - fails closed with [REDACTION_ERROR] on internal errors.
- * Handles circular references by skipping already-visited objects.
- *
- * @param value - Any value that may contain PII in nested strings
- * @returns The value with all strings redacted
+ * Recurse through objects and arrays, redacting nested strings.
+ * Primitives other than strings are returned as-is. Never throws.
  */
-export function redactValue(value: unknown, visited = new WeakSet()): unknown {
+export function redactValue(value: unknown): unknown {
+  const visited = new WeakSet<object>();
+
+  const walk = (node: unknown): unknown => {
+    if (node === null || node === undefined) {
+      return node;
+    }
+    if (typeof node === "string") {
+      return redact(node).text;
+    }
+    if (typeof node === "number" || typeof node === "boolean") {
+      return node;
+    }
+    if (typeof node !== "object") {
+      return node;
+    }
+    if (visited.has(node)) {
+      return "[REDACTION_ERROR: circular reference]";
+    }
+    visited.add(node);
+    if (Array.isArray(node)) {
+      return node.map((item) => walk(item));
+    }
+    const output: Record<string, unknown> = {};
+    for (const [key, nested] of Object.entries(node)) {
+      output[key] = walk(nested);
+    }
+    return output;
+  };
+
   try {
-    // Primitives
-    if (value === null || value === undefined) {
-      return value;
-    }
-
-    if (typeof value === "string") {
-      return redact(value).text;
-    }
-
-    if (typeof value === "number" || typeof value === "boolean") {
-      return value;
-    }
-
-    // Circular reference protection
-    if (typeof value === "object") {
-      if (visited.has(value as object)) {
-        return "[REDACTION_ERROR: circular reference]";
-      }
-      visited.add(value as object);
-    }
-
-    // Arrays
-    if (Array.isArray(value)) {
-      return value.map((item) => redactValue(item, visited));
-    }
-
-    // Objects
-    if (typeof value === "object") {
-      const result: Record<string, unknown> = {};
-      for (const [key, val] of Object.entries(value as Record<string, unknown>)) {
-        result[key] = redactValue(val, visited);
-      }
-      return result;
-    }
-
-    // Fallback for functions, symbols, etc.
-    return value;
-  } catch (error) {
+    return walk(value);
+  } catch {
     return "[REDACTION_ERROR]";
   }
 }
 
 /**
- * Convenience function for redacting text before database storage.
- * Currently an alias for `redact()`.
+ * Alias of `redact`. Storage and traces share one policy so a request cannot
+ * be stored redacted and still leak in a span (or the reverse).
  */
-export function redactForStorage(text: string): RedactionResult {
+export function redactForStorage(text: unknown): RedactionResult {
   return redact(text);
 }
 
-/**
- * Convenience function for redacting text before adding to tracing spans.
- * Currently an alias for `redact()`.
- */
-export function redactForTrace(text: string): RedactionResult {
+/** Alias of `redact`. See {@link redactForStorage}. */
+export function redactForTrace(text: unknown): RedactionResult {
   return redact(text);
 }
