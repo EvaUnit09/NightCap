@@ -463,7 +463,9 @@ function withBudget<T>(promise: Promise<T>, budgetMs: number): Promise<T | undef
   const timeout = new Promise<undefined>((resolve) => {
     timer = setTimeout(() => resolve(undefined), budgetMs);
   });
-  return Promise.race([promise, timeout]).finally(() => {
+  // Attach a handler now so a late reject after the budget wins is not unhandled.
+  const guarded = promise.catch(() => undefined);
+  return Promise.race([guarded, timeout]).finally(() => {
     if (timer !== undefined) {
       clearTimeout(timer);
     }
