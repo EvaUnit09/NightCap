@@ -20,9 +20,10 @@ import {
 
 /**
  * Server-only wrapper: fills thresholds from config. Live Routes is attached
- * only when ENABLE_LIVE_ROUTES is set; otherwise travel fails closed. Tests
- * and eval pass a fake or recorded calculator. Missing GOOGLE_PLACES_API_KEY
- * also fails closed (null minutes).
+ * only when ENABLE_LIVE_ROUTES is set; otherwise travel fails closed as
+ * `travel_service_unavailable`. Tests and eval pass a fake or recorded
+ * calculator. Missing GOOGLE_PLACES_API_KEY is the same code (not a
+ * startup requirement).
  */
 export async function validateItineraryServer(
   input: ValidatorInput,

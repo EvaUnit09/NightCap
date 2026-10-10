@@ -385,6 +385,45 @@ describe("Config module", () => {
         name: "ZodError",
       });
     });
+
+    it("rejects a price range with an empty side", () => {
+      process.env.PRICE_RANGE_MODERATE = ",50";
+      assert.throws(() => getConfig(), {
+        name: "ZodError",
+      });
+    });
+  });
+
+  describe("ENABLE_LIVE_ROUTES", () => {
+    it("accepts true, false, 1, and 0", () => {
+      process.env.ENABLE_LIVE_ROUTES = "true";
+      assert.equal(getEnableLiveRoutes(), true);
+      resetConfig();
+      process.env.ENABLE_LIVE_ROUTES = "1";
+      assert.equal(getEnableLiveRoutes(), true);
+      resetConfig();
+      process.env.ENABLE_LIVE_ROUTES = "false";
+      assert.equal(getEnableLiveRoutes(), false);
+      resetConfig();
+      process.env.ENABLE_LIVE_ROUTES = "0";
+      assert.equal(getEnableLiveRoutes(), false);
+    });
+
+    it("throws a readable error for any other value", () => {
+      for (const value of ["yes", "YES", "maybe", "2", "on"]) {
+        resetConfig();
+        process.env.ENABLE_LIVE_ROUTES = value;
+        assert.throws(
+          () => getEnableLiveRoutes(),
+          (error: unknown) => {
+            assert.ok(error instanceof Error);
+            assert.match(error.message, /ENABLE_LIVE_ROUTES/);
+            assert.match(error.message, /true, false, 1, or 0/);
+            return true;
+          }
+        );
+      }
+    });
   });
 
   describe("Config caching", () => {

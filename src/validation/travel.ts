@@ -37,6 +37,20 @@ export interface TravelLeg {
 }
 
 /**
+ * Thrown when live Routes cannot run: live-off is handled by the validator
+ * (no calculator), a missing key, an HTTP/network outage, or an abort.
+ * Venue faults (missing coords, ROUTE_NOT_FOUND) stay `null` minutes.
+ */
+export class TravelServiceUnavailableError extends Error {
+  readonly code = "travel_service_unavailable" as const;
+
+  constructor(message = "Travel service is unavailable") {
+    super(message);
+    this.name = "TravelServiceUnavailableError";
+  }
+}
+
+/**
  * Travel-minutes calculator.
  *
  * Production uses `RoutesMatrixTravelCalculator` (server-only).
@@ -44,10 +58,13 @@ export interface TravelLeg {
  *
  * `calculateMinutes` may return a Promise or a sync array. The validator awaits
  * either. Return `null` for a leg that cannot be computed; the validator fails closed.
+ * Throw `TravelServiceUnavailableError` (or any error) for a live-Routes outage.
+ * When the validator's travel budget expires it aborts `signal`.
  */
 export interface TravelCalculator {
   calculateMinutes(
-    legs: readonly TravelLeg[]
+    legs: readonly TravelLeg[],
+    signal?: AbortSignal
   ): Promise<ReadonlyArray<number | null>> | ReadonlyArray<number | null>;
 }
 

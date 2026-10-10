@@ -20,6 +20,7 @@ export const validationErrorCodeSchema = z.enum([
   "implausible_cost",
   "travel_unverified",
   "travel_mismatch",
+  "travel_service_unavailable",
 ]);
 
 /** One validator finding, pointed at an option and stop when it has one. */

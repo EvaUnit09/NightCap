@@ -3,6 +3,7 @@ import { z } from "zod";
 import { MAX_TRAVEL_LEGS_PER_REQUEST_DEFAULT } from "./bounds";
 import type { Candidate } from "./candidate";
 import { candidateSchema } from "./candidate";
+import { placeIdSchema } from "./common";
 import {
   DEFAULT_PARTY_SIZE,
   DEFAULT_PRICE_RANGES,
@@ -14,7 +15,7 @@ import {
 } from "./defaults";
 import type { Intent } from "./intent";
 import { intentSchema } from "./intent";
-import { itineraryOptionSchemaFor, itinerarySchemaFor } from "./itinerary";
+import { itinerarySchemaFor } from "./itinerary";
 import {
   singleStopMatchesIntent,
   stampSingleStopFromIntent,
@@ -118,6 +119,9 @@ type SharedItineraryParse =
 /**
  * Deterministic itinerary validator.
  *
+ * Expects a normalized itinerary — the output of `parseItinerary` — not raw
+ * model JSON. Modes are not remapped here.
+ *
  * Pure: no `server-only`, no config import, no network. Thresholds and the
  * travel calculator are parameters. A sync or async calculator return is allowed.
  *
@@ -147,6 +151,17 @@ export async function validateItinerary(
   }
   const intent: Intent = intentParse.data;
 
+  if (isRecord(input.itinerary) && Object.hasOwn(input.itinerary, "singleStop")) {
+    if (typeof input.itinerary.singleStop !== "boolean") {
+      return [
+        emitError({
+          code: "invalid_format",
+          message: `itinerary.singleStop must be a boolean (got ${displaySingleStop(input.itinerary)})`,
+        }),
+      ];
+    }
+  }
+
   if (!singleStopMatchesIntent(input.itinerary, intent.singleStop)) {
     return [
       emitError({
@@ -160,12 +175,25 @@ export async function validateItinerary(
     ? stampSingleStopFromIntent(input.itinerary, intent.singleStop)
     : stampSingleStopFromIntent({}, intent.singleStop);
 
-  const maxLegs =
-    options.maxLegs !== undefined && options.maxLegs > 0
-      ? options.maxLegs
-      : MAX_TRAVEL_LEGS_PER_REQUEST_DEFAULT;
+  const hopModeError = firstNonStringHopModeError(stamped);
+  if (hopModeError) {
+    return [hopModeError];
+  }
 
-  const itineraryParse = parseSharedItinerary(stamped, intent.singleStop, maxLegs);
+  if (
+    options.maxLegs !== undefined &&
+    (!Number.isFinite(options.maxLegs) || options.maxLegs <= 0)
+  ) {
+    return [
+      emitError({
+        code: "invalid_format",
+        message: `maxLegs must be a positive number (got ${String(options.maxLegs)})`,
+      }),
+    ];
+  }
+  const maxLegs = options.maxLegs ?? MAX_TRAVEL_LEGS_PER_REQUEST_DEFAULT;
+
+  const itineraryParse = parseSharedItinerary(stamped, maxLegs);
   if (!itineraryParse.success) {
     return [
       emitError({
@@ -177,7 +205,9 @@ export async function validateItinerary(
 
   const errors: ValidationError[] = [];
   const itinerary = itineraryParse.data;
-  const candidates = parseCandidates(input.candidates);
+  const { candidates, invalidPlaceIds, errors: candidateErrors } =
+    parseCandidates(input.candidates);
+  errors.push(...candidateErrors);
   const travelCapMinutes = options.travelCapMinutes ?? DEFAULT_TRAVEL_CAP_MINUTES;
   const travelToleranceMinutes =
     options.travelToleranceMinutes ?? DEFAULT_TRAVEL_TOLERANCE_MINUTES;
@@ -200,15 +230,17 @@ export async function validateItinerary(
       totalCostUsd += stop.estimatedCostUsd;
 
       if (!candidate) {
-        errors.push(
-          emitError({
-            code: "invented_venue",
-            message: `Place ID ${stop.placeId} is not in the candidate list`,
-            optionIndex,
-            stopIndex,
-            placeId: stop.placeId,
-          })
-        );
+        if (!invalidPlaceIds.has(stop.placeId)) {
+          errors.push(
+            emitError({
+              code: "invented_venue",
+              message: `Place ID ${stop.placeId} is not in the candidate list`,
+              optionIndex,
+              stopIndex,
+              placeId: stop.placeId,
+            })
+          );
+        }
       } else {
         if (!namesMatch(stop.name, candidate.name)) {
           errors.push(
@@ -297,7 +329,8 @@ export async function validateItinerary(
     applyTravelRules(
       errors,
       leg,
-      computed[index] ?? null,
+      computed.status === "ok" ? (computed.minutes[index] ?? null) : null,
+      computed.status === "unavailable",
       travelCapMinutes,
       travelToleranceMinutes
     );
@@ -306,16 +339,36 @@ export async function validateItinerary(
   return errors;
 }
 
-function parseCandidates(input: unknown): Candidate[] {
+function parseCandidates(input: unknown): {
+  candidates: Candidate[];
+  invalidPlaceIds: Set<string>;
+  errors: ValidationError[];
+} {
   const asArray = Array.isArray(input) ? input : [];
   const parsed: Candidate[] = [];
+  const invalidPlaceIds = new Set<string>();
+  const errors: ValidationError[] = [];
   for (const item of asArray) {
     const result = candidateSchema.safeParse(item);
     if (result.success) {
       parsed.push(result.data);
+      continue;
     }
+    const rawId =
+      isRecord(item) && typeof item.placeId === "string" ? item.placeId : undefined;
+    if (rawId) {
+      invalidPlaceIds.add(rawId);
+    }
+    const placeId = rawId && placeIdSchema.safeParse(rawId).success ? rawId : undefined;
+    errors.push(
+      emitError({
+        code: "invalid_format",
+        message: `Invalid candidate${rawId ? ` ${rawId}` : ""}: ${formatZodError(result.error)}`,
+        ...(placeId ? { placeId } : {}),
+      })
+    );
   }
-  return parsed;
+  return { candidates: parsed, invalidPlaceIds, errors };
 }
 
 function implausibleCostError(
@@ -352,16 +405,20 @@ function formatUsd(value: number): string {
   return Number.isInteger(value) ? String(value) : value.toFixed(2);
 }
 
+type TravelCompute =
+  | { status: "ok"; minutes: Array<number | null> }
+  | { status: "unavailable" };
+
 async function computeTravel(
   calculator: TravelCalculator | undefined,
   pending: PendingTravel[],
   travelBudgetMs: number
-): Promise<Array<number | null>> {
+): Promise<TravelCompute> {
   if (pending.length === 0) {
-    return [];
+    return { status: "ok", minutes: [] };
   }
   if (!calculator) {
-    return pending.map(() => null);
+    return { status: "unavailable" };
   }
 
   const unique: TravelLeg[] = [];
@@ -387,18 +444,21 @@ async function computeTravel(
 
   try {
     const result = await withBudget(
-      Promise.resolve(calculator.calculateMinutes(unique)),
+      (signal) => Promise.resolve(calculator.calculateMinutes(unique, signal)),
       travelBudgetMs
     );
     if (result === undefined) {
-      return pending.map(() => null);
+      return { status: "unavailable" };
     }
     if (!Array.isArray(result) || result.length !== unique.length) {
-      return pending.map(() => null);
+      return { status: "unavailable" };
     }
-    return uniqueIndexFor.map((uniqueIndex) => result[uniqueIndex] ?? null);
+    return {
+      status: "ok",
+      minutes: uniqueIndexFor.map((uniqueIndex) => result[uniqueIndex] ?? null),
+    };
   } catch {
-    return pending.map(() => null);
+    return { status: "unavailable" };
   }
 }
 
@@ -414,13 +474,20 @@ function travelLegKey(leg: TravelLeg): string {
   });
 }
 
-function withBudget<T>(promise: Promise<T>, budgetMs: number): Promise<T | undefined> {
+function withBudget<T>(
+  start: (signal: AbortSignal) => Promise<T>,
+  budgetMs: number
+): Promise<T | undefined> {
+  const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<undefined>((resolve) => {
-    timer = setTimeout(() => resolve(undefined), budgetMs);
+    timer = setTimeout(() => {
+      controller.abort();
+      resolve(undefined);
+    }, budgetMs);
   });
   // Attach a handler now so a late reject after the budget wins is not unhandled.
-  const guarded = promise.catch(() => undefined);
+  const guarded = start(controller.signal).catch(() => undefined);
   return Promise.race([guarded, timeout]).finally(() => {
     if (timer !== undefined) {
       clearTimeout(timer);
@@ -432,6 +499,7 @@ function applyTravelRules(
   errors: ValidationError[],
   leg: PendingTravel,
   computed: number | null,
+  serviceUnavailable: boolean,
   travelCapMinutes: number,
   travelToleranceMinutes: number
 ): void {
@@ -453,6 +521,19 @@ function applyTravelRules(
       emitError({
         code: "travel_unverified",
         message: `Cannot compute travel from ${leg.fromName} to ${leg.toName}: missing coordinates`,
+        optionIndex: leg.optionIndex,
+        stopIndex: leg.stopIndex,
+        placeId: leg.placeId,
+      })
+    );
+    return;
+  }
+
+  if (serviceUnavailable) {
+    errors.push(
+      emitError({
+        code: "travel_service_unavailable",
+        message: `Travel service unavailable from ${leg.fromName} to ${leg.toName}`,
         optionIndex: leg.optionIndex,
         stopIndex: leg.stopIndex,
         placeId: leg.placeId,
@@ -539,15 +620,16 @@ function normalizeName(name: string): string {
 
 function parseSharedItinerary(
   raw: unknown,
-  singleStop: boolean,
   maxLegs: number
 ): SharedItineraryParse {
-  const direct = parseWithSharedSchemas(raw, singleStop, maxLegs);
+  const direct = parseWithSharedSchemas(raw, maxLegs);
   if (direct.success) {
     return direct;
   }
 
-  const structural = direct.error.issues.filter((issue) => !isTravelModeIssue(issue));
+  const structural = direct.error.issues.filter(
+    (issue) => !isIgnorableTravelModeIssue(issue, raw)
+  );
   if (structural.length > 0) {
     return { success: false, error: new z.ZodError(structural) };
   }
@@ -555,11 +637,7 @@ function parseSharedItinerary(
   // Unsupported hop modes fail the shared enum before refinements run.
   // Retry with a schema-valid placeholder so chronology / unique-venue still
   // apply, then restore the original mode for travel_unverified.
-  const retry = parseWithSharedSchemas(
-    coerceHopModesForSchema(raw),
-    singleStop,
-    maxLegs
-  );
+  const retry = parseWithSharedSchemas(coerceHopModesForSchema(raw), maxLegs);
   if (!retry.success) {
     return retry;
   }
@@ -568,24 +646,11 @@ function parseSharedItinerary(
 
 function parseWithSharedSchemas(
   raw: unknown,
-  singleStop: boolean,
   maxLegs: number
 ): SharedItineraryParse {
   const shared = itinerarySchemaFor({ maxLegs }).safeParse(raw);
   if (!shared.success) {
     return { success: false, error: shared.error };
-  }
-
-  const optionSchema = itineraryOptionSchemaFor(singleStop);
-  const optionIssues: z.core.$ZodIssue[] = [];
-  for (const option of shared.data.options) {
-    const parsed = optionSchema.safeParse(option);
-    if (!parsed.success) {
-      optionIssues.push(...parsed.error.issues);
-    }
-  }
-  if (optionIssues.length > 0) {
-    return { success: false, error: new z.ZodError(optionIssues) };
   }
   return { success: true, data: shared.data };
 }
@@ -644,11 +709,14 @@ function restoreHopModes(
             return stop;
           }
           const mode = rawStop.travelToNext.mode;
+          if (typeof mode !== "string") {
+            return stop;
+          }
           return {
             ...stop,
             travelToNext: {
               ...stop.travelToNext,
-              mode: typeof mode === "string" ? mode : stop.travelToNext.mode,
+              mode,
             },
           };
         }),
@@ -657,10 +725,77 @@ function restoreHopModes(
   };
 }
 
-function isTravelModeIssue(issue: z.core.$ZodIssue): boolean {
-  return (
-    issue.path.includes("travelToNext") && issue.path[issue.path.length - 1] === "mode"
-  );
+function isIgnorableTravelModeIssue(
+  issue: z.core.$ZodIssue,
+  raw: unknown
+): boolean {
+  if (
+    !issue.path.includes("travelToNext") ||
+    issue.path[issue.path.length - 1] !== "mode"
+  ) {
+    return false;
+  }
+  return typeof valueAtPath(raw, issue.path) === "string";
+}
+
+function valueAtPath(raw: unknown, path: PropertyKey[]): unknown {
+  let current: unknown = raw;
+  for (const key of path) {
+    if (Array.isArray(current)) {
+      const index = typeof key === "number" ? key : Number(key);
+      if (!Number.isInteger(index)) {
+        return undefined;
+      }
+      current = current[index];
+      continue;
+    }
+    if (!isRecord(current)) {
+      return undefined;
+    }
+    current = current[String(key)];
+  }
+  return current;
+}
+
+function firstNonStringHopModeError(raw: unknown): ValidationError | null {
+  if (!isRecord(raw) || !Array.isArray(raw.options)) {
+    return null;
+  }
+  for (const [optionIndex, option] of raw.options.entries()) {
+    if (!isRecord(option) || !Array.isArray(option.stops)) {
+      continue;
+    }
+    for (const [stopIndex, stop] of option.stops.entries()) {
+      if (!isRecord(stop) || !isRecord(stop.travelToNext)) {
+        continue;
+      }
+      if (
+        !Object.hasOwn(stop.travelToNext, "mode") ||
+        typeof stop.travelToNext.mode !== "string"
+      ) {
+        return emitError({
+          code: "invalid_format",
+          message: `travelToNext.mode must be a string (got ${describeUnknown(stop.travelToNext.mode)})`,
+          optionIndex,
+          stopIndex,
+        });
+      }
+    }
+  }
+  return null;
+}
+
+function describeUnknown(value: unknown): string {
+  if (value === undefined) {
+    return "missing";
+  }
+  if (value === null) {
+    return "null";
+  }
+  if (typeof value === "object") {
+    return Array.isArray(value) ? "array" : "object";
+  }
+  return `${typeof value} ${JSON.stringify(value)}`;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -677,9 +812,9 @@ function displaySingleStop(value: unknown): string {
 /**
  * Open-hours check in America/New_York.
  *
- * Only `{ day: 0, hour: 0, minute: 0 }` with no close is 24/7 (Places convention).
- * Any other no-close period is malformed and ignored — it does not open the slot
- * and does not override real hours.
+ * Only `{ day: 0, hour: 0, minute: 0 }` with no close is 24/7 (Places convention),
+ * and only when no real close periods are present. Real hours win over the
+ * 24/7 marker. Any other no-close period is malformed and ignored.
  *
  * FUTURE_OPENING is handled as `not_operational` before this runs.
  */
@@ -693,17 +828,6 @@ function isOpenDuringSlot(
     return false;
   }
 
-  const is24x7 = openingHours.some(
-    (period) =>
-      period.close === undefined &&
-      period.open.day === 0 &&
-      period.open.hour === 0 &&
-      period.open.minute === 0
-  );
-  if (is24x7) {
-    return true;
-  }
-
   const validPeriods = openingHours.filter(
     (
       period
@@ -713,7 +837,13 @@ function isOpenDuringSlot(
     } => period.close !== undefined
   );
   if (validPeriods.length === 0) {
-    return false;
+    return openingHours.some(
+      (period) =>
+        period.close === undefined &&
+        period.open.day === 0 &&
+        period.open.hour === 0 &&
+        period.open.minute === 0
+    );
   }
 
   const start = parseISOToNYCTime(slotStart);

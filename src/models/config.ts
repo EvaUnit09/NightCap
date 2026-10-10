@@ -32,13 +32,32 @@ function parseRange(value: string | undefined): [number, number] | undefined {
   const raw = preprocessEnvVar(value);
   if (!raw) return undefined;
   const parts = raw.split(",").map((part) => part.trim());
-  const numbers = z.tuple([z.coerce.number(), z.coerce.number()]).parse(parts);
+  const sides = z
+    .tuple([
+      z.string().min(1, "Price range side must not be empty"),
+      z.string().min(1, "Price range side must not be empty"),
+    ])
+    .parse(parts);
+  const numbers = z.tuple([z.coerce.number(), z.coerce.number()]).parse(sides);
   return priceRangeSchema.parse(numbers);
 }
 
-function parseBooleanFlag(value: string | undefined): boolean {
-  const raw = preprocessEnvVar(value)?.toLowerCase();
-  return raw === "1" || raw === "true" || raw === "yes";
+/** ENABLE_LIVE_ROUTES: only true/false/1/0. Unset/empty → false. */
+function parseLiveRoutesFlag(value: string | undefined): boolean {
+  const raw = preprocessEnvVar(value);
+  if (raw === undefined) {
+    return false;
+  }
+  const normalized = raw.toLowerCase();
+  if (normalized === "true" || normalized === "1") {
+    return true;
+  }
+  if (normalized === "false" || normalized === "0") {
+    return false;
+  }
+  throw new Error(
+    `ENABLE_LIVE_ROUTES must be true, false, 1, or 0 (got ${JSON.stringify(raw)})`
+  );
 }
 
 /**
@@ -162,7 +181,7 @@ function loadConfig(): Config {
       process.env.TRAVEL_CLAIM_TOLERANCE_MINUTES
     ),
     travelBudgetMs: preprocessEnvVar(process.env.TRAVEL_BUDGET_MS),
-    enableLiveRoutes: parseBooleanFlag(process.env.ENABLE_LIVE_ROUTES),
+    enableLiveRoutes: parseLiveRoutesFlag(process.env.ENABLE_LIVE_ROUTES),
     priceRangeFree: parseRange(process.env.PRICE_RANGE_FREE),
     priceRangeInexpensive: parseRange(process.env.PRICE_RANGE_INEXPENSIVE),
     priceRangeModerate: parseRange(process.env.PRICE_RANGE_MODERATE),
@@ -293,7 +312,8 @@ export function getTravelBudgetMs(): number {
 }
 
 /**
- * Live Google Routes is off unless ENABLE_LIVE_ROUTES is 1/true/yes.
+ * Live Google Routes is off unless ENABLE_LIVE_ROUTES is true/1.
+ * Only true/false/1/0 are accepted; any other value throws.
  * Tests and eval use a fake or recorded calculator by default.
  */
 export function getEnableLiveRoutes(): boolean {

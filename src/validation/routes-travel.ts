@@ -3,6 +3,7 @@ import "server-only";
 import { MAX_TRAVEL_LEGS_PER_REQUEST_DEFAULT } from "./bounds";
 import {
   normalizeTravelMode,
+  TravelServiceUnavailableError,
   type SupportedTravelMode,
   type TravelCalculator,
   type TravelLeg,
@@ -52,9 +53,10 @@ interface RouteMatrixElement {
  * v1 sends TRANSIT, BICYCLE, and WALK as Routes `travelMode` (identity).
  * Any other mode returns null without fetching.
  *
- * Fail-closed: unsupported mode, missing key, HTTP 4xx/5xx, timeout,
- * ROUTE_NOT_FOUND, element status, missing duration, or malformed body → null.
- * More than `maxLegs` hops refuses to bill: throws before any fetch (#28).
+ * Fail-closed: unsupported mode, ROUTE_NOT_FOUND, element status, missing
+ * duration, or malformed body → null. Missing key, HTTP 4xx/5xx, timeout,
+ * or abort → `TravelServiceUnavailableError`. More than `maxLegs` hops
+ * refuses to bill: throws before any fetch (#28).
  */
 export class RoutesMatrixTravelCalculator implements TravelCalculator {
   private readonly apiKey: string | undefined;
@@ -63,6 +65,14 @@ export class RoutesMatrixTravelCalculator implements TravelCalculator {
   private readonly maxLegs: number;
 
   constructor(options: RoutesMatrixTravelOptions = {}) {
+    if (
+      options.maxLegs !== undefined &&
+      (!Number.isFinite(options.maxLegs) || options.maxLegs <= 0)
+    ) {
+      throw new Error(
+        `maxLegs must be a positive number (got ${String(options.maxLegs)})`
+      );
+    }
     this.apiKey = options.apiKey;
     this.timeoutMs = options.timeoutMs ?? 5000;
     this.fetchImpl = options.fetchImpl ?? fetch;
@@ -70,48 +80,69 @@ export class RoutesMatrixTravelCalculator implements TravelCalculator {
   }
 
   async calculateMinutes(
-    legs: readonly TravelLeg[]
+    legs: readonly TravelLeg[],
+    signal?: AbortSignal
   ): Promise<Array<number | null>> {
     if (legs.length > this.maxLegs) {
       throw new Error(
         `At most ${this.maxLegs} travel legs per request; refused to bill ${legs.length}`
       );
     }
+    if (!this.apiKey) {
+      throw new TravelServiceUnavailableError("GOOGLE_PLACES_API_KEY is missing");
+    }
+    if (signal?.aborted) {
+      throw new TravelServiceUnavailableError("Routes request aborted");
+    }
 
     const results: Array<number | null> = legs.map(() => null);
-    if (!this.apiKey) {
-      return results;
-    }
+    const batch = new AbortController();
+    const onParentAbort = () => batch.abort();
+    signal?.addEventListener("abort", onParentAbort, { once: true });
 
     // In-call memo only. A new Map per calculateMinutes stays inside
     // Google's caching terms (no cross-request store).
     const memo = new Map<string, Promise<number | null>>();
 
-    await Promise.all(
-      legs.map(async (leg, index) => {
-        const mode = normalizeTravelMode(leg.mode);
-        if (!leg.from || !leg.to || mode === null) {
-          return;
-        }
-        const normalized = { ...leg, mode };
-        const key = memoKey(normalized);
-        let pending = memo.get(key);
-        if (!pending) {
-          pending = this.matrixForLeg(normalized);
-          memo.set(key, pending);
-        }
-        results[index] = await pending;
-      })
-    );
-
-    return results;
+    try {
+      await Promise.all(
+        legs.map(async (leg, index) => {
+          const mode = normalizeTravelMode(leg.mode);
+          if (!leg.from || !leg.to || mode === null) {
+            return;
+          }
+          const normalized = { ...leg, mode };
+          const key = memoKey(normalized);
+          let pending = memo.get(key);
+          if (!pending) {
+            pending = this.matrixForLeg(normalized, batch.signal);
+            memo.set(key, pending);
+          }
+          results[index] = await pending;
+        })
+      );
+      return results;
+    } catch (error) {
+      batch.abort();
+      if (error instanceof TravelServiceUnavailableError) {
+        throw error;
+      }
+      throw new TravelServiceUnavailableError(
+        error instanceof Error ? error.message : "Routes request failed"
+      );
+    } finally {
+      signal?.removeEventListener("abort", onParentAbort);
+    }
   }
 
   private async matrixForLeg(
-    leg: TravelLeg & { mode: SupportedTravelMode }
+    leg: TravelLeg & { mode: SupportedTravelMode },
+    signal?: AbortSignal
   ): Promise<number | null> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    const onParentAbort = () => controller.abort();
+    signal?.addEventListener("abort", onParentAbort, { once: true });
 
     try {
       const body: Record<string, unknown> = {
@@ -135,7 +166,7 @@ export class RoutesMatrixTravelCalculator implements TravelCalculator {
       });
 
       if (!response.ok) {
-        return null;
+        throw new TravelServiceUnavailableError(`Routes HTTP ${response.status}`);
       }
 
       const parsed: unknown = await response.json();
@@ -152,10 +183,16 @@ export class RoutesMatrixTravelCalculator implements TravelCalculator {
         return null;
       }
       return minutesFromElement(element);
-    } catch {
-      return null;
+    } catch (error) {
+      if (error instanceof TravelServiceUnavailableError) {
+        throw error;
+      }
+      throw new TravelServiceUnavailableError(
+        error instanceof Error ? error.message : "Routes request failed"
+      );
     } finally {
       clearTimeout(timer);
+      signal?.removeEventListener("abort", onParentAbort);
     }
   }
 }

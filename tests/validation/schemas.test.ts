@@ -288,6 +288,7 @@ describe("boundary schemas", () => {
       "implausible_cost",
       "travel_unverified",
       "travel_mismatch",
+      "travel_service_unavailable",
     ] as const) {
       assert.equal(
         validationErrorSchema.parse({ code, message: `code ${code}` }).code,

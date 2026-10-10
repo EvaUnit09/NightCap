@@ -7,7 +7,10 @@ import {
   ROUTES_MATRIX_URL,
   RoutesMatrixTravelCalculator,
 } from "../../src/validation/routes-travel";
-import type { TravelLeg } from "../../src/validation/travel";
+import {
+  TravelServiceUnavailableError,
+  type TravelLeg,
+} from "../../src/validation/travel";
 
 const success = JSON.parse(
   readFileSync(new URL("../fixtures/routes/success.json", import.meta.url), "utf8")
@@ -129,7 +132,7 @@ describe("RoutesMatrixTravelCalculator", () => {
     assert.deepEqual(result, [null, null, null]);
   });
 
-  it("returns null when the API key is missing and does not fetch", async () => {
+  it("throws travel_service_unavailable when the API key is missing and does not fetch", async () => {
     let calls = 0;
     const calculator = new RoutesMatrixTravelCalculator({
       fetchImpl: async () => {
@@ -137,9 +140,14 @@ describe("RoutesMatrixTravelCalculator", () => {
         return jsonResponse(success);
       },
     });
-    const result = await calculator.calculateMinutes([walkLeg]);
+    await assert.rejects(
+      () => calculator.calculateMinutes([walkLeg]),
+      (error: unknown) => {
+        assert.ok(error instanceof TravelServiceUnavailableError);
+        return true;
+      }
+    );
     assert.equal(calls, 0);
-    assert.equal(result[0], null);
   });
 
   it("fails closed on ROUTE_NOT_FOUND", async () => {
@@ -160,16 +168,21 @@ describe("RoutesMatrixTravelCalculator", () => {
     assert.equal(result[0], null);
   });
 
-  it("fails closed on HTTP 4xx/5xx", async () => {
+  it("throws travel_service_unavailable on HTTP 4xx/5xx", async () => {
     const calculator = new RoutesMatrixTravelCalculator({
       apiKey: "test-key",
       fetchImpl: async () => jsonResponse({ error: "no" }, 403),
     });
-    const result = await calculator.calculateMinutes([walkLeg]);
-    assert.equal(result[0], null);
+    await assert.rejects(
+      () => calculator.calculateMinutes([walkLeg]),
+      (error: unknown) => {
+        assert.ok(error instanceof TravelServiceUnavailableError);
+        return true;
+      }
+    );
   });
 
-  it("fails closed on timeout", async () => {
+  it("throws travel_service_unavailable on timeout", async () => {
     const calculator = new RoutesMatrixTravelCalculator({
       apiKey: "test-key",
       timeoutMs: 10,
@@ -181,8 +194,42 @@ describe("RoutesMatrixTravelCalculator", () => {
         });
       },
     });
-    const result = await calculator.calculateMinutes([walkLeg]);
-    assert.equal(result[0], null);
+    await assert.rejects(
+      () => calculator.calculateMinutes([walkLeg]),
+      (error: unknown) => {
+        assert.ok(error instanceof TravelServiceUnavailableError);
+        return true;
+      }
+    );
+  });
+
+  it("aborts in-flight fetches when the caller signal is aborted", async () => {
+    const controller = new AbortController();
+    let aborted = false;
+    const calculator = new RoutesMatrixTravelCalculator({
+      apiKey: "test-key",
+      fetchImpl: async (_url, init) => {
+        return new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => {
+            aborted = true;
+            reject(Object.assign(new Error("aborted"), { name: "AbortError" }));
+          });
+        });
+      },
+    });
+    const pending = calculator.calculateMinutes([walkLeg], controller.signal);
+    controller.abort();
+    await assert.rejects(() => pending, TravelServiceUnavailableError);
+    assert.equal(aborted, true);
+  });
+
+  it("rejects maxLegs that is <= 0 or NaN", () => {
+    for (const maxLegs of [0, -1, Number.NaN]) {
+      assert.throws(
+        () => new RoutesMatrixTravelCalculator({ maxLegs }),
+        /maxLegs/
+      );
+    }
   });
 
   it("bills one matrix element per consecutive leg across mixed modes (4 legs bill 4)", async () => {

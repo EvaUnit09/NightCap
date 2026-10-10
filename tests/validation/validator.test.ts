@@ -339,7 +339,7 @@ describe("validateItinerary", () => {
     assert.ok(errors.some((e) => e.code === "travel_unverified"));
   });
 
-  it("fails closed when the calculator throws", async () => {
+  it("fails closed as travel_service_unavailable when the calculator throws", async () => {
     const errors = await validateItinerary(
       { intent, candidates: fourCandidates(), itinerary: twoOptionPlan() },
       {
@@ -351,16 +351,16 @@ describe("validateItinerary", () => {
         },
       }
     );
-    assert.ok(errors.some((e) => e.code === "travel_unverified"));
+    assert.ok(errors.some((e) => e.code === "travel_service_unavailable"));
   });
 
-  it("fails closed when a calculator is omitted", async () => {
+  it("fails closed as travel_service_unavailable when a calculator is omitted", async () => {
     const errors = await validateItinerary({
       intent,
       candidates: fourCandidates(),
       itinerary: twoOptionPlan(),
     });
-    assert.ok(errors.some((e) => e.code === "travel_unverified"));
+    assert.ok(errors.some((e) => e.code === "travel_service_unavailable"));
   });
 
   it("fails closed next to an invented stop", async () => {
@@ -675,14 +675,16 @@ describe("validateItinerary", () => {
     );
   });
 
-  it("fails closed as travel_unverified when the travel budget is exhausted", async () => {
+  it("fails closed as travel_service_unavailable when the travel budget is exhausted", async () => {
+    let signal: AbortSignal | undefined;
     const errors = await validateItinerary(
       { intent, candidates: fourCandidates(), itinerary: twoOptionPlan() },
       {
         travelCapMinutes: 25,
         travelBudgetMs: 15,
         travelCalculator: {
-          calculateMinutes() {
+          calculateMinutes(_legs, abortSignal) {
+            signal = abortSignal;
             return new Promise(() => {
               /* hang past the budget */
             });
@@ -690,7 +692,8 @@ describe("validateItinerary", () => {
         },
       }
     );
-    assert.ok(errors.some((e) => e.code === "travel_unverified"));
+    assert.ok(errors.some((e) => e.code === "travel_service_unavailable"));
+    assert.equal(signal?.aborted, true);
   });
 
   it("passes a valid single-stop itinerary when both flags are true", async () => {
@@ -794,6 +797,135 @@ describe("validateItinerary", () => {
           e.code === "invalid_format" &&
           /at most 2 travel legs/i.test(e.message)
       ),
+      JSON.stringify(errors)
+    );
+  });
+
+  it("rejects a present non-boolean itinerary.singleStop before stamping", async () => {
+    const calculatorCalls: number[] = [];
+    const travelCalculator = {
+      calculateMinutes(legs: Parameters<TravelCalculator["calculateMinutes"]>[0]) {
+        calculatorCalls.push(legs.length);
+        return legs.map(() => 10);
+      },
+    };
+    for (const singleStop of ["yes", "true", 1, null, "false", 0] as const) {
+      calculatorCalls.length = 0;
+      const errors = await validateItinerary(
+        {
+          intent,
+          candidates: fourCandidates(),
+          itinerary: { ...twoOptionPlan(), singleStop },
+        },
+        { travelCapMinutes: 25, travelCalculator }
+      );
+      assert.ok(
+        errors.some(
+          (e) =>
+            e.code === "invalid_format" &&
+            e.message.toLowerCase().includes("singlestop")
+        ),
+        `expected invalid_format for itinerary.singleStop=${JSON.stringify(singleStop)}: ${JSON.stringify(errors)}`
+      );
+      assert.equal(
+        calculatorCalls.length,
+        0,
+        `calculator must not run for itinerary.singleStop=${JSON.stringify(singleStop)}`
+      );
+    }
+  });
+
+  it("rejects a missing or non-string hop mode as invalid_format and never calls the calculator", async () => {
+    const modes: unknown[] = [5, null, {}, undefined];
+    for (const mode of modes) {
+      let called = 0;
+      const itinerary = twoOptionPlan();
+      if (mode === undefined) {
+        itinerary.options[0]!.stops[0]!.travelToNext = {
+          minutes: 10,
+        } as { mode: "WALK"; minutes: number };
+      } else {
+        itinerary.options[0]!.stops[0]!.travelToNext = {
+          mode,
+          minutes: 10,
+        } as { mode: "WALK"; minutes: number };
+      }
+      const errors = await validateItinerary(
+        { intent, candidates: fourCandidates(), itinerary },
+        {
+          travelCapMinutes: 25,
+          travelCalculator: {
+            calculateMinutes(legs) {
+              called += 1;
+              return legs.map(() => 10);
+            },
+          },
+        }
+      );
+      assert.ok(
+        errors.some(
+          (e) =>
+            e.code === "invalid_format" &&
+            e.message.toLowerCase().includes("mode")
+        ),
+        `expected invalid_format for mode=${JSON.stringify(mode)}: ${JSON.stringify(errors)}`
+      );
+      assert.equal(called, 0, `calculator must not run for mode=${JSON.stringify(mode)}`);
+    }
+  });
+
+  it("does not let a 24/7 marker override real opening hours", async () => {
+    const candidates = fourCandidates();
+    candidates[0] = {
+      ...candidates[0]!,
+      openingHours: [
+        { open: { day: 0, hour: 0, minute: 0 } },
+        { open: { day: 4, hour: 12, minute: 0 }, close: { day: 4, hour: 17, minute: 0 } },
+      ],
+    };
+    const errors = await validateItinerary(
+      { intent, candidates, itinerary: twoOptionPlan() },
+      { travelCapMinutes: 25, travelCalculator: calc(10) }
+    );
+    assert.ok(
+      errors.some((e) => e.code === "closed" && e.placeId === "ChIJ1"),
+      JSON.stringify(errors)
+    );
+  });
+
+  it("rejects maxLegs that is <= 0 or NaN", async () => {
+    for (const maxLegs of [0, -1, Number.NaN]) {
+      const errors = await validateItinerary(
+        { intent, candidates: fourCandidates(), itinerary: twoOptionPlan() },
+        { travelCapMinutes: 25, travelCalculator: calc(10), maxLegs }
+      );
+      assert.ok(
+        errors.some(
+          (e) => e.code === "invalid_format" && /maxLegs/i.test(e.message)
+        ),
+        `expected invalid_format for maxLegs=${String(maxLegs)}: ${JSON.stringify(errors)}`
+      );
+    }
+  });
+
+  it("emits invalid_format for a schema-failing candidate instead of invented_venue", async () => {
+    const candidates = fourCandidates();
+    candidates[1] = { placeId: "ChIJ2" } as (typeof candidates)[number];
+    const errors = await validateItinerary(
+      { intent, candidates, itinerary: twoOptionPlan() },
+      { travelCapMinutes: 25, travelCalculator: calc(10) }
+    );
+    assert.ok(
+      errors.some(
+        (e) =>
+          e.code === "invalid_format" &&
+          (e.placeId === "ChIJ2" || e.message.includes("ChIJ2"))
+      ),
+      JSON.stringify(errors)
+    );
+    assert.equal(
+      errors.some((e) => e.code === "invented_venue" && e.placeId === "ChIJ2"),
+      false,
       JSON.stringify(errors)
     );
   });
