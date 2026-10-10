@@ -1,22 +1,19 @@
-import { TRAVEL_MODES, type TravelMode } from "../contracts/travel";
+import { TRAVEL_MODES, travelModeSchema, type TravelMode } from "./common";
 
-export { TRAVEL_MODES, travelModeSchema, type TravelMode } from "../contracts/travel";
+export { TRAVEL_MODES, travelModeSchema, type TravelMode } from "./common";
 
 /**
- * NightCap v1 travel modes: TRANSIT, BICYCLE, WALK. Mapping onto Routes
- * `travelMode` is identity. Any other value (including lowercase aliases,
- * rideshare, DRIVE, taxi) is unsupported and fails closed.
+ * NightCap v1 travel modes from `travelModeSchema` in `./common`:
+ * TRANSIT, BICYCLE, WALK. Mapping onto Routes `travelMode` is identity.
+ * Any other value fails closed.
  */
 export const SUPPORTED_TRAVEL_MODES = TRAVEL_MODES;
 export type SupportedTravelMode = TravelMode;
 
-function isTravelMode(mode: string): mode is TravelMode {
-  return (TRAVEL_MODES as readonly string[]).includes(mode);
-}
-
-/** Identity: only the exact enum strings are supported. */
+/** Identity: only the exact `travelModeSchema` strings are supported. */
 export function normalizeTravelMode(mode: string): TravelMode | null {
-  return isTravelMode(mode) ? mode : null;
+  const parsed = travelModeSchema.safeParse(mode);
+  return parsed.success ? parsed.data : null;
 }
 
 export function isSupportedTravelMode(mode: string): boolean {

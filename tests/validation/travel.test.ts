@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { TRAVEL_MODES } from "../../src/contracts/travel";
+import { TRAVEL_MODES } from "../../src/validation/common";
 import { HaversineEstimator, SUPPORTED_TRAVEL_MODES } from "../../src/validation/travel";
 
 describe("HaversineEstimator (offline fallback)", () => {
-  it("uses the contract travel-mode names", () => {
+  it("uses the validation travel-mode names", () => {
     assert.deepEqual([...SUPPORTED_TRAVEL_MODES], [...TRAVEL_MODES]);
     assert.deepEqual([...SUPPORTED_TRAVEL_MODES], ["TRANSIT", "BICYCLE", "WALK"]);
   });

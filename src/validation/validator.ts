@@ -539,9 +539,9 @@ function parseSharedItinerary(
     return { success: false, error: new z.ZodError(structural) };
   }
 
-  // Itinerary hop modes are still walk|transit|rideshare. Contract names
-  // (WALK / TRANSIT / BICYCLE) fail that enum before shared refinements run,
-  // so retry with a placeholder mode and restore the original for travel rules.
+  // Unsupported hop modes fail the shared enum before refinements run.
+  // Retry with a schema-valid placeholder so chronology / unique-venue still
+  // apply, then restore the original mode for travel_unverified.
   const retry = parseWithSharedSchemas(coerceHopModesForSchema(raw), singleStop);
   if (!retry.success) {
     return retry;
@@ -590,7 +590,7 @@ function coerceHopModesForSchema(raw: unknown): unknown {
           }
           return {
             ...stop,
-            travelToNext: { ...stop.travelToNext, mode: "walk" },
+            travelToNext: { ...stop.travelToNext, mode: "WALK" },
           };
         }),
       };
