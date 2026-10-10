@@ -501,8 +501,12 @@ function omitKey(value: unknown, key: string): unknown {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     return value;
   }
-  const { [key]: _removed, ...rest } = value as Record<string, unknown>;
-  return rest;
+  if (!(key in value)) {
+    return value;
+  }
+  const copy = { ...(value as Record<string, unknown>) };
+  delete copy[key];
+  return copy;
 }
 
 /**
