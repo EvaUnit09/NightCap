@@ -18,6 +18,9 @@ import {
   getRepairModelId,
   getMaxTravelLegsPerRequest,
   getTravelCapMinutes,
+  getTravelClaimToleranceMinutes,
+  getRoutesApiTimeoutMs,
+  getPriceRanges,
   getTurnstileSecretKey,
   resetConfig,
 } from "../../src/models";
@@ -71,6 +74,11 @@ describe("Config module", () => {
       assert.equal(getAgentMaxCostUsdPerTurn(), 0.03);
       assert.equal(getRepairMaxRounds(), 2);
       assert.equal(getMaxTravelLegsPerRequest(), 4);
+      delete process.env.ROUTES_API_TIMEOUT_MS;
+      delete process.env.TRAVEL_CLAIM_TOLERANCE_MINUTES;
+      assert.equal(getRoutesApiTimeoutMs(), 5000);
+      assert.equal(getTravelClaimToleranceMinutes(), 5);
+      assert.deepEqual(getPriceRanges().moderate, [20, 120]);
     });
   });
 

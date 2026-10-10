@@ -13,6 +13,17 @@ function preprocessEnvVar(value: string | undefined): string | undefined {
   return trimmed === "" ? undefined : trimmed;
 }
 
+/** Parse `min,max` range env vars. Empty/whitespace → undefined (Zod default). */
+function parseRange(value: string | undefined): [number, number] | undefined {
+  const raw = preprocessEnvVar(value);
+  if (!raw) return undefined;
+  const parts = raw.split(",").map((part) => Number(part.trim()));
+  if (parts.length !== 2 || parts.some((n) => !Number.isFinite(n))) {
+    throw new Error(`Invalid price range "${raw}". Expected "min,max".`);
+  }
+  return [parts[0]!, parts[1]!];
+}
+
 /**
  * Configuration schema with Zod validation.
  * Secrets must be provided; non-secrets have documented defaults.
@@ -50,6 +61,17 @@ const configSchema = z.object({
       { message: "MAX_TRAVEL_LEGS_PER_REQUEST must be an integer from 2 to 9" },
     )
     .default(MAX_TRAVEL_LEGS_PER_REQUEST_DEFAULT),
+
+  // Routes API
+  routesApiTimeoutMs: z.coerce.number().int().positive().default(5000),
+  travelClaimToleranceMinutes: z.coerce.number().int().nonnegative().default(5),
+
+  // Price level ranges (USD, "min,max")
+  priceRangeFree: z.tuple([z.number(), z.number()]).default([0, 0]),
+  priceRangeInexpensive: z.tuple([z.number(), z.number()]).default([0, 40]),
+  priceRangeModerate: z.tuple([z.number(), z.number()]).default([20, 120]),
+  priceRangeExpensive: z.tuple([z.number(), z.number()]).default([80, 250]),
+  priceRangeVeryExpensive: z.tuple([z.number(), z.number()]).default([150, 1000]),
 });
 
 type Config = z.infer<typeof configSchema>;
@@ -92,6 +114,16 @@ function loadConfig(): Config {
     agentMaxCostUsdPerTurn: preprocessEnvVar(process.env.AGENT_MAX_COST_USD_PER_TURN),
     repairMaxRounds: preprocessEnvVar(process.env.REPAIR_MAX_ROUNDS),
     maxTravelLegsPerRequest: preprocessEnvVar(process.env.MAX_TRAVEL_LEGS_PER_REQUEST),
+
+    routesApiTimeoutMs: preprocessEnvVar(process.env.ROUTES_API_TIMEOUT_MS),
+    travelClaimToleranceMinutes: preprocessEnvVar(
+      process.env.TRAVEL_CLAIM_TOLERANCE_MINUTES
+    ),
+    priceRangeFree: parseRange(process.env.PRICE_RANGE_FREE),
+    priceRangeInexpensive: parseRange(process.env.PRICE_RANGE_INEXPENSIVE),
+    priceRangeModerate: parseRange(process.env.PRICE_RANGE_MODERATE),
+    priceRangeExpensive: parseRange(process.env.PRICE_RANGE_EXPENSIVE),
+    priceRangeVeryExpensive: parseRange(process.env.PRICE_RANGE_VERY_EXPENSIVE),
   });
 
   config = parsed;
@@ -199,6 +231,34 @@ export function getRepairMaxRounds(): number {
 /** Get max travel legs per request, summed across options (4 by default). */
 export function getMaxTravelLegsPerRequest(): number {
   return getConfig().maxTravelLegsPerRequest;
+}
+
+/** Get Routes API timeout in milliseconds (5000 by default). */
+export function getRoutesApiTimeoutMs(): number {
+  return getConfig().routesApiTimeoutMs;
+}
+
+/** Get claimed-vs-computed travel tolerance in minutes (5 by default). */
+export function getTravelClaimToleranceMinutes(): number {
+  return getConfig().travelClaimToleranceMinutes;
+}
+
+/** Get price ranges for validation. */
+export function getPriceRanges(): {
+  free: [number, number];
+  inexpensive: [number, number];
+  moderate: [number, number];
+  expensive: [number, number];
+  veryExpensive: [number, number];
+} {
+  const cfg = getConfig();
+  return {
+    free: cfg.priceRangeFree,
+    inexpensive: cfg.priceRangeInexpensive,
+    moderate: cfg.priceRangeModerate,
+    expensive: cfg.priceRangeExpensive,
+    veryExpensive: cfg.priceRangeVeryExpensive,
+  };
 }
 
 /** Reset config for testing. */

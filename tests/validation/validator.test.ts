@@ -1,552 +1,483 @@
-import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { describe, it } from "node:test";
 
 import type { Candidate } from "../../src/validation/candidate";
 import type { Intent } from "../../src/validation/intent";
 import type { Itinerary } from "../../src/validation/itinerary";
-import {
-  validateItinerary,
-  type ValidatorInput,
-} from "../../src/validation/validator";
 import type { TravelCalculator } from "../../src/validation/travel";
+import { validationErrorSchema } from "../../src/validation/validation-error";
+import { validateItinerary } from "../../src/validation/validator";
 
-describe("validateItinerary", () => {
-  const baseIntent: Intent = {
-    area: "Manhattan",
-    window: {
-      start: "2026-10-15T19:00:00-04:00",
-      end: "2026-10-15T23:00:00-04:00",
-    },
-    budgetUsd: 200,
-    dietary: [],
-    vibeTags: ["cozy", "craft"],
-    stopTypes: ["drinks", "dinner"],
-  };
+const THU_HOURS = [
+  { open: { day: 4, hour: 17, minute: 0 }, close: { day: 4, hour: 23, minute: 0 } },
+];
 
-  const baseCandidate: Candidate = {
-    placeId: "ChIJ1",
-    name: "Test Venue",
+const intent: Intent = {
+  area: "Manhattan",
+  window: {
+    start: "2026-10-15T19:00:00-04:00",
+    end: "2026-10-15T23:00:00-04:00",
+  },
+  budgetUsd: 400,
+  dietary: [],
+  vibeTags: ["cozy"],
+  stopTypes: ["drinks", "dinner"],
+};
+
+function candidate(
+  placeId: string,
+  name: string,
+  overrides: Partial<Candidate> = {}
+): Candidate {
+  return {
+    placeId,
+    name,
     businessStatus: "OPERATIONAL",
     priceLevel: "PRICE_LEVEL_MODERATE",
-    rating: 4.5,
-    reviewCount: 100,
-    location: { lat: 40.7589, lng: -73.9851 },
-    openingHours: [
-      {
-        open: { day: 4, hour: 17, minute: 0 },
-        close: { day: 4, hour: 23, minute: 0 },
-      },
-    ],
+    rating: 4.4,
+    reviewCount: 80,
+    location: { lat: 40.735 + placeId.length * 0.001, lng: -74.002 },
+    openingHours: THU_HOURS,
     types: ["bar"],
     stopType: "drinks",
+    ...overrides,
   };
+}
 
-  const baseItinerary: Itinerary = {
+function twoOptionPlan(overrides?: {
+  costs?: [number, number, number, number];
+  travelMinutes?: number;
+}): Itinerary {
+  const costs = overrides?.costs ?? [40, 80, 40, 80];
+  const minutes = overrides?.travelMinutes ?? 10;
+  return {
     options: [
       {
-        theme: "Craft cocktails and upscale dining",
+        theme: "West Village",
         stops: [
           {
             placeId: "ChIJ1",
-            name: "Test Venue",
+            name: "Venue One",
             start: "2026-10-15T19:00:00-04:00",
             end: "2026-10-15T20:00:00-04:00",
-            estimatedCostUsd: 80,
-            why: "Craft cocktails",
-            travelToNext: {
-              mode: "walk",
-              minutes: 10,
-            },
+            estimatedCostUsd: costs[0],
+            why: "Drinks",
+            travelToNext: { mode: "walk", minutes },
           },
           {
             placeId: "ChIJ2",
-            name: "Test Restaurant",
+            name: "Venue Two",
             start: "2026-10-15T20:15:00-04:00",
             end: "2026-10-15T22:00:00-04:00",
-            estimatedCostUsd: 100,
-            why: "Upscale dining",
+            estimatedCostUsd: costs[1],
+            why: "Dinner",
+            travelToNext: null,
+          },
+        ],
+      },
+      {
+        theme: "East Village",
+        stops: [
+          {
+            placeId: "ChIJ3",
+            name: "Venue Three",
+            start: "2026-10-15T19:00:00-04:00",
+            end: "2026-10-15T20:00:00-04:00",
+            estimatedCostUsd: costs[2],
+            why: "Drinks",
+            travelToNext: { mode: "walk", minutes },
+          },
+          {
+            placeId: "ChIJ4",
+            name: "Venue Four",
+            start: "2026-10-15T20:15:00-04:00",
+            end: "2026-10-15T22:00:00-04:00",
+            estimatedCostUsd: costs[3],
+            why: "Dinner",
             travelToNext: null,
           },
         ],
       },
     ],
   };
+}
 
-  const mockTravelCalculator: TravelCalculator = {
-    calculateMinutes: () => 10,
+function fourCandidates(): Candidate[] {
+  return [
+    candidate("ChIJ1", "Venue One"),
+    candidate("ChIJ2", "Venue Two", { stopType: "dinner" }),
+    candidate("ChIJ3", "Venue Three"),
+    candidate("ChIJ4", "Venue Four", { stopType: "dinner" }),
+  ];
+}
+
+function calc(minutes: number | null | (() => number | null)): TravelCalculator {
+  return {
+    calculateMinutes(legs) {
+      return legs.map(() => (typeof minutes === "function" ? minutes() : minutes));
+    },
   };
+}
 
-  it("should pass validation for a valid itinerary", async () => {
-    const candidates: Candidate[] = [
-      baseCandidate,
-      {
-        ...baseCandidate,
-        placeId: "ChIJ2",
-        name: "Test Restaurant",
-        location: { lat: 40.7600, lng: -73.9860 },
-        stopType: "dinner",
-        openingHours: [
-          {
-            open: { day: 4, hour: 17, minute: 0 },
-            close: { day: 4, hour: 23, minute: 0 },
-          },
-        ],
-      },
-    ];
-
-    const input: ValidatorInput = {
-      intent: baseIntent,
-      candidates,
-      itinerary: baseItinerary,
-    };
-
-    const errors = await validateItinerary(input, mockTravelCalculator);
-    assert.equal(errors.length, 0, `Expected no validation errors, got: ${JSON.stringify(errors, null, 2)}`);
+describe("validateItinerary", () => {
+  it("passes a valid itinerary", async () => {
+    const errors = await validateItinerary(
+      { intent, candidates: fourCandidates(), itinerary: twoOptionPlan() },
+      { travelCapMinutes: 25, travelCalculator: calc(10) }
+    );
+    assert.deepEqual(errors, []);
   });
 
-  it("should detect invented venues", async () => {
-    const candidates: Candidate[] = [baseCandidate];
-
-    const input: ValidatorInput = {
-      intent: baseIntent,
-      candidates,
-      itinerary: baseItinerary,
-    };
-
-    const errors = await validateItinerary(input, mockTravelCalculator);
-    assert.equal(errors.length, 1, `Expected 1 error, got: ${JSON.stringify(errors, null, 2)}`);
-    assert.equal(errors[0]?.code, "invented_venue");
-    assert.equal(errors[0]?.placeId, "ChIJ2");
-    assert.equal(errors[0]?.optionIndex, 0);
-    assert.equal(errors[0]?.stopIndex, 1);
+  it("detects invented venues", async () => {
+    const errors = await validateItinerary(
+      {
+        intent,
+        candidates: fourCandidates().filter((c) => c.placeId !== "ChIJ2"),
+        itinerary: twoOptionPlan(),
+      },
+      { travelCapMinutes: 25, travelCalculator: calc(10) }
+    );
+    assert.ok(errors.some((e) => e.code === "invented_venue" && e.placeId === "ChIJ2"));
+    assert.ok(errors.every((e) => validationErrorSchema.safeParse(e).success));
   });
 
-  it("should detect non-operational venues", async () => {
-    const candidates: Candidate[] = [
-      { ...baseCandidate, businessStatus: "CLOSED_PERMANENTLY" },
-      {
-        ...baseCandidate,
-        placeId: "ChIJ2",
-        name: "Test Restaurant",
-        location: { lat: 40.7600, lng: -73.9860 },
-        stopType: "dinner",
-        openingHours: [
-          {
-            open: { day: 4, hour: 17, minute: 0 },
-            close: { day: 4, hour: 23, minute: 0 },
-          },
-        ],
-      },
-    ];
-
-    const input: ValidatorInput = {
-      intent: baseIntent,
-      candidates,
-      itinerary: baseItinerary,
-    };
-
-    const errors = await validateItinerary(input, mockTravelCalculator);
-    assert.equal(errors.length, 1, `Expected 1 error, got: ${JSON.stringify(errors, null, 2)}`);
-    assert.equal(errors[0]?.code, "not_operational");
-    assert.equal(errors[0]?.optionIndex, 0);
-    assert.equal(errors[0]?.stopIndex, 0);
+  it("detects non-operational venues", async () => {
+    const candidates = fourCandidates();
+    candidates[0] = { ...candidates[0]!, businessStatus: "CLOSED_PERMANENTLY" };
+    const errors = await validateItinerary(
+      { intent, candidates, itinerary: twoOptionPlan() },
+      { travelCapMinutes: 25, travelCalculator: calc(10) }
+    );
+    assert.ok(errors.some((e) => e.code === "not_operational" && e.stopIndex === 0));
   });
 
-  it("should detect closed venues", async () => {
-    const candidates: Candidate[] = [
-      {
-        ...baseCandidate,
-        openingHours: [
-          {
-            open: { day: 4, hour: 12, minute: 0 },
-            close: { day: 4, hour: 17, minute: 0 },
-          },
-        ],
-      },
-      {
-        ...baseCandidate,
-        placeId: "ChIJ2",
-        name: "Test Restaurant",
-        location: { lat: 40.7600, lng: -73.9860 },
-        stopType: "dinner",
-        openingHours: [
-          {
-            open: { day: 4, hour: 17, minute: 0 },
-            close: { day: 4, hour: 23, minute: 0 },
-          },
-        ],
-      },
-    ];
-
-    const input: ValidatorInput = {
-      intent: baseIntent,
-      candidates,
-      itinerary: baseItinerary,
+  it("emits not_operational for FUTURE_OPENING", async () => {
+    const candidates = fourCandidates();
+    candidates[0] = {
+      ...candidates[0]!,
+      businessStatus: "FUTURE_OPENING",
+      openingHours: [],
     };
-
-    const errors = await validateItinerary(input, mockTravelCalculator);
-    assert.equal(errors.length, 1, `Expected 1 error, got: ${JSON.stringify(errors, null, 2)}`);
-    assert.equal(errors[0]?.code, "closed");
-    assert.equal(errors[0]?.optionIndex, 0);
-    assert.equal(errors[0]?.stopIndex, 0);
+    const errors = await validateItinerary(
+      { intent, candidates, itinerary: twoOptionPlan() },
+      { travelCapMinutes: 25, travelCalculator: calc(10) }
+    );
+    assert.ok(errors.some((e) => e.code === "not_operational"));
+    assert.equal(errors.some((e) => e.code === "closed"), false);
   });
 
-  it("should detect over-budget itineraries", async () => {
-    const candidates: Candidate[] = [
-      baseCandidate,
-      {
-        ...baseCandidate,
-        placeId: "ChIJ2",
-        name: "Test Restaurant",
-        location: { lat: 40.7600, lng: -73.9860 },
-        stopType: "dinner",
-        openingHours: [
-          {
-            open: { day: 4, hour: 17, minute: 0 },
-            close: { day: 4, hour: 23, minute: 0 },
-          },
-        ],
-      },
-    ];
-
-    const input: ValidatorInput = {
-      intent: { ...baseIntent, budgetUsd: 150 },
-      candidates,
-      itinerary: baseItinerary,
+  it("detects closed venues", async () => {
+    const candidates = fourCandidates();
+    candidates[0] = {
+      ...candidates[0]!,
+      openingHours: [
+        { open: { day: 4, hour: 12, minute: 0 }, close: { day: 4, hour: 17, minute: 0 } },
+      ],
     };
+    const errors = await validateItinerary(
+      { intent, candidates, itinerary: twoOptionPlan() },
+      { travelCapMinutes: 25, travelCalculator: calc(10) }
+    );
+    assert.ok(errors.some((e) => e.code === "closed" && e.optionIndex === 0));
+  });
 
-    const errors = await validateItinerary(input, mockTravelCalculator);
-    assert.equal(errors.length, 1, `Expected 1 error, got: ${JSON.stringify(errors, null, 2)}`);
-    assert.equal(errors[0]?.code, "over_budget");
-    assert.equal(errors[0]?.optionIndex, 0);
-    assert.ok(
-      errors[0]?.message.includes("$180 exceeds budget $150")
+  it("treats only day 0 00:00 with no close as 24/7", async () => {
+    const candidates = fourCandidates();
+    candidates[0] = {
+      ...candidates[0]!,
+      openingHours: [{ open: { day: 0, hour: 0, minute: 0 } }],
+    };
+    const errors = await validateItinerary(
+      { intent, candidates, itinerary: twoOptionPlan() },
+      { travelCapMinutes: 25, travelCalculator: calc(10) }
+    );
+    assert.equal(
+      errors.some((e) => e.code === "closed" && e.placeId === "ChIJ1"),
+      false
     );
   });
 
-  it("should detect travel time exceeding cap", async () => {
-    const candidates: Candidate[] = [
-      baseCandidate,
-      {
-        ...baseCandidate,
-        placeId: "ChIJ2",
-        name: "Test Restaurant",
-        location: { lat: 40.7600, lng: -73.9860 },
-        stopType: "dinner",
-        openingHours: [
-          {
-            open: { day: 4, hour: 17, minute: 0 },
-            close: { day: 4, hour: 23, minute: 0 },
-          },
-        ],
-      },
-    ];
-
-    const longTravelCalculator: TravelCalculator = {
-      calculateMinutes: () => 30,
+  it("ignores a malformed no-close period", async () => {
+    const candidates = fourCandidates();
+    candidates[0] = {
+      ...candidates[0]!,
+      openingHours: [{ open: { day: 3, hour: 17, minute: 0 } }],
     };
-
-    const input: ValidatorInput = {
-      intent: baseIntent,
-      candidates,
-      itinerary: baseItinerary,
-    };
-
-    const errors = await validateItinerary(input, longTravelCalculator);
-    assert.equal(errors.length, 1, `Expected 1 error, got: ${JSON.stringify(errors, null, 2)}`);
-    assert.equal(errors[0]?.code, "travel_too_long");
-    assert.equal(errors[0]?.optionIndex, 0);
-    assert.equal(errors[0]?.stopIndex, 0);
-    assert.ok(errors[0]?.message.includes("30 min"));
+    const errors = await validateItinerary(
+      { intent, candidates, itinerary: twoOptionPlan() },
+      { travelCapMinutes: 25, travelCalculator: calc(10) }
+    );
+    assert.ok(errors.some((e) => e.code === "closed" && e.placeId === "ChIJ1"));
   });
 
-  it("should handle 24/7 venues", async () => {
-    const candidates: Candidate[] = [
-      {
-        ...baseCandidate,
-        openingHours: [
-          {
-            open: { day: 0, hour: 0, minute: 0 },
-          },
-        ],
-      },
-      {
-        ...baseCandidate,
-        placeId: "ChIJ2",
-        name: "Test Restaurant",
-        location: { lat: 40.7600, lng: -73.9860 },
-        stopType: "dinner",
-        openingHours: [
-          {
-            open: { day: 4, hour: 17, minute: 0 },
-            close: { day: 4, hour: 23, minute: 0 },
-          },
-        ],
-      },
-    ];
-
-    const input: ValidatorInput = {
-      intent: baseIntent,
-      candidates,
-      itinerary: baseItinerary,
-    };
-
-    const errors = await validateItinerary(input, mockTravelCalculator);
-    assert.equal(errors.length, 0, `Expected no errors, got: ${JSON.stringify(errors, null, 2)}`);
-  });
-
-  it("should detect FUTURE_OPENING venues as not operational", async () => {
-    const candidates: Candidate[] = [
-      {
-        ...baseCandidate,
-        businessStatus: "FUTURE_OPENING",
-        openingHours: [],
-      },
-      {
-        ...baseCandidate,
-        placeId: "ChIJ2",
-        name: "Test Restaurant",
-        location: { lat: 40.7600, lng: -73.9860 },
-        stopType: "dinner",
-        openingHours: [
-          {
-            open: { day: 4, hour: 17, minute: 0 },
-            close: { day: 4, hour: 23, minute: 0 },
-          },
-        ],
-      },
-    ];
-
-    const input: ValidatorInput = {
-      intent: baseIntent,
-      candidates,
-      itinerary: baseItinerary,
-    };
-
-    const errors = await validateItinerary(input, mockTravelCalculator);
-    assert.equal(errors.length, 1, `Expected 1 error, got: ${JSON.stringify(errors, null, 2)}`);
-    assert.equal(errors[0]?.code, "not_operational");
-  });
-
-  it("should handle PRICE_LEVEL_UNSPECIFIED", async () => {
-    const candidates: Candidate[] = [
-      { ...baseCandidate, priceLevel: "PRICE_LEVEL_UNSPECIFIED" },
-      {
-        ...baseCandidate,
-        placeId: "ChIJ2",
-        name: "Test Restaurant",
-        location: { lat: 40.7600, lng: -73.9860 },
-        stopType: "dinner",
-        openingHours: [
-          {
-            open: { day: 4, hour: 17, minute: 0 },
-            close: { day: 4, hour: 23, minute: 0 },
-          },
-        ],
-      },
-    ];
-
-    const input: ValidatorInput = {
-      intent: baseIntent,
-      candidates,
-      itinerary: baseItinerary,
-    };
-
-    const errors = await validateItinerary(input, mockTravelCalculator);
-    assert.equal(errors.length, 0, `Expected no errors, got: ${JSON.stringify(errors, null, 2)}`);
-  });
-
-  it("should handle slots crossing midnight", async () => {
-    const candidates: Candidate[] = [
-      {
-        ...baseCandidate,
-        openingHours: [
-          {
-            open: { day: 4, hour: 22, minute: 0 },
-            close: { day: 5, hour: 2, minute: 0 },
-          },
-        ],
-      },
-      {
-        ...baseCandidate,
-        placeId: "ChIJ2",
-        name: "Test Restaurant",
-        location: { lat: 40.7600, lng: -73.9860 },
-        stopType: "dinner",
-        openingHours: [
-          {
-            open: { day: 4, hour: 22, minute: 0 },
-            close: { day: 5, hour: 2, minute: 0 },
-          },
-        ],
-      },
-    ];
-
-    const lateItinerary: Itinerary = {
-      options: [
-        {
-          theme: "Late night",
-          stops: [
-            {
-              placeId: "ChIJ1",
-              name: "Test Venue",
-              start: "2026-10-15T23:00:00-04:00",
-              end: "2026-10-16T00:30:00-04:00",
-              estimatedCostUsd: 80,
-              why: "Late night drinks",
-              travelToNext: {
-                mode: "walk",
-                minutes: 10,
-              },
-            },
-            {
-              placeId: "ChIJ2",
-              name: "Test Restaurant",
-              start: "2026-10-16T00:45:00-04:00",
-              end: "2026-10-16T02:00:00-04:00",
-              estimatedCostUsd: 60,
-              why: "Late night food",
-              travelToNext: null,
-            },
-          ],
-        },
+  it("does not let a malformed no-close override real hours", async () => {
+    const candidates = fourCandidates();
+    candidates[0] = {
+      ...candidates[0]!,
+      openingHours: [
+        { open: { day: 3, hour: 17, minute: 0 } },
+        { open: { day: 4, hour: 17, minute: 0 }, close: { day: 4, hour: 23, minute: 0 } },
       ],
     };
-
-    const input: ValidatorInput = {
-      intent: baseIntent,
-      candidates,
-      itinerary: lateItinerary,
-    };
-
-    const errors = await validateItinerary(input, mockTravelCalculator);
-    assert.equal(errors.length, 0, `Expected no errors, got: ${JSON.stringify(errors, null, 2)}`);
+    const errors = await validateItinerary(
+      { intent, candidates, itinerary: twoOptionPlan() },
+      { travelCapMinutes: 25, travelCalculator: calc(10) }
+    );
+    assert.equal(
+      errors.some((e) => e.code === "closed" && e.placeId === "ChIJ1"),
+      false
+    );
   });
 
-  it("should validate multiple options independently", async () => {
-    const candidates: Candidate[] = [
-      baseCandidate,
-      {
-        ...baseCandidate,
-        placeId: "ChIJ2",
-        name: "Test Restaurant",
-        location: { lat: 40.7600, lng: -73.9860 },
-        stopType: "dinner",
-        openingHours: [
-          {
-            open: { day: 4, hour: 17, minute: 0 },
-            close: { day: 4, hour: 23, minute: 0 },
-          },
-        ],
-      },
-      {
-        ...baseCandidate,
-        placeId: "ChIJ3",
-        name: "Another Bar",
-        location: { lat: 40.7610, lng: -73.9870 },
-        stopType: "drinks",
-        openingHours: [
-          {
-            open: { day: 4, hour: 17, minute: 0 },
-            close: { day: 4, hour: 23, minute: 0 },
-          },
-        ],
-      },
-    ];
+  it("converts 23:30Z to America/New_York before hours check", async () => {
+    const itinerary = twoOptionPlan();
+    itinerary.options[0]!.stops[0]!.start = "2026-10-15T23:30:00Z";
+    itinerary.options[0]!.stops[0]!.end = "2026-10-16T00:15:00Z";
+    itinerary.options[0]!.stops[1]!.start = "2026-10-16T00:30:00Z";
+    itinerary.options[0]!.stops[1]!.end = "2026-10-16T02:00:00Z";
+    const candidates = fourCandidates();
+    const errors = await validateItinerary(
+      { intent, candidates, itinerary },
+      { travelCapMinutes: 25, travelCalculator: calc(10) }
+    );
+    assert.equal(
+      errors.some((e) => e.code === "closed" && e.optionIndex === 0),
+      false,
+      `23:30Z is 19:30 EDT; got ${JSON.stringify(errors)}`
+    );
+  });
 
-    const multiOptionItinerary: Itinerary = {
-      options: [
-        baseItinerary.options[0]!,
-        {
-          theme: "Option 2 with bad venue",
-          stops: [
-            {
-              placeId: "ChIJ3",
-              name: "Another Bar",
-              start: "2026-10-15T19:00:00-04:00",
-              end: "2026-10-15T20:00:00-04:00",
-              estimatedCostUsd: 250,
-              why: "Expensive drinks",
-              travelToNext: null,
-            },
-          ],
+  it("handles a slot that crosses midnight", async () => {
+    const itinerary = twoOptionPlan();
+    itinerary.options[0]!.stops[0]!.start = "2026-10-15T23:00:00-04:00";
+    itinerary.options[0]!.stops[0]!.end = "2026-10-16T00:30:00-04:00";
+    itinerary.options[0]!.stops[1]!.start = "2026-10-16T00:45:00-04:00";
+    itinerary.options[0]!.stops[1]!.end = "2026-10-16T01:30:00-04:00";
+    const lateHours = [
+      { open: { day: 4, hour: 22, minute: 0 }, close: { day: 5, hour: 2, minute: 0 } },
+    ];
+    const candidates = fourCandidates().map((c) =>
+      c.placeId === "ChIJ1" || c.placeId === "ChIJ2" ? { ...c, openingHours: lateHours } : c
+    );
+    const errors = await validateItinerary(
+      { intent, candidates, itinerary },
+      { travelCapMinutes: 25, travelCalculator: calc(10) }
+    );
+    assert.equal(
+      errors.some((e) => e.code === "closed" && e.optionIndex === 0),
+      false
+    );
+  });
+
+  it("counts invented stop cost in the budget", async () => {
+    const errors = await validateItinerary(
+      {
+        intent: { ...intent, budgetUsd: 100 },
+        candidates: fourCandidates().filter((c) => c.placeId !== "ChIJ1"),
+        itinerary: twoOptionPlan({ costs: [500, 20, 20, 20] }),
+      },
+      { travelCapMinutes: 25, travelCalculator: calc(10) }
+    );
+    assert.ok(errors.some((e) => e.code === "invented_venue"));
+    assert.ok(
+      errors.some((e) => e.code === "over_budget" && e.message.includes("$520"))
+    );
+  });
+
+  it("flags claimed travel minutes over the cap via max(claimed, computed)", async () => {
+    const errors = await validateItinerary(
+      { intent, candidates: fourCandidates(), itinerary: twoOptionPlan({ travelMinutes: 30 }) },
+      { travelCapMinutes: 25, travelCalculator: calc(10) }
+    );
+    assert.ok(
+      errors.some(
+        (e) => e.code === "travel_too_long" && e.message.includes("30 min")
+      )
+    );
+  });
+
+  it("flags |claimed − computed| beyond the tolerance", async () => {
+    const errors = await validateItinerary(
+      { intent, candidates: fourCandidates(), itinerary: twoOptionPlan({ travelMinutes: 10 }) },
+      {
+        travelCapMinutes: 25,
+        travelCalculator: calc(20),
+        travelToleranceMinutes: 5,
+      }
+    );
+    assert.ok(
+      errors.some(
+        (e) =>
+          e.code === "travel_too_long" &&
+          e.message.includes("claimed 10") &&
+          e.message.includes("computed 20")
+      )
+    );
+  });
+
+  it("fails closed when the calculator returns null", async () => {
+    const errors = await validateItinerary(
+      { intent, candidates: fourCandidates(), itinerary: twoOptionPlan() },
+      { travelCapMinutes: 25, travelCalculator: calc(null) }
+    );
+    assert.ok(errors.some((e) => e.code === "travel_too_long"));
+  });
+
+  it("fails closed when the calculator throws", async () => {
+    const errors = await validateItinerary(
+      { intent, candidates: fourCandidates(), itinerary: twoOptionPlan() },
+      {
+        travelCapMinutes: 25,
+        travelCalculator: {
+          calculateMinutes() {
+            throw new Error("boom");
+          },
         },
-      ],
-    };
-
-    const input: ValidatorInput = {
-      intent: baseIntent,
-      candidates,
-      itinerary: multiOptionItinerary,
-    };
-
-    const errors = await validateItinerary(input, mockTravelCalculator);
-    assert.equal(errors.length, 1, `Expected 1 error, got: ${JSON.stringify(errors, null, 2)}`);
-    assert.equal(errors[0]?.code, "over_budget");
-    assert.equal(errors[0]?.optionIndex, 1);
+      }
+    );
+    assert.ok(errors.some((e) => e.code === "travel_too_long"));
   });
 
-  it("should handle null travel time gracefully", async () => {
-    const candidates: Candidate[] = [
-      baseCandidate,
-      {
-        ...baseCandidate,
-        placeId: "ChIJ2",
-        name: "Test Restaurant",
-        location: { lat: 40.7600, lng: -73.9860 },
-        stopType: "dinner",
-        openingHours: [
-          {
-            open: { day: 4, hour: 17, minute: 0 },
-            close: { day: 4, hour: 23, minute: 0 },
-          },
-        ],
-      },
-    ];
-
-    const nullTravelCalculator: TravelCalculator = {
-      calculateMinutes: () => null,
-    };
-
-    const input: ValidatorInput = {
-      intent: baseIntent,
-      candidates,
-      itinerary: baseItinerary,
-    };
-
-    const errors = await validateItinerary(input, nullTravelCalculator);
-    assert.equal(errors.length, 0, `Expected no errors, got: ${JSON.stringify(errors, null, 2)}`);
+  it("fails closed when a calculator is omitted", async () => {
+    const errors = await validateItinerary({
+      intent,
+      candidates: fourCandidates(),
+      itinerary: twoOptionPlan(),
+    });
+    assert.ok(errors.some((e) => e.code === "travel_too_long"));
   });
 
-  it("should handle venues with no opening hours as closed", async () => {
-    const candidates: Candidate[] = [
+  it("fails closed next to an invented stop", async () => {
+    const errors = await validateItinerary(
       {
-        ...baseCandidate,
-        openingHours: [],
+        intent,
+        candidates: fourCandidates().filter((c) => c.placeId !== "ChIJ2"),
+        itinerary: twoOptionPlan(),
       },
+      { travelCapMinutes: 25, travelCalculator: calc(10) }
+    );
+    assert.ok(
+      errors.some(
+        (e) =>
+          e.code === "travel_too_long" && e.message.includes("missing coordinates")
+      )
+    );
+  });
+
+  it("flags a name mismatch as not_found", async () => {
+    const itinerary = twoOptionPlan();
+    itinerary.options[0]!.stops[0]!.name = "Wrong Name";
+    const errors = await validateItinerary(
+      { intent, candidates: fourCandidates(), itinerary },
+      { travelCapMinutes: 25, travelCalculator: calc(10) }
+    );
+    assert.ok(errors.some((e) => e.code === "not_found" && e.message.includes("Wrong Name")));
+  });
+
+  it("flags implausible claimed cost for a price level", async () => {
+    const candidates = fourCandidates();
+    candidates[0] = { ...candidates[0]!, priceLevel: "PRICE_LEVEL_INEXPENSIVE" };
+    const errors = await validateItinerary(
       {
-        ...baseCandidate,
-        placeId: "ChIJ2",
-        name: "Test Restaurant",
-        location: { lat: 40.7600, lng: -73.9860 },
-        stopType: "dinner",
-        openingHours: [
-          {
-            open: { day: 4, hour: 17, minute: 0 },
-            close: { day: 4, hour: 23, minute: 0 },
-          },
-        ],
+        intent,
+        candidates,
+        itinerary: twoOptionPlan({ costs: [200, 40, 40, 40] }),
       },
+      { travelCapMinutes: 25, travelCalculator: calc(10) }
+    );
+    assert.ok(
+      errors.some(
+        (e) =>
+          e.code === "over_budget" &&
+          e.message.includes("PRICE_LEVEL_INEXPENSIVE") &&
+          e.stopIndex === 0
+      )
+    );
+  });
+
+  it("skips the price-level check when PRICE_LEVEL_UNSPECIFIED", async () => {
+    const candidates = fourCandidates();
+    candidates[0] = { ...candidates[0]!, priceLevel: "PRICE_LEVEL_UNSPECIFIED" };
+    const errors = await validateItinerary(
+      {
+        intent,
+        candidates,
+        itinerary: twoOptionPlan({ costs: [200, 40, 40, 40] }),
+      },
+      { travelCapMinutes: 25, travelCalculator: calc(10) }
+    );
+    assert.equal(
+      errors.some((e) => e.message.includes("PRICE_LEVEL_UNSPECIFIED")),
+      false
+    );
+  });
+
+  it("returns a schema-valid error for a 1-option itinerary instead of throwing", async () => {
+    const result = await validateItinerary({
+      intent,
+      candidates: fourCandidates(),
+      itinerary: { options: twoOptionPlan().options.slice(0, 1) },
+    });
+    assert.ok(Array.isArray(result));
+    assert.ok(result[0]);
+    assert.doesNotThrow(() => validationErrorSchema.parse(result[0]));
+    assert.equal(result[0]!.code, "not_found");
+  });
+
+  it("returns a schema-valid error for a 4-option itinerary instead of throwing", async () => {
+    const extra = structuredClone(twoOptionPlan());
+    extra.options.push({
+      theme: "Fourth",
+      stops: extra.options[0]!.stops.map((s, i) => ({
+        ...s,
+        placeId: `ChIJ9${i}`,
+        name: `Extra ${i}`,
+      })),
+    });
+    extra.options.push({
+      theme: "Fifth attempt",
+      stops: extra.options[1]!.stops.map((s, i) => ({
+        ...s,
+        placeId: `ChIJ8${i}`,
+        name: `More ${i}`,
+      })),
+    });
+    const result = await validateItinerary({
+      intent,
+      candidates: fourCandidates(),
+      itinerary: extra,
+    });
+    assert.equal(result[0]!.code, "not_found");
+    assert.doesNotThrow(() => validationErrorSchema.parse(result[0]));
+  });
+
+  it("truncates messages to the schema max", async () => {
+    const errors = await validateItinerary({
+      intent,
+      candidates: [],
+      itinerary: { options: [] },
+    });
+    for (const error of errors) {
+      assert.ok(error.message.length <= 300);
+      validationErrorSchema.parse(error);
+    }
+  });
+
+  it("runs every emitted error through validationErrorSchema", async () => {
+    const candidates = [
+      candidate("ChIJ1", "Venue One", { businessStatus: "CLOSED_TEMPORARILY" }),
+      candidate("ChIJ3", "Venue Three", { priceLevel: "PRICE_LEVEL_INEXPENSIVE" }),
+      candidate("ChIJ4", "Venue Four"),
     ];
-
-    const input: ValidatorInput = {
-      intent: baseIntent,
-      candidates,
-      itinerary: baseItinerary,
-    };
-
-    const errors = await validateItinerary(input, mockTravelCalculator);
-    assert.equal(errors.length, 1, `Expected 1 error, got: ${JSON.stringify(errors, null, 2)}`);
-    assert.equal(errors[0]?.code, "closed");
+    const itinerary = twoOptionPlan({ costs: [200, 200, 200, 200], travelMinutes: 40 });
+    itinerary.options[0]!.stops[0]!.name = "Mismatch";
+    const errors = await validateItinerary(
+      { intent: { ...intent, budgetUsd: 50 }, candidates, itinerary },
+      { travelCapMinutes: 25, travelCalculator: calc(null) }
+    );
+    assert.ok(errors.length >= 4);
+    for (const error of errors) {
+      assert.doesNotThrow(() => validationErrorSchema.parse(error));
+    }
   });
 });

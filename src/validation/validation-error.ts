@@ -4,7 +4,10 @@ import { placeIdSchema } from "./common";
 
 /**
  * Failure codes the deterministic checker reports.
- * Format problems are Zod issues, not this object.
+ * Format problems on the itinerary/intent boundary are returned as `not_found`
+ * (Zod parse failure) rather than thrown. `not_found` is also used when a
+ * stop name does not match its candidate. `invented_venue` is the unknown
+ * Place ID. Schema contract is otherwise unchanged.
  */
 export const validationErrorCodeSchema = z.enum([
   "not_found",

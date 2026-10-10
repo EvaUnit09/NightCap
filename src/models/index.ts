@@ -15,6 +15,9 @@ export {
   getRepairMaxRounds,
   getRepairModelId,
   getTravelCapMinutes,
+  getTravelClaimToleranceMinutes,
+  getRoutesApiTimeoutMs,
+  getPriceRanges,
   getTurnstileSecretKey,
   resetConfig,
 } from "./config";

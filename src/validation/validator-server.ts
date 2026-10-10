@@ -1,0 +1,57 @@
+import "server-only";
+
+import {
+  getGooglePlacesApiKey,
+  getPriceRanges,
+  getRoutesApiTimeoutMs,
+  getTravelCapMinutes,
+  getTravelClaimToleranceMinutes,
+} from "../models/config";
+import { RoutesMatrixTravelCalculator } from "./routes-travel";
+import type { TravelCalculator } from "./travel";
+import {
+  validateItinerary,
+  type ValidatorInput,
+  type ValidatorOptions,
+} from "./validator";
+
+/**
+ * Server-only wrapper: fills thresholds from config and wires Routes as the
+ * travel calculator. Missing GOOGLE_PLACES_API_KEY fails closed (null minutes).
+ */
+export async function validateItineraryServer(
+  input: ValidatorInput,
+  optionOverrides: Partial<ValidatorOptions> = {}
+): Promise<ReturnType<typeof validateItinerary>> {
+  const ranges = getPriceRanges();
+  const options: ValidatorOptions = {
+    travelCapMinutes: getTravelCapMinutes(),
+    travelToleranceMinutes: getTravelClaimToleranceMinutes(),
+    travelCalculator: createRoutesTravelCalculator(),
+    priceRanges: {
+      PRICE_LEVEL_FREE: ranges.free,
+      PRICE_LEVEL_INEXPENSIVE: ranges.inexpensive,
+      PRICE_LEVEL_MODERATE: ranges.moderate,
+      PRICE_LEVEL_EXPENSIVE: ranges.expensive,
+      PRICE_LEVEL_VERY_EXPENSIVE: ranges.veryExpensive,
+    },
+    ...optionOverrides,
+  };
+  return validateItinerary(input, options);
+}
+
+export function createRoutesTravelCalculator(
+  fetchImpl?: typeof fetch
+): TravelCalculator {
+  let apiKey: string | undefined;
+  try {
+    apiKey = getGooglePlacesApiKey();
+  } catch {
+    apiKey = undefined;
+  }
+  return new RoutesMatrixTravelCalculator({
+    apiKey,
+    timeoutMs: getRoutesApiTimeoutMs(),
+    fetchImpl,
+  });
+}
