@@ -576,9 +576,47 @@ describe("validateItinerary", () => {
     );
   });
 
+  it("rejects out-of-order stops when the hop uses a contract travel mode", async () => {
+    const itinerary = twoOptionPlan();
+    setHopMode(itinerary, "WALK");
+    itinerary.options[0]!.stops[1]!.start = "2026-10-15T19:30:00-04:00";
+    itinerary.options[0]!.stops[1]!.end = "2026-10-15T20:00:00-04:00";
+    const errors = await validateItinerary(
+      { intent, candidates: fourCandidates(), itinerary },
+      { travelCapMinutes: 25, travelCalculator: calc(10) }
+    );
+    assert.ok(
+      errors.some(
+        (e) =>
+          e.code === "invalid_format" &&
+          e.message.toLowerCase().includes("chronological")
+      ),
+      JSON.stringify(errors)
+    );
+  });
+
   it("rejects a shared venue using the shared itinerary schema", async () => {
     const itinerary = twoOptionPlan();
     itinerary.options[1]!.stops[0]!.placeId = "ChIJ1";
+    const errors = await validateItinerary(
+      { intent, candidates: fourCandidates(), itinerary },
+      { travelCapMinutes: 25, travelCalculator: calc(10) }
+    );
+    assert.ok(
+      errors.some(
+        (e) =>
+          e.code === "invalid_format" &&
+          e.message.toLowerCase().includes("shared")
+      ),
+      JSON.stringify(errors)
+    );
+  });
+
+  it("rejects a shared venue when the hop uses a contract travel mode", async () => {
+    const itinerary = twoOptionPlan();
+    setHopMode(itinerary, "BICYCLE");
+    itinerary.options[1]!.stops[0]!.placeId = "ChIJ1";
+    itinerary.options[1]!.stops[0]!.name = "Venue One";
     const errors = await validateItinerary(
       { intent, candidates: fourCandidates(), itinerary },
       { travelCapMinutes: 25, travelCalculator: calc(10) }

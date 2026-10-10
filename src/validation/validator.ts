@@ -2,7 +2,6 @@ import { z } from "zod";
 
 import type { Candidate } from "./candidate";
 import { candidateSchema } from "./candidate";
-import { isoDateTimeSchema, oneLineSchema, placeIdSchema } from "./common";
 import {
   DEFAULT_PRICE_RANGES,
   DEFAULT_TRAVEL_BUDGET_MS,
@@ -82,45 +81,25 @@ interface PendingTravel {
   departureTime: string;
 }
 
-/**
- * Field extract only. Used when `itinerarySchema` / `itineraryOptionSchemaFor`
- * reject a hop mode that `src/contracts/travel.ts` allows (WALK / TRANSIT /
- * BICYCLE). Chronology, unique venues, and stop-count bounds stay on those
- * shared schemas.
- */
-const itineraryFieldsSchema = z
-  .object({
-    singleStop: z.boolean().optional(),
-    options: z.array(
-      z
-        .object({
-          theme: oneLineSchema(80),
-          stops: z.array(
-            z
-              .object({
-                placeId: placeIdSchema,
-                name: z.string().trim().min(1).max(200),
-                start: isoDateTimeSchema,
-                end: isoDateTimeSchema,
-                estimatedCostUsd: z.int().nonnegative().max(100_000),
-                why: oneLineSchema(200),
-                travelToNext: z
-                  .object({
-                    mode: z.string().trim().min(1).max(40),
-                    minutes: z.int().nonnegative().max(24 * 60),
-                  })
-                  .strict()
-                  .nullable(),
-              })
-              .strict()
-          ),
-        })
-        .strict()
-    ),
-  })
-  .strict();
+interface ValidationItinerary {
+  singleStop?: boolean;
+  options: Array<{
+    theme: string;
+    stops: Array<{
+      placeId: string;
+      name: string;
+      start: string;
+      end: string;
+      estimatedCostUsd: number;
+      why: string;
+      travelToNext: { mode: string; minutes: number } | null;
+    }>;
+  }>;
+}
 
-type ValidationItinerary = z.infer<typeof itineraryFieldsSchema>;
+type SharedItineraryParse =
+  | { success: true; data: ValidationItinerary }
+  | { success: false; error: z.ZodError };
 
 /**
  * Deterministic itinerary validator.
@@ -151,7 +130,7 @@ export async function validateItinerary(
   }
   const intent: Intent = intentParse.data;
 
-  if (!singleStopMatchesIntent(input.itinerary, input.intent)) {
+  if (!singleStopMatchesIntent(input.itinerary, intent.singleStop)) {
     return [
       emitError({
         code: "invalid_format",
@@ -528,38 +507,121 @@ function normalizeName(name: string): string {
 function parseSharedItinerary(
   raw: unknown,
   singleStop: boolean
-): z.ZodSafeParseResult<ValidationItinerary> {
-  const shared = itinerarySchema.safeParse(raw);
-  const structural: z.core.$ZodIssue[] = [];
-
-  if (!shared.success) {
-    structural.push(
-      ...shared.error.issues.filter((issue) => !isTravelModeIssue(issue))
-    );
+): SharedItineraryParse {
+  const direct = parseWithSharedSchemas(raw, singleStop);
+  if (direct.success) {
+    return direct;
   }
 
-  const options = isRecord(raw) && Array.isArray(raw.options) ? raw.options : [];
-  const optionSchema = itineraryOptionSchemaFor(singleStop);
-  for (const option of options) {
-    const parsed = optionSchema.safeParse(option);
-    if (!parsed.success) {
-      structural.push(
-        ...parsed.error.issues.filter((issue) => !isTravelModeIssue(issue))
-      );
-    }
-  }
-
+  const structural = direct.error.issues.filter((issue) => !isTravelModeIssue(issue));
   if (structural.length > 0) {
     return { success: false, error: new z.ZodError(structural) };
   }
-  if (shared.success) {
-    return { success: true, data: shared.data };
+
+  // Itinerary hop modes are still walk|transit|rideshare. Contract names
+  // (WALK / TRANSIT / BICYCLE) fail that enum before shared refinements run,
+  // so retry with a placeholder mode and restore the original for travel rules.
+  const retry = parseWithSharedSchemas(coerceHopModesForSchema(raw), singleStop);
+  if (!retry.success) {
+    return retry;
   }
-  return itineraryFieldsSchema.safeParse(raw);
+  return { success: true, data: restoreHopModes(retry.data, raw) };
+}
+
+function parseWithSharedSchemas(
+  raw: unknown,
+  singleStop: boolean
+): SharedItineraryParse {
+  const shared = itinerarySchema.safeParse(raw);
+  if (!shared.success) {
+    return { success: false, error: shared.error };
+  }
+
+  const optionSchema = itineraryOptionSchemaFor(singleStop);
+  const optionIssues: z.core.$ZodIssue[] = [];
+  for (const option of shared.data.options) {
+    const parsed = optionSchema.safeParse(option);
+    if (!parsed.success) {
+      optionIssues.push(...parsed.error.issues);
+    }
+  }
+  if (optionIssues.length > 0) {
+    return { success: false, error: new z.ZodError(optionIssues) };
+  }
+  return { success: true, data: shared.data };
+}
+
+function coerceHopModesForSchema(raw: unknown): unknown {
+  if (!isRecord(raw) || !Array.isArray(raw.options)) {
+    return raw;
+  }
+  return {
+    ...raw,
+    options: raw.options.map((option) => {
+      if (!isRecord(option) || !Array.isArray(option.stops)) {
+        return option;
+      }
+      return {
+        ...option,
+        stops: option.stops.map((stop) => {
+          if (!isRecord(stop) || !isRecord(stop.travelToNext)) {
+            return stop;
+          }
+          return {
+            ...stop,
+            travelToNext: { ...stop.travelToNext, mode: "walk" },
+          };
+        }),
+      };
+    }),
+  };
+}
+
+function restoreHopModes(
+  parsed: ValidationItinerary,
+  raw: unknown
+): ValidationItinerary {
+  if (!isRecord(raw) || !Array.isArray(raw.options)) {
+    return parsed;
+  }
+  const rawOptions = raw.options;
+  return {
+    ...parsed,
+    options: parsed.options.map((option, optionIndex) => {
+      const rawOption = rawOptions[optionIndex];
+      if (!isRecord(rawOption) || !Array.isArray(rawOption.stops)) {
+        return option;
+      }
+      const rawStops = rawOption.stops;
+      return {
+        ...option,
+        stops: option.stops.map((stop, stopIndex) => {
+          const rawStop = rawStops[stopIndex];
+          if (
+            !isRecord(rawStop) ||
+            !isRecord(rawStop.travelToNext) ||
+            stop.travelToNext === null
+          ) {
+            return stop;
+          }
+          const mode = rawStop.travelToNext.mode;
+          return {
+            ...stop,
+            travelToNext: {
+              ...stop.travelToNext,
+              mode: typeof mode === "string" ? mode : stop.travelToNext.mode,
+            },
+          };
+        }),
+      };
+    }),
+  };
 }
 
 function isTravelModeIssue(issue: z.core.$ZodIssue): boolean {
-  return issue.path[issue.path.length - 1] === "mode";
+  return (
+    issue.path.includes("travelToNext") && issue.path[issue.path.length - 1] === "mode"
+  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
