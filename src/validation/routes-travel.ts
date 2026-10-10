@@ -76,7 +76,10 @@ export class RoutesMatrixTravelCalculator implements TravelCalculator {
         if (!leg.from || !leg.to || !isSupportedTravelMode(leg.mode)) {
           return;
         }
-        results[index] = await this.matrixForLeg(leg);
+        results[index] = await this.matrixForLeg({
+          ...leg,
+          mode: leg.mode,
+        });
       })
     );
 
