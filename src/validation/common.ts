@@ -35,6 +35,22 @@ export function normalizeModelTravelMode(mode: string): string {
   return mode.trim().toUpperCase();
 }
 
+const FORBIDDEN_OBJECT_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+
+function entriesWithoutForbidden(
+  record: Record<string, unknown>,
+  mapValue: (key: string, child: unknown) => unknown,
+): Array<[string, unknown]> {
+  const entries: Array<[string, unknown]> = [];
+  for (const [key, child] of Object.entries(record)) {
+    if (FORBIDDEN_OBJECT_KEYS.has(key)) {
+      continue;
+    }
+    entries.push([key, mapValue(key, child)]);
+  }
+  return entries;
+}
+
 export function normalizeModelTravelModes(value: unknown): unknown {
   if (Array.isArray(value)) {
     return value.map(normalizeModelTravelModes);
@@ -43,22 +59,14 @@ export function normalizeModelTravelModes(value: unknown): unknown {
     return value;
   }
   const record = value as Record<string, unknown>;
-  const next: Record<string, unknown> = {};
-  for (const [key, child] of Object.entries(record)) {
-    if (key === "travelToNext" && child && typeof child === "object") {
-      const travel = child as { mode?: unknown };
-      next[key] = {
-        ...travel,
-        mode:
-          typeof travel.mode === "string"
-            ? normalizeModelTravelMode(travel.mode)
-            : travel.mode,
-      };
-      continue;
-    }
-    next[key] = normalizeModelTravelModes(child);
-  }
-  return next;
+  return Object.fromEntries(
+    entriesWithoutForbidden(record, (key, child) => {
+      if (key === "mode" && typeof child === "string") {
+        return normalizeModelTravelMode(child);
+      }
+      return normalizeModelTravelModes(child);
+    }),
+  );
 }
 
 /** Places `business_status` values. */

@@ -1,5 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 
 import { WRAP_USER_TEXT_MAX_CHARS, wrapUserText } from "../../src/pipeline";
 
@@ -104,11 +106,30 @@ describe("wrapUserText", () => {
     }
   });
 
+  it("strips bidi controls", () => {
+    const payload = "hello\u202A\u202E\u2066\u2069\u200E\u200Fworld";
+    const inner = innerText(wrapUserText(payload));
+    for (const mark of ["\u202A", "\u202E", "\u2066", "\u2069", "\u200E", "\u200F"]) {
+      assert.equal(inner.includes(mark), false, `expected ${JSON.stringify(mark)} stripped`);
+    }
+    assert.ok(inner.includes("hello"));
+    assert.ok(inner.includes("world"));
+  });
+
   it("keeps U+200D so ZWJ emoji survive", () => {
     const family = "\u{1F468}\u200D\u{1F469}\u200D\u{1F467}";
     const inner = innerText(wrapUserText(family));
     assert.ok(inner.includes("\u200D"));
     assert.ok(inner.includes(family) || inner.includes("\u200D"));
+  });
+
+  it("applies the length cap once, after NFKC", () => {
+    const source = readFileSync(resolve("src/pipeline/wrap-user-text.ts"), "utf8");
+    assert.equal(
+      (source.match(/exceeds the maximum length/g) ?? []).length,
+      1,
+      "dead post-strip length check should be gone",
+    );
   });
 
   it("rejects input over the documented length cap after NFKC and strip", () => {

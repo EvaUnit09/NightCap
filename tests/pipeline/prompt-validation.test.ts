@@ -331,5 +331,8 @@ describe("loadPrompt JSDoc", () => {
     assert.match(source, /@param version/);
     assert.match(source, /test-only/i);
     assert.match(source, /promptsRoot/);
+    assert.match(source, /path traversal/i);
+    assert.match(source, /front matter/i);
+    assert.match(source, /SHA-256|content-based versioning|CRLF/i);
   });
 });

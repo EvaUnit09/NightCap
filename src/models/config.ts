@@ -45,8 +45,10 @@ const configSchema = z.object({
   repairMaxRounds: z.coerce.number().int().positive().default(2),
   maxTravelLegsPerRequest: z.coerce
     .number()
-    .int()
-    .positive()
+    .refine(
+      (value) => Number.isInteger(value) && value >= 2 && value <= 9,
+      { message: "MAX_TRAVEL_LEGS_PER_REQUEST must be an integer from 2 to 9" },
+    )
     .default(MAX_TRAVEL_LEGS_PER_REQUEST_DEFAULT),
 });
 

@@ -279,15 +279,23 @@ describe("Config module", () => {
       });
     });
 
-    it("rejects zero or non-integer MAX_TRAVEL_LEGS_PER_REQUEST", () => {
-      process.env.MAX_TRAVEL_LEGS_PER_REQUEST = "0";
-      assert.throws(() => getConfig(), { name: "ZodError" });
-      resetConfig();
-      process.env.MAX_TRAVEL_LEGS_PER_REQUEST = "-1";
-      assert.throws(() => getConfig(), { name: "ZodError" });
-      resetConfig();
-      process.env.MAX_TRAVEL_LEGS_PER_REQUEST = "4.5";
-      assert.throws(() => getConfig(), { name: "ZodError" });
+    it("rejects MAX_TRAVEL_LEGS_PER_REQUEST outside 2–9 with a readable error", () => {
+      for (const value of ["0", "1", "10", "-1", "4.5"]) {
+        resetConfig();
+        process.env.MAX_TRAVEL_LEGS_PER_REQUEST = value;
+        assert.throws(
+          () => getConfig(),
+          (error: unknown) => {
+            const message = error instanceof Error ? error.message : String(error);
+            assert.match(
+              message,
+              /MAX_TRAVEL_LEGS_PER_REQUEST must be an integer from 2 to 9/,
+            );
+            return true;
+          },
+          `expected ${value} to fail with a readable range message`,
+        );
+      }
     });
 
     it("rejects zero agent max tool calls", () => {

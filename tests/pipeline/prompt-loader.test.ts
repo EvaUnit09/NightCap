@@ -205,22 +205,30 @@ describe("prompt-loader", () => {
       writeFixture(
         "---\nname: parse_intent\nname: parse_intent\nversion: v2\n---\n# Body\n"
       );
-      assert.throws(() => loadFixture(), { message: /Duplicate front-matter key/ });
+      assert.throws(() => loadFixture(), (error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error);
+        assert.match(message, /Duplicate front-matter key/);
+        assert.match(message, /name/);
+        assert.equal(message.includes("parse_intent/v2.md"), false);
+        return true;
+      });
     });
 
-    it("throws on an unknown placeholder without echoing the token", () => {
+    it("throws on an unknown placeholder and names the key", () => {
       writeFixture("---\nname: parse_intent\nversion: v2\n---\nUse {{not_a_real_key}}\n");
       assert.throws(() => loadFixture(), (error: unknown) => {
         const message = error instanceof Error ? error.message : String(error);
-        assert.match(message, /unknown placeholder/);
-        assert.equal(message.includes("not_a_real_key"), false);
+        assert.match(message, /unknown placeholder/i);
+        assert.match(message, /not_a_real_key/);
+        assert.equal(message.includes("parse_intent/v2.md"), false);
+        assert.equal(message.includes(process.cwd()), false);
         return true;
       });
     });
 
     it("throws on {{constructor}} instead of reading Object.prototype", () => {
       writeFixture("---\nname: parse_intent\nversion: v2\n---\nUse {{constructor}}\n");
-      assert.throws(() => loadFixture(), { message: /unknown placeholder/ });
+      assert.throws(() => loadFixture(), { message: /unknown placeholder/i });
     });
   });
 

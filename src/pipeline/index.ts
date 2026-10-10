@@ -11,6 +11,7 @@ export {
   intentSchema,
   itineraryOptionSchema,
   itineraryOptionSchemaFor,
+  allowedShapes,
   itinerarySchema,
   itinerarySchemaFor,
   parseCandidate,

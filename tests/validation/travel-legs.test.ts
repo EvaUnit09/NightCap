@@ -9,9 +9,14 @@ import {
   STOPS_MAX,
   STOPS_MIN,
 } from "../../src/validation/bounds";
+import { getMaxTravelLegsPerRequest, resetConfig } from "../../src/models/config";
+import { clearPromptCache, loadPrompt } from "../../src/pipeline/prompt-loader";
 import {
+  allowedShapes,
   itinerarySchema,
   itinerarySchemaFor,
+  parseItinerary,
+  parseToolInput,
   type Stop,
 } from "../../src/validation";
 
@@ -52,6 +57,10 @@ describe("travel-leg cap", () => {
     assert.doesNotMatch(source, /models\/config|from ["'].*config["']/);
     const itinerary = readFileSync(resolve("src/validation/itinerary.ts"), "utf8");
     assert.doesNotMatch(itinerary, /models\/config|from ["'].*config["']/);
+    const index = readFileSync(resolve("src/validation/index.ts"), "utf8");
+    const toolInput = readFileSync(resolve("src/validation/tool-input.ts"), "utf8");
+    assert.doesNotMatch(index, /models\/config|from ["'].*config["']/);
+    assert.doesNotMatch(toolInput, /models\/config|from ["'].*config["']/);
   });
 
   it("accepts exactly the allowed multi-stop shapes and any single-stop shape", () => {
@@ -97,5 +106,52 @@ describe("travel-leg cap", () => {
 
     const loose = itinerarySchemaFor({ maxLegs: 6 });
     assert.equal(loose.safeParse(itineraryFromCounts([3, 4])).success, true);
+  });
+
+  it("lists default allowed shapes from allowedShapes(4)", () => {
+    assert.deepEqual(allowedShapes(4), ["2+2", "2+3", "2+4", "3+3", "2+2+2", "2+2+3"]);
+  });
+
+  it("rejects maxLegs that are NaN, non-integer, or below 1", () => {
+    for (const maxLegs of [Number.NaN, 1.5, 0, -1]) {
+      assert.throws(
+        () => itinerarySchemaFor({ maxLegs }),
+        /maxLegs|integer|at least 1/i,
+        `expected itinerarySchemaFor({ maxLegs: ${maxLegs} }) to throw`,
+      );
+    }
+  });
+
+  it("threads maxLegs through parseItinerary and parseToolInput, defaulting to 4", () => {
+    const shape34 = itineraryFromCounts([3, 4]);
+    assert.throws(() => parseItinerary(shape34));
+    parseItinerary(shape34, 5);
+    assert.throws(() =>
+      parseToolInput({ tool: "validate_itinerary", itinerary: shape34 }),
+    );
+    parseToolInput({ tool: "validate_itinerary", itinerary: shape34 }, 5);
+  });
+
+  it("matches prompt shapes and parse acceptance when MAX_TRAVEL_LEGS_PER_REQUEST=5", () => {
+    process.env.MAX_TRAVEL_LEGS_PER_REQUEST = "5";
+    resetConfig();
+    clearPromptCache();
+    try {
+      const maxLegs = getMaxTravelLegsPerRequest();
+      assert.equal(maxLegs, 5);
+      const shapes = allowedShapes(maxLegs);
+      assert.ok(shapes.includes("3+4"));
+      const listed = shapes.join(", ");
+      for (const stage of ["plan_itineraries", "repair_itinerary", "refine_agent"] as const) {
+        const body = loadPrompt(stage, "v1").body;
+        assert.ok(body.includes(listed), `${stage} should list ${listed}`);
+        assert.match(body, /3\+4/);
+      }
+      parseItinerary(itineraryFromCounts([3, 4]), maxLegs);
+    } finally {
+      delete process.env.MAX_TRAVEL_LEGS_PER_REQUEST;
+      resetConfig();
+      clearPromptCache();
+    }
   });
 });

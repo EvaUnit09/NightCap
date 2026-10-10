@@ -17,7 +17,6 @@ import {
   STOP_TYPES_MIN,
 } from "../validation/intent";
 import {
-  MAX_TRAVEL_LEGS_PER_REQUEST_DEFAULT,
   STOPS_MAX,
   STOPS_MIN,
   STOPS_MIN_SINGLE,
@@ -25,6 +24,7 @@ import {
 import {
   ITINERARY_OPTIONS_MAX,
   ITINERARY_OPTIONS_MIN,
+  allowedShapes,
 } from "../validation/itinerary";
 
 /**
@@ -54,7 +54,6 @@ export const PROMPT_SCHEMA_BOUNDS = {
   tagMax: INTENT_TAG_MAX,
   stopTypes: stopTypeSchema.options as readonly string[],
   travelModes: TRAVEL_MODES,
-  maxTravelLegs: MAX_TRAVEL_LEGS_PER_REQUEST_DEFAULT,
 } as const;
 
 const ALLOWED_FRONT_MATTER_KEYS = new Set(["name", "version"]);
@@ -101,14 +100,19 @@ function templateValues(): Record<string, string> {
     tag_max: String(PROMPT_SCHEMA_BOUNDS.tagMax),
     stop_types: PROMPT_SCHEMA_BOUNDS.stopTypes.join(", "),
     travel_modes: PROMPT_SCHEMA_BOUNDS.travelModes.join(", "),
+    allowed_shapes: allowedShapes(getMaxTravelLegsPerRequest()).join(", "),
   };
 }
 
+/**
+ * Replace `{{placeholder}}` tokens from config and schema bounds.
+ * Unknown or leftover placeholders fail loudly.
+ */
 function applyTemplate(body: string, stage: PipelineStage, version: string): string {
   const values = templateValues();
   const rendered = body.replace(PLACEHOLDER_PATTERN, (_match, key: string) => {
     if (!Object.hasOwn(values, key)) {
-      throw new Error(`Prompt ${stage}/${version}.md: unknown placeholder.`);
+      throw new Error(`Unknown placeholder: ${key}.`);
     }
     return values[key];
   });
@@ -122,6 +126,11 @@ function applyTemplate(body: string, stage: PipelineStage, version: string): str
   return rendered;
 }
 
+/**
+ * Parse YAML-like front matter from a markdown file.
+ * Front matter is delimited by `---` at the start and end.
+ * Only `name` and `version` are allowed; both are required and must match the path.
+ */
 function parseFrontMatter(
   text: string,
   stage: PipelineStage,
@@ -164,7 +173,7 @@ function parseFrontMatter(
       throw new Error(`Prompt ${stage}/${version}.md: Empty front-matter key at line ${i + 1}.`);
     }
     if (Object.hasOwn(frontMatter, key)) {
-      throw new Error(`Prompt ${stage}/${version}.md: Duplicate front-matter key.`);
+      throw new Error(`Duplicate front-matter key: ${key}.`);
     }
     if (!ALLOWED_FRONT_MATTER_KEYS.has(key)) {
       throw new Error(
@@ -201,23 +210,38 @@ function parseFrontMatter(
   };
 }
 
+/**
+ * Compute SHA-256 hash of text for content-based versioning.
+ * Normalizes CRLF to LF before hashing.
+ */
 function computeHash(text: string): string {
   const normalized = text.replace(/\r\n/g, "\n");
   return createHash("sha256").update(normalized, "utf8").digest("hex").slice(0, 16);
 }
 
+/**
+ * Validate that a stage is in the allowed list.
+ * Runtime check to prevent path traversal via type-cast.
+ */
 function validateStage(stage: string): asserts stage is PipelineStage {
   if (!PIPELINE_STAGES.includes(stage as PipelineStage)) {
-    throw new Error(`Invalid stage.`);
+    throw new Error(`Invalid stage: ${stage}.`);
   }
 }
 
+/**
+ * Validate that a version follows the format /^v[1-9]\d{0,2}$/.
+ * Prevents path traversal attacks.
+ */
 function validateVersion(version: string): void {
   if (!VERSION_PATTERN.test(version)) {
-    throw new Error(`Invalid version format.`);
+    throw new Error(`Invalid version format: ${version}.`);
   }
 }
 
+/**
+ * Reject resolved paths that escape the prompts root.
+ */
 function validatePromptPath(resolvedPath: string, promptsRoot: string): void {
   const normalizedResolved = resolve(resolvedPath);
   const normalizedRoot = resolve(promptsRoot);

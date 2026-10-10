@@ -8,6 +8,8 @@ describe("validation public exports for #7", () => {
     assert.equal(typeof validation.itinerarySchema.parse, "function");
     assert.equal(typeof validation.itineraryOptionSchemaFor, "function");
     assert.equal(typeof validation.itinerarySchemaFor, "function");
+    assert.equal(typeof validation.allowedShapes, "function");
+    assert.equal(typeof validation.toolInputSchemaFor, "function");
     assert.equal(typeof validation.intentSchema.parse, "function");
     assert.equal(validation.STOPS_MIN, 2);
     assert.equal(validation.STOPS_MIN_SINGLE, 1);

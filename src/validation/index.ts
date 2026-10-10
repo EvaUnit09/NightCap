@@ -1,8 +1,9 @@
+import { MAX_TRAVEL_LEGS_PER_REQUEST_DEFAULT } from "./bounds";
 import { candidateSchema, type Candidate } from "./candidate";
 import { normalizeModelTravelModes } from "./common";
 import { intentSchema, type Intent } from "./intent";
-import { itinerarySchema, type Itinerary } from "./itinerary";
-import { toolInputSchema, type ToolInput } from "./tool-input";
+import { itinerarySchemaFor, type Itinerary } from "./itinerary";
+import { toolInputSchemaFor, type ToolInput } from "./tool-input";
 import { validationErrorSchema, type ValidationError } from "./validation-error";
 
 export {
@@ -35,6 +36,7 @@ export {
 export {
   ITINERARY_OPTIONS_MAX,
   ITINERARY_OPTIONS_MIN,
+  allowedShapes,
   itineraryOptionSchema,
   itineraryOptionSchemaFor,
   itinerarySchema,
@@ -53,7 +55,7 @@ export {
   type ValidationError,
   type ValidationErrorCode,
 } from "./validation-error";
-export { toolInputSchema, type ToolInput } from "./tool-input";
+export { toolInputSchema, toolInputSchemaFor, type ToolInput } from "./tool-input";
 
 /** Parse a `parse_intent` payload. */
 export function parseIntent(input: unknown): Intent {
@@ -66,8 +68,11 @@ export function parseCandidate(input: unknown): Candidate {
 }
 
 /** Parse a plan of 2–3 options. Trim/uppercase travel modes; never map dropped modes. */
-export function parseItinerary(input: unknown): Itinerary {
-  return itinerarySchema.parse(normalizeModelTravelModes(input));
+export function parseItinerary(
+  input: unknown,
+  maxLegs: number = MAX_TRAVEL_LEGS_PER_REQUEST_DEFAULT,
+): Itinerary {
+  return itinerarySchemaFor({ maxLegs }).parse(normalizeModelTravelModes(input));
 }
 
 /** Parse one validator finding. */
@@ -76,6 +81,9 @@ export function parseValidationError(input: unknown): ValidationError {
 }
 
 /** Parse one refinement-tool input. */
-export function parseToolInput(input: unknown): ToolInput {
-  return toolInputSchema.parse(normalizeModelTravelModes(input));
+export function parseToolInput(
+  input: unknown,
+  maxLegs: number = MAX_TRAVEL_LEGS_PER_REQUEST_DEFAULT,
+): ToolInput {
+  return toolInputSchemaFor(maxLegs).parse(normalizeModelTravelModes(input));
 }

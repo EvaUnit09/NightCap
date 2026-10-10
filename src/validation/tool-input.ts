@@ -7,8 +7,8 @@ import {
   priceLevelSchema,
   stopTypeSchema,
 } from "./common";
-import { STOPS_MAX, STOPS_MIN_SINGLE } from "./bounds";
-import { itinerarySchema } from "./itinerary";
+import { MAX_TRAVEL_LEGS_PER_REQUEST_DEFAULT, STOPS_MAX, STOPS_MIN_SINGLE } from "./bounds";
+import { itinerarySchemaFor } from "./itinerary";
 
 const timeSlotSchema = z
   .object({
@@ -65,19 +65,27 @@ const reorderStopsInputSchema = z
     }
   });
 
-const validateItineraryInputSchema = z
-  .object({
-    tool: z.literal("validate_itinerary"),
-    itinerary: itinerarySchema,
-  })
-  .strict();
+function validateItineraryInputSchemaFor(maxLegs: number) {
+  return z
+    .object({
+      tool: z.literal("validate_itinerary"),
+      itinerary: itinerarySchemaFor({ maxLegs }),
+    })
+    .strict();
+}
 
 /** Input to one refinement tool. Each tool name is its own object shape. */
-export const toolInputSchema = z.discriminatedUnion("tool", [
-  searchVenuesInputSchema,
-  replaceStopInputSchema,
-  reorderStopsInputSchema,
-  validateItineraryInputSchema,
-]);
+export function toolInputSchemaFor(
+  maxLegs: number = MAX_TRAVEL_LEGS_PER_REQUEST_DEFAULT,
+) {
+  return z.discriminatedUnion("tool", [
+    searchVenuesInputSchema,
+    replaceStopInputSchema,
+    reorderStopsInputSchema,
+    validateItineraryInputSchemaFor(maxLegs),
+  ]);
+}
+
+export const toolInputSchema = toolInputSchemaFor();
 
 export type ToolInput = z.infer<typeof toolInputSchema>;
