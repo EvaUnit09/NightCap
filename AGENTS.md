@@ -19,3 +19,16 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 - maintain-verification-skill
 - typescript-best-practices
 - verify-nightcap (project-specific control skill)
+
+## Vendored cursor-team-kit skills
+- deslop
+- verify-this
+- check-compiler-errors
+- fix-ci
+- loop-on-ci
+- fix-merge-conflicts
+- get-pr-comments
+- review-and-ship
+- make-pr-easy-to-review
+- run-smoke-tests
+- control-ui
