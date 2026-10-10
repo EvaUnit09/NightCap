@@ -4,5 +4,5 @@
  * Provides PII redaction and observability utilities.
  */
 
-export { redact, redactForStorage, redactForTrace } from "./redact";
+export { redact, redactValue, redactForStorage, redactForTrace } from "./redact";
 export type { RedactionCounts, RedactionResult } from "./redact";
