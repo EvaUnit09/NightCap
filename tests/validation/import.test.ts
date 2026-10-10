@@ -53,7 +53,7 @@ describe("validator importability", () => {
     assert.match(result.stdout, /ok/);
   });
 
-  it("exposes stop-count constants until #8 exports them from contracts", () => {
+  it("exposes #8 stop-count constants from src/validation/bounds", () => {
     assert.equal(STOPS_MIN, 2);
     assert.equal(STOPS_MIN_SINGLE, 1);
     assert.equal(STOPS_MAX, 4);

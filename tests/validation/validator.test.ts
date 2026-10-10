@@ -25,6 +25,12 @@ const intent: z.input<typeof intentSchema> = {
   stopTypes: ["drinks", "dinner"],
 };
 
+const singleStopIntent: z.input<typeof intentSchema> = {
+  ...intent,
+  stopTypes: ["drinks"],
+  singleStop: true,
+};
+
 function candidate(
   placeId: string,
   name: string,
@@ -623,7 +629,39 @@ describe("validateItinerary", () => {
     assert.ok(errors.some((e) => e.code === "travel_unverified"));
   });
 
-  it("flags intent.singleStop false vs itinerary.singleStop true with 1 stop", async () => {
+  it("passes a valid single-stop itinerary when both flags are true", async () => {
+    const errors = await validateItinerary(
+      {
+        intent: singleStopIntent,
+        candidates: fourCandidates(),
+        itinerary: oneStopPlan(true),
+      },
+      { travelCapMinutes: 25, travelCalculator: calc(10) }
+    );
+    assert.deepEqual(errors, [], JSON.stringify(errors));
+  });
+
+  it("fails when intent.singleStop is true and the itinerary flag is false", async () => {
+    const errors = await validateItinerary(
+      {
+        intent: singleStopIntent,
+        candidates: fourCandidates(),
+        itinerary: oneStopPlan(false),
+      },
+      { travelCapMinutes: 25, travelCalculator: calc(10) }
+    );
+    assert.ok(
+      errors.some(
+        (e) =>
+          e.code === "invalid_format" &&
+          e.message.includes("itinerary.singleStop") &&
+          e.message.includes("intent.singleStop")
+      ),
+      JSON.stringify(errors)
+    );
+  });
+
+  it("fails when intent.singleStop is false and the itinerary flag is true", async () => {
     const errors = await validateItinerary(
       {
         intent: { ...intent, singleStop: false },
@@ -643,30 +681,10 @@ describe("validateItinerary", () => {
     );
   });
 
-  it("flags intent.singleStop true vs itinerary.singleStop false with 1 stop", async () => {
+  it("fails a 2-stop itinerary when singleStop is true on both sides", async () => {
     const errors = await validateItinerary(
       {
-        intent: { ...intent, singleStop: true },
-        candidates: fourCandidates(),
-        itinerary: oneStopPlan(false),
-      },
-      { travelCapMinutes: 25, travelCalculator: calc(10) }
-    );
-    assert.ok(
-      errors.some(
-        (e) =>
-          e.code === "invalid_format" &&
-          e.message.includes("itinerary.singleStop") &&
-          e.message.includes("intent.singleStop")
-      ),
-      JSON.stringify(errors)
-    );
-  });
-
-  it("flags intent.singleStop false vs itinerary.singleStop true with 2 stops", async () => {
-    const errors = await validateItinerary(
-      {
-        intent: { ...intent, singleStop: false },
+        intent: singleStopIntent,
         candidates: fourCandidates(),
         itinerary: { ...twoOptionPlan(), singleStop: true },
       },
@@ -676,28 +694,7 @@ describe("validateItinerary", () => {
       errors.some(
         (e) =>
           e.code === "invalid_format" &&
-          e.message.includes("itinerary.singleStop") &&
-          e.message.includes("intent.singleStop")
-      ),
-      JSON.stringify(errors)
-    );
-  });
-
-  it("flags intent.singleStop true vs itinerary.singleStop false with 2 stops", async () => {
-    const errors = await validateItinerary(
-      {
-        intent: { ...intent, singleStop: true },
-        candidates: fourCandidates(),
-        itinerary: { ...twoOptionPlan(), singleStop: false },
-      },
-      { travelCapMinutes: 25, travelCalculator: calc(10) }
-    );
-    assert.ok(
-      errors.some(
-        (e) =>
-          e.code === "invalid_format" &&
-          e.message.includes("itinerary.singleStop") &&
-          e.message.includes("intent.singleStop")
+          /exactly 1 stop|singleStop/i.test(e.message)
       ),
       JSON.stringify(errors)
     );

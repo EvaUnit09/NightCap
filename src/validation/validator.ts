@@ -1,9 +1,8 @@
 import { z } from "zod";
 
-import { STOPS_MAX, STOPS_MIN, STOPS_MIN_SINGLE } from "./bounds";
 import type { Candidate } from "./candidate";
 import { candidateSchema } from "./candidate";
-import { isBefore, isoDateTimeSchema, oneLineSchema, placeIdSchema } from "./common";
+import { isoDateTimeSchema, oneLineSchema, placeIdSchema } from "./common";
 import {
   DEFAULT_PRICE_RANGES,
   DEFAULT_TRAVEL_BUDGET_MS,
@@ -14,7 +13,11 @@ import {
 } from "./defaults";
 import type { Intent } from "./intent";
 import { intentSchema } from "./intent";
-import { itinerarySchema } from "./itinerary";
+import { itineraryOptionSchemaFor, itinerarySchema } from "./itinerary";
+import {
+  singleStopMatchesIntent,
+  stampSingleStopFromIntent,
+} from "./single-stop";
 import {
   isSupportedTravelMode,
   normalizeTravelMode,
@@ -65,8 +68,6 @@ export interface ValidatorOptions {
 
 const MESSAGE_MAX = 300;
 const NYC_TIME_ZONE = "America/New_York";
-const OPTIONS_MIN = 2;
-const OPTIONS_MAX = 3;
 
 interface PendingTravel {
   optionIndex: number;
@@ -81,47 +82,45 @@ interface PendingTravel {
   departureTime: string;
 }
 
-/** Local parse: accept any mode string so bicycle works before #8 updates the enum. */
-const validationTravelToNextSchema = z
-  .object({
-    mode: z.string().trim().min(1).max(40),
-    minutes: z.int().nonnegative().max(24 * 60),
-  })
-  .strict();
-
-const validationStopSchema = z
-  .object({
-    placeId: placeIdSchema,
-    name: z.string().trim().min(1).max(200),
-    start: isoDateTimeSchema,
-    end: isoDateTimeSchema,
-    estimatedCostUsd: z.int().nonnegative().max(100_000),
-    why: oneLineSchema(200),
-    travelToNext: validationTravelToNextSchema.nullable(),
-  })
-  .strict()
-  .refine((stop) => isBefore(stop.start, stop.end), {
-    message: "Stop start must be before stop end",
-    path: ["end"],
-  });
-
 /**
- * Field shape only. Travel rules, chronological order, unique venues, and
- * #8's exact-1 singleStop bound come from `itinerarySchema` so those
- * refinements are not duplicated here.
+ * Field extract only. Used when `itinerarySchema` / `itineraryOptionSchemaFor`
+ * reject a hop mode that `src/contracts/travel.ts` allows (WALK / TRANSIT /
+ * BICYCLE). Chronology, unique venues, and stop-count bounds stay on those
+ * shared schemas.
  */
-const validationOptionSchema = z
+const itineraryFieldsSchema = z
   .object({
-    theme: oneLineSchema(80),
-    stops: z.array(validationStopSchema).min(STOPS_MIN_SINGLE).max(STOPS_MAX),
+    singleStop: z.boolean().optional(),
+    options: z.array(
+      z
+        .object({
+          theme: oneLineSchema(80),
+          stops: z.array(
+            z
+              .object({
+                placeId: placeIdSchema,
+                name: z.string().trim().min(1).max(200),
+                start: isoDateTimeSchema,
+                end: isoDateTimeSchema,
+                estimatedCostUsd: z.int().nonnegative().max(100_000),
+                why: oneLineSchema(200),
+                travelToNext: z
+                  .object({
+                    mode: z.string().trim().min(1).max(40),
+                    minutes: z.int().nonnegative().max(24 * 60),
+                  })
+                  .strict()
+                  .nullable(),
+              })
+              .strict()
+          ),
+        })
+        .strict()
+    ),
   })
   .strict();
 
-const validationItinerarySchema = z
-  .object({
-    options: z.array(validationOptionSchema).min(OPTIONS_MIN).max(OPTIONS_MAX),
-  })
-  .strict();
+type ValidationItinerary = z.infer<typeof itineraryFieldsSchema>;
 
 /**
  * Deterministic itinerary validator.
@@ -132,7 +131,7 @@ const validationItinerarySchema = z
  * Checks: invented venue, operational, open in America/New_York, name match,
  * budget (every stop's cost), price-level plausibility, travel
  * max(claimed, computed) ≤ cap, claimed-vs-computed tolerance,
- * intent/itinerary singleStop agreement.
+ * intent/itinerary singleStop agreement via `singleStopMatchesIntent`.
  *
  * Callable from the pipeline, repair loop, agent `validate_itinerary` tool,
  * and the eval runner via `src/validation/validator`.
@@ -141,18 +140,7 @@ export async function validateItinerary(
   input: ValidatorInput,
   options: ValidatorOptions = {}
 ): Promise<ValidationError[]> {
-  const intentFlag = readBooleanField(input.intent, "singleStop");
-  const itineraryFlag = readBooleanField(input.itinerary, "singleStop");
-  if (!intentFlag.ok || !itineraryFlag.ok) {
-    return [
-      emitError({
-        code: "invalid_format",
-        message: "singleStop must be a boolean",
-      }),
-    ];
-  }
-
-  const intentParse = parseKnownSchema(intentSchema, input.intent, ["singleStop"]);
+  const intentParse = intentSchema.safeParse(input.intent);
   if (!intentParse.success) {
     return [
       emitError({
@@ -161,48 +149,23 @@ export async function validateItinerary(
       }),
     ];
   }
+  const intent: Intent = intentParse.data;
 
-  const errors: ValidationError[] = [];
-  // Prefer the raw boolean. #8 defaults omitted `singleStop` to false, so a
-  // stripped parse must not hide an explicit true on the input.
-  const intentSingleStop =
-    intentFlag.value ?? readParsedBoolean(intentParse.data, "singleStop") ?? false;
-  const itinerarySingleStop = itineraryFlag.value ?? false;
-
-  if (intentSingleStop !== itinerarySingleStop) {
-    errors.push(
+  if (!singleStopMatchesIntent(input.itinerary, input.intent)) {
+    return [
       emitError({
         code: "invalid_format",
-        message: `itinerary.singleStop (${itinerarySingleStop}) does not match intent.singleStop (${intentSingleStop})`,
-      })
-    );
+        message: `itinerary.singleStop (${displaySingleStop(input.itinerary)}) does not match intent.singleStop (${intent.singleStop})`,
+      }),
+    ];
   }
 
-  const sharedItinerary = parseSharedItinerary(input.itinerary);
-  if (!sharedItinerary.success) {
-    const structural = sharedItinerary.error.issues.filter(
-      (issue) => !isTravelModeIssue(issue)
-    );
-    if (structural.length > 0) {
-      errors.push(
-        emitError({
-          code: "invalid_format",
-          message: `Invalid itinerary: ${formatZodError(
-            new z.ZodError(structural)
-          )}`,
-        })
-      );
-      return errors;
-    }
-  }
+  const stamped = isRecord(input.itinerary)
+    ? stampSingleStopFromIntent(input.itinerary, intent.singleStop)
+    : stampSingleStopFromIntent({}, intent.singleStop);
 
-  const itineraryParse = validationItinerarySchema.safeParse(
-    omitKey(input.itinerary, "singleStop")
-  );
+  const itineraryParse = parseSharedItinerary(stamped, intent.singleStop);
   if (!itineraryParse.success) {
-    if (errors.length > 0) {
-      return errors;
-    }
     return [
       emitError({
         code: "invalid_format",
@@ -211,7 +174,7 @@ export async function validateItinerary(
     ];
   }
 
-  const intent: Intent = intentParse.data;
+  const errors: ValidationError[] = [];
   const itinerary = itineraryParse.data;
   const candidates = parseCandidates(input.candidates);
   const travelCapMinutes = options.travelCapMinutes ?? DEFAULT_TRAVEL_CAP_MINUTES;
@@ -224,19 +187,7 @@ export async function validateItinerary(
   );
   const pendingTravel: PendingTravel[] = [];
 
-  const minStops = intentSingleStop ? STOPS_MIN_SINGLE : STOPS_MIN;
-
   for (const [optionIndex, option] of itinerary.options.entries()) {
-    if (option.stops.length < minStops || option.stops.length > STOPS_MAX) {
-      errors.push(
-        emitError({
-          code: "invalid_format",
-          message: `Option ${optionIndex + 1} must have ${minStops}–${STOPS_MAX} stops`,
-          optionIndex,
-        })
-      );
-    }
-
     let totalCostUsd = 0;
 
     for (const [stopIndex, stop] of option.stops.entries()) {
@@ -298,19 +249,6 @@ export async function validateItinerary(
         if (priceError) {
           errors.push(priceError);
         }
-      }
-
-      const isLast = stopIndex === option.stops.length - 1;
-      if (!isLast && stop.travelToNext === null) {
-        errors.push(
-          emitError({
-            code: "travel_too_long",
-            message: `Stop ${stopIndex} has no travelToNext`,
-            optionIndex,
-            stopIndex,
-            placeId: stop.placeId,
-          })
-        );
       }
 
       if (stop.travelToNext !== null) {
@@ -587,72 +525,52 @@ function normalizeName(name: string): string {
     .toLowerCase();
 }
 
-function readBooleanField(
-  value: unknown,
-  key: string
-): { ok: true; value: boolean | undefined } | { ok: false } {
-  if (value === null || typeof value !== "object" || !(key in value)) {
-    return { ok: true, value: undefined };
-  }
-  const field = (value as Record<string, unknown>)[key];
-  if (typeof field === "boolean") {
-    return { ok: true, value: field };
-  }
-  return { ok: false };
-}
-
-function readParsedBoolean(value: object, key: string): boolean | undefined {
-  if (!(key in value)) {
-    return undefined;
-  }
-  const field = (value as Record<string, unknown>)[key];
-  return typeof field === "boolean" ? field : undefined;
-}
-
-function parseKnownSchema<T>(
-  schema: z.ZodType<T>,
+function parseSharedItinerary(
   raw: unknown,
-  optionalKeys: string[]
-): z.ZodSafeParseResult<T> {
-  const direct = schema.safeParse(raw);
-  if (direct.success) {
-    return direct;
-  }
-  // This branch's schemas are `.strict()` and do not yet know `singleStop`.
-  // #8 adds the field; the first parse then succeeds and those keys stay.
-  let current = raw;
-  for (const key of optionalKeys) {
-    const stripped = omitKey(current, key);
-    if (stripped === current) {
-      continue;
-    }
-    const retry = schema.safeParse(stripped);
-    if (retry.success) {
-      return retry;
-    }
-    current = stripped;
-  }
-  return direct;
-}
+  singleStop: boolean
+): z.ZodSafeParseResult<ValidationItinerary> {
+  const shared = itinerarySchema.safeParse(raw);
+  const structural: z.core.$ZodIssue[] = [];
 
-function parseSharedItinerary(raw: unknown): z.ZodSafeParseResult<z.infer<typeof itinerarySchema>> {
-  return parseKnownSchema(itinerarySchema, raw, ["singleStop"]);
+  if (!shared.success) {
+    structural.push(
+      ...shared.error.issues.filter((issue) => !isTravelModeIssue(issue))
+    );
+  }
+
+  const options = isRecord(raw) && Array.isArray(raw.options) ? raw.options : [];
+  const optionSchema = itineraryOptionSchemaFor(singleStop);
+  for (const option of options) {
+    const parsed = optionSchema.safeParse(option);
+    if (!parsed.success) {
+      structural.push(
+        ...parsed.error.issues.filter((issue) => !isTravelModeIssue(issue))
+      );
+    }
+  }
+
+  if (structural.length > 0) {
+    return { success: false, error: new z.ZodError(structural) };
+  }
+  if (shared.success) {
+    return { success: true, data: shared.data };
+  }
+  return itineraryFieldsSchema.safeParse(raw);
 }
 
 function isTravelModeIssue(issue: z.core.$ZodIssue): boolean {
   return issue.path[issue.path.length - 1] === "mode";
 }
 
-function omitKey(value: unknown, key: string): unknown {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    return value;
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function displaySingleStop(value: unknown): string {
+  if (!isRecord(value) || !("singleStop" in value)) {
+    return "false";
   }
-  if (!(key in value)) {
-    return value;
-  }
-  const copy = { ...(value as Record<string, unknown>) };
-  delete copy[key];
-  return copy;
+  return String(value.singleStop);
 }
 
 /**
