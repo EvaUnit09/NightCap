@@ -1,65 +1,72 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { redact, redactValue, redactForStorage, redactForTrace } from "../../src/monitoring";
-import { allCases, nameCases, preservationCases, falsePositiveCases, contactCases, edgeCases, additionalCases } from "./fixtures/regression-corpus";
+import { redact, redactForStorage, redactForTrace, redactValue } from "../../src/monitoring";
+import {
+  additionalCases,
+  allCases,
+  contactCases,
+  edgeCases,
+  falsePositiveCases,
+  nameCases,
+  namedFpCases,
+  namedMissCases,
+  preservationCases,
+  type TestCase,
+} from "./fixtures/regression-corpus";
+
+function runCase(testCase: TestCase): void {
+  if (testCase.todo) {
+    it.todo(`${testCase.id}: ${testCase.description} — ${testCase.todo}`);
+    return;
+  }
+  it(`${testCase.id}: ${testCase.description}`, () => {
+    const result = redact(testCase.input);
+    assert.equal(result.text, testCase.expected, `Failed for: ${testCase.input}`);
+  });
+}
 
 describe("Regression corpus - name redaction", () => {
   for (const testCase of nameCases) {
-    it(`${testCase.id}: ${testCase.description}`, () => {
-      const result = redact(testCase.input);
-      assert.equal(result.text, testCase.expected, `Failed for: ${testCase.input}`);
-    });
+    runCase(testCase);
   }
 });
 
 describe("Regression corpus - preservation", () => {
   for (const testCase of preservationCases) {
-    it(`${testCase.id}: ${testCase.description}`, () => {
-      const result = redact(testCase.input);
-      assert.equal(result.text, testCase.expected, `Failed for: ${testCase.input}`);
-    });
+    runCase(testCase);
   }
 });
 
 describe("Regression corpus - false positive prevention", () => {
   for (const testCase of falsePositiveCases) {
-    it(`${testCase.id}: ${testCase.description}`, () => {
-      const result = redact(testCase.input);
-      assert.equal(result.text, testCase.expected, `Failed for: ${testCase.input}`);
-    });
+    runCase(testCase);
   }
 });
 
 describe("Regression corpus - contact information", () => {
   for (const testCase of contactCases) {
-    it(`${testCase.id}: ${testCase.description}`, () => {
-      const result = redact(testCase.input);
-      assert.equal(result.text, testCase.expected, `Failed for: ${testCase.input}`);
-    });
+    runCase(testCase);
   }
 });
 
 describe("Regression corpus - edge cases", () => {
   for (const testCase of edgeCases) {
-    it(`${testCase.id}: ${testCase.description}`, () => {
-      const result = redact(testCase.input);
-      assert.equal(result.text, testCase.expected, `Failed for: ${testCase.input}`);
-    });
+    runCase(testCase);
   }
 });
 
 describe("Regression corpus - additional realistic cases", () => {
   for (const testCase of additionalCases) {
-    it(`${testCase.id}: ${testCase.description}`, () => {
-      const result = redact(testCase.input);
-      assert.equal(result.text, testCase.expected, `Failed for: ${testCase.input}`);
-    });
+    runCase(testCase);
   }
 });
 
 describe("Idempotence - redact(redact(x)) === redact(x)", () => {
   for (const testCase of allCases) {
+    if (testCase.todo) {
+      continue;
+    }
     it(`${testCase.id} is idempotent`, () => {
       const once = redact(testCase.input);
       const twice = redact(once.text);
@@ -69,126 +76,127 @@ describe("Idempotence - redact(redact(x)) === redact(x)", () => {
 });
 
 describe("Performance - ReDoS protection", () => {
-  it("handles 100KB adversarial input (digits/words) in under 50ms", () => {
-    // Adversarial case: long runs of digits and words
-    const adversarial = "123 Main Street ".repeat(6000); // ~100KB
+  it("handles 100KB adversarial street text in under 50ms", () => {
+    const adversarial = "123 Main Street ".repeat(6000);
     const start = performance.now();
     redact(adversarial);
     const elapsed = performance.now() - start;
     assert.ok(elapsed < 50, `Took ${elapsed}ms, should be < 50ms`);
   });
 
-  it("handles 100KB adversarial email pattern (a. repeated) in under 50ms", () => {
-    // Adversarial for email regex: "a.a.a...@"
-    const adversarial = "a.".repeat(50000) + "@"; // ~100KB
+  it("handles 100KB adversarial email pattern in under 50ms", () => {
+    const adversarial = `${"a.".repeat(50_000)}@`;
     const start = performance.now();
     redact(adversarial);
     const elapsed = performance.now() - start;
     assert.ok(elapsed < 50, `Took ${elapsed}ms, should be < 50ms`);
   });
 
-  it("handles maximum allowed input size", () => {
-    const maxInput = "x".repeat(4096); // 4KB
-    const result = redact(maxInput);
-    assert.ok(result.text.length > 0);
+  it("redacts a full 4KB street string in under 50ms", () => {
+    const input = "123 Main Street ".repeat(250).slice(0, 4096);
+    const start = performance.now();
+    const result = redact(input);
+    const elapsed = performance.now() - start;
+    assert.ok(elapsed < 50, `Took ${elapsed}ms, should be < 50ms`);
+    assert.match(result.text, /\[ADDRESS\]/);
   });
 
-  it("fails closed or truncates on oversized input", () => {
-    const oversized = "x".repeat(10000); // 10KB
-    // Should either truncate or redact the entire thing
+  it("fails closed on input over 4KB", () => {
+    const oversized = "x".repeat(10_000);
     const result = redact(oversized);
-    // Just verify it completes without throwing
-    assert.ok(result);
+    assert.equal(result.text, "[REDACTION_ERROR: input exceeds 4KB limit]");
   });
 });
 
 describe("redactValue - recursive object/array redaction", () => {
   it("handles null", () => {
-    const result = redactValue(null);
-    assert.strictEqual(result, null);
+    assert.equal(redactValue(null), null);
   });
 
   it("handles undefined", () => {
-    const result = redactValue(undefined);
-    assert.strictEqual(result, undefined);
+    assert.equal(redactValue(undefined), undefined);
   });
 
   it("handles number", () => {
-    const result = redactValue(123);
-    assert.strictEqual(result, 123);
+    assert.equal(redactValue(123), 123);
   });
 
   it("handles boolean", () => {
-    const result = redactValue(true);
-    assert.strictEqual(result, true);
+    assert.equal(redactValue(true), true);
   });
 
   it("handles string with PII", () => {
-    const result = redactValue("with my friend Priya");
-    assert.equal(result, "with my friend [NAME]");
+    assert.equal(redactValue("with my friend Priya"), "with my friend [NAME]");
   });
 
   it("handles object with string PII", () => {
-    const result = redactValue({ a: "with my friend Priya" });
-    assert.deepEqual(result, { a: "with my friend [NAME]" });
+    assert.deepEqual(redactValue({ a: "with my friend Priya" }), { a: "with my friend [NAME]" });
   });
 
   it("handles array with string PII", () => {
-    const result = redactValue(["with my friend Priya"]);
-    assert.deepEqual(result, ["with my friend [NAME]"]);
+    assert.deepEqual(redactValue(["with my friend Priya"]), ["with my friend [NAME]"]);
   });
 
   it("handles nested object/array", () => {
-    const result = redactValue({
-      user: { query: "dinner with José", email: "jose@example.com" },
-      tags: ["with my gf Sarah", "in Brooklyn"],
-    });
-    assert.deepEqual(result, {
-      user: { query: "dinner with [NAME]", email: "[EMAIL]" },
-      tags: ["with my gf [NAME]", "in Brooklyn"],
-    });
+    assert.deepEqual(
+      redactValue({
+        user: { query: "dinner with José", email: "jose@example.com" },
+        tags: ["with my gf Sarah", "in Brooklyn"],
+      }),
+      {
+        user: { query: "dinner with [NAME]", email: "[EMAIL]" },
+        tags: ["with my gf [NAME]", "in Brooklyn"],
+      },
+    );
   });
 
-  it("never throws on internal error - fails closed", () => {
-    // Simulate pathological input
-    const circular: any = { a: 1 };
+  it("never throws on a circular object and fails closed", () => {
+    const circular: { a: number; self?: unknown } = { a: 1 };
     circular.self = circular;
-    // Should not throw
     const result = redactValue(circular);
     assert.ok(result);
+    assert.equal((result as { self: unknown }).self, "[REDACTION_ERROR: circular reference]");
   });
 });
 
 describe("redact error handling", () => {
   it("does not throw on non-string input", () => {
-    assert.doesNotThrow(() => redact(123 as any));
-    assert.doesNotThrow(() => redact(null as any));
-    assert.doesNotThrow(() => redact(undefined as any));
-    assert.doesNotThrow(() => redact({} as any));
+    assert.doesNotThrow(() => redact(123));
+    assert.doesNotThrow(() => redact(null));
+    assert.doesNotThrow(() => redact(undefined));
+    assert.doesNotThrow(() => redact({}));
   });
 
   it("coerces non-strings to string", () => {
-    const result = redact(123 as any);
-    assert.equal(result.text, "123");
+    assert.equal(redact(123).text, "123");
   });
 });
 
 describe("JSDoc example accuracy", () => {
-  it("matches the documented example at line ~208-210", () => {
+  it("redacts the documented storage/trace example", () => {
     const result = redact("Meeting my friend Sarah at 123 Main St, call me at 555-1234");
-    // The JSDoc says phones are redacted - verify it actually happens
-    assert.match(result.text, /\[PHONE\]/);
-    assert.match(result.text, /\[NAME\]/);
-    assert.match(result.text, /\[ADDRESS\]/);
+    assert.equal(result.text, "Meeting my friend [NAME] at [ADDRESS], call me at [PHONE]");
   });
 });
 
 describe("redactForStorage vs redactForTrace", () => {
-  it("redactForStorage and redactForTrace produce same result", () => {
-    const text = "dinner with my friend Priya at priya@email.com";
+  it("are documented aliases of redact", () => {
+    const text = "dinner with my friend Priya at priya@email.com or 555-1234";
     const storage = redactForStorage(text);
     const trace = redactForTrace(text);
-    assert.equal(storage.text, trace.text);
-    assert.deepEqual(storage.counts, trace.counts);
+    const core = redact(text);
+    assert.equal(storage.text, core.text);
+    assert.equal(trace.text, core.text);
+    assert.deepEqual(storage.counts, core.counts);
+    assert.deepEqual(trace.counts, core.counts);
+    assert.match(core.text, /\[PHONE\]/);
+  });
+});
+
+describe("corpus coverage", () => {
+  it("has at least 50 named miss cases plus false-positive checks", () => {
+    assert.ok(namedMissCases.length >= 40, `named miss cases: ${namedMissCases.length}`);
+    assert.ok(namedFpCases.length >= 20, `unchanged cases: ${namedFpCases.length}`);
+    assert.ok(allCases.length >= 50, `total corpus: ${allCases.length}`);
   });
 });

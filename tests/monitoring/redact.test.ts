@@ -86,13 +86,13 @@ describe("redact - address redaction", () => {
     assert.equal(result.counts.addresses, 1);
   });
 
-  it("redacts zip codes", () => {
+  it("redacts zip codes after a ZIP cue", () => {
     const result = redact("ZIP code is 10001");
     assert.equal(result.text, "ZIP code is [ZIP]");
     assert.equal(result.counts.addresses, 1);
   });
 
-  it("redacts extended zip codes", () => {
+  it("redacts extended zip codes after a zip cue", () => {
     const result = redact("Full zip: 10001-1234");
     assert.equal(result.text, "Full zip: [ZIP]");
     assert.equal(result.counts.addresses, 1);
@@ -144,9 +144,7 @@ describe("redact - name redaction", () => {
 
   it("redacts comma-separated names", () => {
     const result = redact("Meeting with Sarah, John, and Lisa");
-    // Known limitation: complex comma-and-lists may not fully redact
-    // This is acceptable for v1 - the important parts (first names) are redacted
-    assert.match(result.text, /Meeting with \[NAME\]/);
+    assert.equal(result.text, "Meeting with [NAME]");
     assert.equal(result.counts.names, 1);
   });
 });
@@ -174,15 +172,12 @@ describe("redact - preservation of venue/neighborhood terms", () => {
 
   it("does not redact day names", () => {
     const result = redact("Meeting with Friday on Saturday");
-    // Friday in context should be redacted, but Saturday (standalone) should not
-    // This tests the balance between name detection and preservation
-    assert.match(result.text, /Saturday/);
+    assert.equal(result.text, "Meeting with Friday on Saturday");
   });
 
   it("does not redact venue types", () => {
     const result = redact("with Bar and Restaurant owners");
-    // These are venue types, not names
-    assert.match(result.text, /Bar/);
+    assert.equal(result.text, "with Bar and Restaurant owners");
   });
 
   it("preserves neighborhood in 'with' context if it's a preserved term", () => {
@@ -315,11 +310,12 @@ describe("redactForStorage", () => {
 });
 
 describe("redactForTrace", () => {
-  it("is an alias for redact", () => {
+  it("is an alias for redact and redacts 7-digit local phones", () => {
     const text = "Meeting with Sarah at 555-1234";
     const redactResult = redact(text);
     const traceResult = redactForTrace(text);
 
+    assert.equal(redactResult.text, "Meeting with [NAME] at [PHONE]");
     assert.equal(redactResult.text, traceResult.text);
     assert.deepEqual(redactResult.counts, traceResult.counts);
   });
@@ -327,12 +323,8 @@ describe("redactForTrace", () => {
 
 describe("redact - false positive prevention", () => {
   it("does not over-redact common venue names", () => {
-    // "The Smith" is a real restaurant name
     const result = redact("Looking for places like The Smith");
-    // This is a known limitation - "Smith" may be redacted in some contexts
-    // but "The Smith" as a venue should ideally be preserved
-    // For now, we document this as a limitation
-    assert.ok(result.text);
+    assert.equal(result.text, "Looking for places like The Smith");
   });
 
   it("preserves 'Village' in various contexts", () => {
