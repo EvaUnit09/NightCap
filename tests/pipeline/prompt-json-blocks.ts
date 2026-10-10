@@ -2,7 +2,11 @@ import type { ZodType } from "zod";
 
 import { candidateSchema } from "../../src/validation/candidate";
 import { intentSchema } from "../../src/validation/intent";
-import { itineraryOptionSchema, itinerarySchema } from "../../src/validation/itinerary";
+import {
+  itineraryOptionSchema,
+  itineraryOptionSchemaFor,
+  itinerarySchema,
+} from "../../src/validation/itinerary";
 import { toolInputSchema } from "../../src/validation/tool-input";
 import { validationErrorSchema } from "../../src/validation/validation-error";
 
@@ -16,9 +20,11 @@ import { validationErrorSchema } from "../../src/validation/validation-error";
  *   ```json schema=validationError
  *   ```json schema=toolInput
  *
- * Any line starting with 3+ backticks opens or closes a fence.
+ * Any line starting with 3+ backticks or tildes opens or closes a fence.
+ * A space before the info string is allowed. Unclosed fences fail.
+ * Any block that parses as JSON is treated as JSON, whatever its language tag.
  * json / JSON / jsonc / json* fences without a known schema annotation fail.
- * `schema=none` is banned.
+ * `schema=none` is banned. `schema=itineraryOption singleStop` uses the 1-stop option schema.
  */
 export const SCHEMA_BY_NAME = {
   intent: intentSchema,
@@ -36,11 +42,42 @@ export interface JsonFenceBlock {
   lineNumber: number;
   language: string;
   schemaName: string | null;
+  singleStop: boolean;
 }
 
-const FENCE_OPEN = /^(`{3,})([^\s`]*)?(.*)$/;
+const FENCE_LINE = /^([`~]{3,})(.*)$/;
 
-export function extractFencedBlocks(markdown: string): JsonFenceBlock[] {
+function parseFenceInfo(info: string): {
+  language: string;
+  schemaName: string | null;
+  singleStop: boolean;
+} {
+  const trimmed = info.trimStart();
+  const firstToken = trimmed.split(/\s+/, 1)[0] ?? "";
+  const language = firstToken === "" || firstToken.startsWith("schema=") ? "" : firstToken;
+  const schemaMatch = trimmed.match(/\bschema=([A-Za-z0-9_-]+)/);
+  return {
+    language,
+    schemaName: schemaMatch?.[1] ?? null,
+    singleStop: /\bsingleStop\b/.test(trimmed),
+  };
+}
+
+function tryParseJson(text: string): { ok: true; value: unknown } | { ok: false; error: string } {
+  try {
+    return { ok: true, value: JSON.parse(text) };
+  } catch (parseError) {
+    return {
+      ok: false,
+      error: parseError instanceof Error ? parseError.message : String(parseError),
+    };
+  }
+}
+
+export function extractFences(markdown: string): {
+  blocks: JsonFenceBlock[];
+  unclosedLine: number | null;
+} {
   const blocks: JsonFenceBlock[] = [];
   const lines = markdown.split(/\r?\n/);
   let inBlock = false;
@@ -49,52 +86,75 @@ export function extractFencedBlocks(markdown: string): JsonFenceBlock[] {
   let blockStart = 0;
   let language = "";
   let schemaName: string | null = null;
+  let singleStop = false;
 
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const trimmed = line.trim();
-    const open = trimmed.match(FENCE_OPEN);
+    const trimmed = lines[i].trim();
+    const fence = trimmed.match(FENCE_LINE);
 
-    if (!inBlock && open && (open[1]?.length ?? 0) >= 3) {
+    if (!inBlock && fence) {
       inBlock = true;
-      closer = open[1] ?? "```";
-      language = open[2] ?? "";
+      closer = fence[1] ?? "```";
+      const info = parseFenceInfo(fence[2] ?? "");
+      language = info.language;
+      schemaName = info.schemaName;
+      singleStop = info.singleStop;
       blockStart = i + 1;
       blockLines = [];
-      const schemaMatch = (open[3] ?? "").match(/\bschema=([A-Za-z0-9_-]+)/);
-      schemaName = schemaMatch?.[1] ?? null;
       continue;
     }
 
-    if (inBlock && trimmed === closer) {
+    if (inBlock && fence && fence[1] === closer && (fence[2] ?? "").trim() === "") {
       inBlock = false;
       blocks.push({
         blockText: blockLines.join("\n"),
         lineNumber: blockStart,
         language,
         schemaName,
+        singleStop,
       });
       continue;
     }
 
     if (inBlock) {
-      blockLines.push(line);
+      blockLines.push(lines[i]);
     }
   }
 
-  return blocks;
+  return { blocks, unclosedLine: inBlock ? blockStart : null };
+}
+
+export function extractFencedBlocks(markdown: string): JsonFenceBlock[] {
+  return extractFences(markdown).blocks;
 }
 
 function isJsonLikeLanguage(language: string): boolean {
   return /^(json|jsonc|json[a-z0-9]*)$/i.test(language);
 }
 
+function schemaForBlock(block: JsonFenceBlock): ZodType | null {
+  if (block.schemaName === "itineraryOption") {
+    return itineraryOptionSchemaFor(block.singleStop);
+  }
+  if (block.schemaName && block.schemaName in SCHEMA_BY_NAME) {
+    return SCHEMA_BY_NAME[block.schemaName as SchemaName] as ZodType;
+  }
+  return null;
+}
+
 export function collectJsonFenceFailures(markdown: string): string[] {
   const failures: string[] = [];
   let validated = 0;
+  const { blocks, unclosedLine } = extractFences(markdown);
 
-  for (const block of extractFencedBlocks(markdown)) {
-    if (!isJsonLikeLanguage(block.language)) {
+  if (unclosedLine !== null) {
+    failures.push(`Line ${unclosedLine}: unclosed fence.`);
+  }
+
+  for (const block of blocks) {
+    const parsed = tryParseJson(block.blockText);
+    const treatAsJson = parsed.ok || isJsonLikeLanguage(block.language);
+    if (!treatAsJson) {
       continue;
     }
 
@@ -108,26 +168,23 @@ export function collectJsonFenceFailures(markdown: string): string[] {
       failures.push(`Line ${block.lineNumber}: schema=none is banned.`);
       continue;
     }
-    if (!(block.schemaName in SCHEMA_BY_NAME)) {
+
+    const schema = schemaForBlock(block);
+    if (schema === null) {
       failures.push(`Line ${block.lineNumber}: unknown schema annotation.`);
       continue;
     }
 
-    const schema = SCHEMA_BY_NAME[block.schemaName as SchemaName] as ZodType;
-    try {
-      const parsed: unknown = JSON.parse(block.blockText);
-      const result = schema.safeParse(parsed);
-      if (!result.success) {
-        failures.push(`Line ${block.lineNumber} schema=${block.schemaName}: ${result.error.message}`);
-      } else {
-        validated += 1;
-      }
-    } catch (parseError) {
-      failures.push(
-        `Line ${block.lineNumber}: JSON parse error: ${
-          parseError instanceof Error ? parseError.message : String(parseError)
-        }`
-      );
+    if (!parsed.ok) {
+      failures.push(`Line ${block.lineNumber}: JSON parse error: ${parsed.error}`);
+      continue;
+    }
+
+    const result = schema.safeParse(parsed.value);
+    if (!result.success) {
+      failures.push(`Line ${block.lineNumber} schema=${block.schemaName}: ${result.error.message}`);
+    } else {
+      validated += 1;
     }
   }
 
@@ -138,7 +195,7 @@ export function collectJsonFenceFailures(markdown: string): string[] {
   return failures;
 }
 
-const TAXI_ITINERARY = `{
+export const TAXI_ITINERARY = `{
   "options": [
     {
       "theme": "Bypass attempt",

@@ -43,8 +43,8 @@ const reorderStopsInputSchema = z
   .object({
     tool: z.literal("reorder_stops"),
     optionIndex: z.int().min(0).max(2),
-    order: z.array(z.int().min(0).max(3)).min(2).max(4),
-    times: z.array(timeSlotSchema).min(2).max(4),
+    order: z.array(z.int().min(0).max(3)).min(1).max(4),
+    times: z.array(timeSlotSchema).min(1).max(4),
   })
   .strict()
   .superRefine((input, ctx) => {

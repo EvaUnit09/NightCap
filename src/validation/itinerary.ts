@@ -40,21 +40,32 @@ function optionTimingRefine(
   });
 }
 
-function itineraryOptionSchemaWithMinStops(minStops: number) {
+function itineraryOptionSchemaWithBounds(minStops: number, maxStops: number) {
   return z
     .object({
       theme: oneLineSchema(80),
-      stops: z.array(stopSchema).min(minStops).max(STOPS_MAX),
+      stops: z.array(stopSchema).min(minStops).max(maxStops),
     })
     .strict()
     .superRefine(optionTimingRefine);
 }
 
 /**
+ * One themed option. Default (`false`): 2–4 timed stops.
+ * When `singleStop` is true: exactly 1 stop.
+ * Only the last stop may omit travel to a next stop.
+ */
+export function itineraryOptionSchemaFor(singleStop: boolean) {
+  return singleStop
+    ? itineraryOptionSchemaWithBounds(STOPS_MIN_SINGLE, STOPS_MIN_SINGLE)
+    : itineraryOptionSchemaWithBounds(STOPS_MIN, STOPS_MAX);
+}
+
+/**
  * One themed option: 2–4 timed stops in chronological order.
  * Only the last stop may omit travel to a next stop.
  */
-export const itineraryOptionSchema = itineraryOptionSchemaWithMinStops(STOPS_MIN);
+export const itineraryOptionSchema = itineraryOptionSchemaFor(false);
 
 /**
  * A planned night: 2–3 themed options.
@@ -65,23 +76,26 @@ export const itinerarySchema = z
   .object({
     singleStop: z.boolean().default(false),
     options: z
-      .array(itineraryOptionSchemaWithMinStops(STOPS_MIN_SINGLE))
+      .array(itineraryOptionSchemaWithBounds(STOPS_MIN_SINGLE, STOPS_MAX))
       .min(ITINERARY_OPTIONS_MIN)
       .max(ITINERARY_OPTIONS_MAX),
   })
   .strict()
   .superRefine((itinerary, ctx) => {
-    if (!itinerary.singleStop) {
-      itinerary.options.forEach((option, optionIndex) => {
-        if (option.stops.length < STOPS_MIN) {
-          ctx.addIssue({
-            code: "custom",
-            message: "Each option needs 2–4 stops unless singleStop is true",
-            path: ["options", optionIndex, "stops"],
-          });
-        }
-      });
-    }
+    itinerary.options.forEach((option, optionIndex) => {
+      const allowed = itinerary.singleStop
+        ? option.stops.length === STOPS_MIN_SINGLE
+        : option.stops.length >= STOPS_MIN && option.stops.length <= STOPS_MAX;
+      if (!allowed) {
+        ctx.addIssue({
+          code: "custom",
+          message: itinerary.singleStop
+            ? "Each option needs exactly 1 stop when singleStop is true"
+            : "Each option needs 2–4 stops unless singleStop is true",
+          path: ["options", optionIndex, "stops"],
+        });
+      }
+    });
 
     const seen = new Set<string>();
     itinerary.options.forEach((option, optionIndex) => {

@@ -32,7 +32,15 @@ export const intentSchema = z
   })
   .strict()
   .superRefine((intent, ctx) => {
-    if (!intent.singleStop && intent.stopTypes.length < STOP_TYPES_MIN) {
+    if (intent.singleStop) {
+      if (intent.stopTypes.length !== STOP_TYPES_MIN_SINGLE) {
+        ctx.addIssue({
+          code: "custom",
+          message: "stopTypes needs exactly 1 value when singleStop is true",
+          path: ["stopTypes"],
+        });
+      }
+    } else if (intent.stopTypes.length < STOP_TYPES_MIN) {
       ctx.addIssue({
         code: "custom",
         message: "stopTypes needs at least 2 values unless singleStop is true",

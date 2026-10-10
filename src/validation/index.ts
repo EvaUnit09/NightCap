@@ -28,6 +28,7 @@ export {
   STOPS_MIN,
   STOPS_MIN_SINGLE,
   itineraryOptionSchema,
+  itineraryOptionSchemaFor,
   itinerarySchema,
   type Itinerary,
   type ItineraryOption,

@@ -56,7 +56,7 @@ const VERSION_PATTERN = /^v[1-9]\d{0,2}$/;
 const PLACEHOLDER_PATTERN = /\{\{([a-z_]+)\}\}/g;
 
 export interface LoadPromptOptions {
-  /** Override the prompts/ root. Tests write fixtures under a tmp dir. */
+  /** Test-only. Override the prompts/ root; tests write fixtures under a tmp dir. */
   promptsRoot?: string;
 }
 
@@ -225,6 +225,15 @@ function cacheKey(stage: PipelineStage, version: string, promptsRoot: string): s
 
 /**
  * Load a versioned prompt from the filesystem.
+ *
+ * Security: validates stage, version format, and prevents path traversal.
+ * Caching: memoizes loaded prompts for the current template values.
+ *
+ * @param stage - Pipeline stage name (parse_intent, plan_itineraries, etc.)
+ * @param version - Version identifier (e.g., "v1")
+ * @param options - Optional loader overrides. `promptsRoot` is test-only.
+ * @returns Prompt metadata including text, body, version, and content hash
+ * @throws Error if the prompt file is not found, malformed, or path is unsafe
  */
 export function loadPrompt(
   stage: PipelineStage,

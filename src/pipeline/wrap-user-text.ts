@@ -1,16 +1,40 @@
 import "server-only";
 
-const USER_TEXT_TAG = /<\s*\/?\s*user_text\s*>/gi;
+/** Test-visible cap. 300KB timing coverage sits well under this. */
+export const WRAP_USER_TEXT_MAX_CHARS = 1_048_576;
+
+const WRAPPER_OPEN = "<user_text>\n";
+const WRAPPER_CLOSE = "\n</user_text>";
+
+/** C0/C1 controls (except tab/LF/CR), soft hyphen, zero-width, and BOM. */
+const STRIP_CHARS =
+  // eslint-disable-next-line no-control-regex -- intentional control-character strip
+  /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F\u00AD\u180E\u200B-\u200D\u2060\uFEFF]/g;
+
+function unwrapIfWrapped(text: string): string {
+  if (text.startsWith(WRAPPER_OPEN) && text.endsWith(WRAPPER_CLOSE)) {
+    return text.slice(WRAPPER_OPEN.length, text.length - WRAPPER_CLOSE.length);
+  }
+  return text;
+}
 
 /**
  * Wrap untrusted user text for prompt interpolation.
- * Neutralizes any opening or closing `user_text` tags inside the payload
- * (case-insensitive, whitespace variants) so they cannot break out.
+ * NFKC-normalizes, strips format/control characters, then escapes every
+ * `<` and `>` so the wrapper pair is the only tag. Idempotent.
  * Not wired into the pipeline yet (architecture action #15).
  */
 export function wrapUserText(text: string): string {
-  const neutralized = text.replace(USER_TEXT_TAG, (tag) =>
-    tag.replaceAll("<", "‹").replaceAll(">", "›")
-  );
-  return `<user_text>\n${neutralized}\n</user_text>`;
+  const unwrapped = unwrapIfWrapped(text);
+  if (unwrapped.length > WRAP_USER_TEXT_MAX_CHARS) {
+    throw new Error("User text exceeds the maximum length.");
+  }
+
+  const sanitized = unwrapped
+    .normalize("NFKC")
+    .replace(STRIP_CHARS, "")
+    .replaceAll("<", "‹")
+    .replaceAll(">", "›");
+
+  return `${WRAPPER_OPEN}${sanitized}${WRAPPER_CLOSE}`;
 }

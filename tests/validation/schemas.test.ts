@@ -6,6 +6,8 @@ import { itinerarySchema as evalItinerarySchema } from "../../evaluation";
 import { intentSchema, itinerarySchema as pipelineItinerarySchema } from "../../src/pipeline";
 import {
   candidateSchema,
+  itineraryOptionSchema,
+  itineraryOptionSchemaFor,
   itinerarySchema,
   parseItinerary,
   validationErrorSchema,
@@ -101,6 +103,34 @@ describe("itinerary schema", () => {
     assert.equal(parsed.options[0].stops.length, 1);
   });
 
+  it("itineraryOptionSchemaFor(true) accepts a 1-stop option; the default schema still rejects it", () => {
+    const one = option("Just dinner", [stop("place-solo", START, END, null)]);
+    assert.equal(itineraryOptionSchema.safeParse(one).success, false);
+    assert.equal(itineraryOptionSchemaFor(false).safeParse(one).success, false);
+    assert.equal(itineraryOptionSchemaFor(true).safeParse(one).success, true);
+  });
+
+  it("requires exactly one stop per option when singleStop is true", () => {
+    const oneStop = option("Just dinner", [stop("place-solo", START, END, null)]);
+    const alsoOne = option("Also dinner", [stop("place-solo-2", START, END, null)]);
+    const twoStop = option("Two stops", [
+      stop("place-a", START, MID, { mode: "walk", minutes: 12 }),
+      stop("place-b", LATER, END, null),
+    ]);
+    assert.equal(
+      itinerarySchema.safeParse({ singleStop: true, options: [oneStop, twoStop] }).success,
+      false,
+    );
+    assert.equal(
+      itineraryOptionSchemaFor(true).safeParse(twoStop).success,
+      false,
+    );
+    assert.equal(
+      itinerarySchema.safeParse({ singleStop: true, options: [oneStop, alsoOne] }).success,
+      true,
+    );
+  });
+
   it("rejects an option with more than 4 stops", () => {
     const itinerary = validItinerary();
     itinerary.options[0] = option("Too many", [
@@ -187,6 +217,14 @@ describe("boundary schemas", () => {
     });
     assert.equal(explicit.singleStop, true);
     assert.deepEqual(explicit.stopTypes, ["dinner"]);
+    assert.equal(
+      intentSchema.safeParse({
+        ...base,
+        stopTypes: ["dinner", "drinks"],
+        singleStop: true,
+      }).success,
+      false,
+    );
   });
 
   it("parses a Places candidate", () => {
@@ -278,12 +316,22 @@ describe("boundary schemas", () => {
     }
   });
 
-  it("rejects reorder_stops with too few stops", () => {
+  it("accepts reorder_stops with a single stop so a 1-stop option can be retimed", () => {
     const parsed = toolInputSchema.safeParse({
       tool: "reorder_stops",
       optionIndex: 0,
       order: [0],
       times: [{ start: START, end: MID }],
+    });
+    assert.equal(parsed.success, true);
+  });
+
+  it("rejects reorder_stops with an empty order", () => {
+    const parsed = toolInputSchema.safeParse({
+      tool: "reorder_stops",
+      optionIndex: 0,
+      order: [],
+      times: [],
     });
     assert.equal(parsed.success, false);
   });

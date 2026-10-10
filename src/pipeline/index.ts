@@ -5,6 +5,8 @@
 export {
   candidateSchema,
   intentSchema,
+  itineraryOptionSchema,
+  itineraryOptionSchemaFor,
   itinerarySchema,
   parseCandidate,
   parseIntent,
@@ -24,4 +26,9 @@ export {
   type PromptMetadata,
 } from "./prompt-loader";
 
-export { wrapUserText } from "./wrap-user-text";
+export {
+  stampSingleStopFromIntent,
+  singleStopMatchesIntent,
+} from "./single-stop";
+
+export { WRAP_USER_TEXT_MAX_CHARS, wrapUserText } from "./wrap-user-text";

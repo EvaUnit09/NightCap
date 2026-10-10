@@ -66,7 +66,7 @@ By **2026-10-25** (4 weeks), ship a deployed v1 that:
 
 **Input:** free-text request, plus optional structured fields (date/time, budget, neighborhood).
 
-**Output:** 2–3 themed itineraries with no venue shared between options. Each has 2–4 timed stops, and each stop has: Google Place ID, name, start/end time, estimated cost, travel mode and minutes to the next stop, and a one-line "why".
+**Output:** 2–3 themed itineraries with no venue shared between options. Each has 2–4 timed stops, or exactly 1 when the user explicitly asked for a single place, and each stop has: Google Place ID, name, start/end time, estimated cost, travel mode and minutes to the next stop, and a one-line "why".
 
 **Storage (Supabase Postgres):**
 
