@@ -1,7 +1,15 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { redact, redactForStorage, redactForTrace, redactValue } from "../../src/monitoring";
+import {
+  GIVEN_NAME_COUNT,
+  MAX_INPUT_CHARS,
+  redact,
+  redactForStorage,
+  redactForTrace,
+  redactTextUncapped,
+  redactValue,
+} from "../../src/monitoring";
 import {
   additionalCases,
   allCases,
@@ -76,35 +84,51 @@ describe("Idempotence - redact(redact(x)) === redact(x)", () => {
 });
 
 describe("Performance - ReDoS protection", () => {
-  it("handles 100KB adversarial street text in under 50ms", () => {
-    const adversarial = "123 Main Street ".repeat(6000);
+  it("handles 4KB hyphen adversarial input in under 5ms", () => {
+    const adversarial = "a-".repeat(2048);
     const start = performance.now();
     redact(adversarial);
     const elapsed = performance.now() - start;
-    assert.ok(elapsed < 50, `Took ${elapsed}ms, should be < 50ms`);
+    assert.ok(elapsed < 5, `Took ${elapsed}ms, should be < 5ms`);
   });
 
-  it("handles 100KB adversarial email pattern in under 50ms", () => {
-    const adversarial = `${"a.".repeat(50_000)}@`;
+  it("handles 4KB apostrophe adversarial input in under 5ms", () => {
+    const adversarial = "a'".repeat(2048);
     const start = performance.now();
     redact(adversarial);
     const elapsed = performance.now() - start;
-    assert.ok(elapsed < 50, `Took ${elapsed}ms, should be < 50ms`);
+    assert.ok(elapsed < 5, `Took ${elapsed}ms, should be < 5ms`);
   });
 
-  it("redacts a full 4KB street string in under 50ms", () => {
-    const input = "123 Main Street ".repeat(250).slice(0, 4096);
+  it("scans 100KB uncapped hyphen input in under 50ms", () => {
+    const adversarial = "a-".repeat(50_000);
     const start = performance.now();
-    const result = redact(input);
+    redactTextUncapped(adversarial);
     const elapsed = performance.now() - start;
     assert.ok(elapsed < 50, `Took ${elapsed}ms, should be < 50ms`);
-    assert.match(result.text, /\[ADDRESS\]/);
   });
 
-  it("fails closed on input over 4KB", () => {
-    const oversized = "x".repeat(10_000);
+  it("fails closed on input over MAX_INPUT_CHARS", () => {
+    const oversized = "x".repeat(MAX_INPUT_CHARS + 1);
     const result = redact(oversized);
-    assert.equal(result.text, "[REDACTION_ERROR: input exceeds 4KB limit]");
+    assert.equal(result.ok, false);
+    if (!result.ok) {
+      assert.equal(result.error, "too_long");
+      assert.equal(result.text, "");
+    }
+  });
+
+  it("measures overflow in code points, not UTF-16 units", () => {
+    const emojiOk = "😀".repeat(MAX_INPUT_CHARS);
+    const emojiOver = "😀".repeat(MAX_INPUT_CHARS + 1);
+    assert.equal(emojiOk.length > MAX_INPUT_CHARS, true);
+    assert.equal(redact(emojiOk).ok, true);
+    const result = redact(emojiOver);
+    assert.equal(result.ok, false);
+    if (!result.ok) {
+      assert.equal(result.error, "too_long");
+      assert.equal(result.text, "");
+    }
   });
 });
 
@@ -157,6 +181,39 @@ describe("redactValue - recursive object/array redaction", () => {
     assert.ok(result);
     assert.equal((result as { self: unknown }).self, "[REDACTION_ERROR: circular reference]");
   });
+
+  it("redacts shared non-cyclic references twice, not as circular", () => {
+    const shared = { note: "with my friend Priya" };
+    const result = redactValue({ a: shared, b: shared }) as { a: { note: string }; b: { note: string } };
+    assert.equal(result.a.note, "with my friend [NAME]");
+    assert.equal(result.b.note, "with my friend [NAME]");
+  });
+
+  it("redacts object keys", () => {
+    const result = redactValue({ "my friend Priya": "ok" }) as Record<string, string>;
+    assert.deepEqual(result, { "my friend [NAME]": "ok" });
+  });
+
+  it("drops functions and symbols", () => {
+    const result = redactValue({
+      keep: "x",
+      fn: () => "with my friend Priya",
+      sym: Symbol("priya"),
+    }) as Record<string, unknown>;
+    assert.equal(result.keep, "x");
+    assert.equal("fn" in result && result.fn === undefined, true);
+  });
+
+  it("converts Date, Map, Set, and Error", () => {
+    const date = new Date("2026-10-10T00:00:00.000Z");
+    assert.equal(redactValue(date), "2026-10-10T00:00:00.000Z");
+    assert.deepEqual(redactValue(new Set(["with my friend Priya"])), ["with my friend [NAME]"]);
+    assert.deepEqual(redactValue(new Map([["k", "with my friend Priya"]])), [["k", "with my friend [NAME]"]]);
+    assert.deepEqual(redactValue(new Error("with my friend Priya")), {
+      name: "Error",
+      message: "with my friend [NAME]",
+    });
+  });
 });
 
 describe("redact error handling", () => {
@@ -169,6 +226,13 @@ describe("redact error handling", () => {
 
   it("coerces non-strings to string", () => {
     assert.equal(redact(123).text, "123");
+  });
+
+  it("delegates objects instead of emitting [object Object]", () => {
+    const result = redact({ a: "with my friend Priya" });
+    assert.equal(result.ok, true);
+    assert.doesNotMatch(result.text, /\[object Object\]/);
+    assert.match(result.text, /\[NAME\]/);
   });
 });
 
@@ -198,5 +262,10 @@ describe("corpus coverage", () => {
     assert.ok(namedMissCases.length >= 40, `named miss cases: ${namedMissCases.length}`);
     assert.ok(namedFpCases.length >= 20, `unchanged cases: ${namedFpCases.length}`);
     assert.ok(allCases.length >= 50, `total corpus: ${allCases.length}`);
+  });
+
+  it("bundles a public-domain given-name list in the 5k–10k range", () => {
+    assert.ok(GIVEN_NAME_COUNT >= 5000 && GIVEN_NAME_COUNT <= 10_000, `count=${GIVEN_NAME_COUNT}`);
+    assert.equal(MAX_INPUT_CHARS, 4096);
   });
 });

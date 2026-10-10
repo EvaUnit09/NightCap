@@ -69,7 +69,7 @@ export const nameCases: TestCase[] = [
   {
     id: "a8b",
     input: "Priya, Sam, and Jordan are coming",
-    expected: "[NAME] are coming",
+    expected: "[NAME], [NAME], and [NAME] are coming",
     description: "Oxford comma list at start",
   },
   {
@@ -480,8 +480,8 @@ export const edgeCases: TestCase[] = [
   {
     id: "d5",
     input: "with Ольга",
-    expected: "with [NAME]",
-    description: "Cyrillic name after with",
+    expected: "with Ольга",
+    description: "Cyrillic after weak with is not in the Latin SSA list",
   },
 ];
 

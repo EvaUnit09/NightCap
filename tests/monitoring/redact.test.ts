@@ -321,6 +321,14 @@ describe("redactForTrace", () => {
   });
 });
 
+describe("redact - lowercase after a relation is not a name", () => {
+  it("leaves verbs after relations unchanged", () => {
+    assert.equal(redact("my partner prefers quiet bars").text, "my partner prefers quiet bars");
+    assert.equal(redact("my friend recommended this").text, "my friend recommended this");
+    assert.equal(redact("my boyfriend hates loud places").text, "my boyfriend hates loud places");
+  });
+});
+
 describe("redact - false positive prevention", () => {
   it("does not over-redact common venue names", () => {
     const result = redact("Looking for places like The Smith");
