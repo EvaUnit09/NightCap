@@ -428,8 +428,12 @@ describe("Config module", () => {
   });
 
   describe("production live-Routes startup", () => {
+    function setNodeEnv(value: string) {
+      Object.assign(process.env, { NODE_ENV: value });
+    }
+
     it("throws in production without the Routes key", () => {
-      process.env.NODE_ENV = "production";
+      setNodeEnv("production");
       delete process.env.NEXT_PHASE;
       delete process.env.GOOGLE_PLACES_API_KEY;
       process.env.ENABLE_LIVE_ROUTES = "true";
@@ -440,7 +444,7 @@ describe("Config module", () => {
     });
 
     it("is ok in production with ENABLE_LIVE_ROUTES and the Routes key", () => {
-      process.env.NODE_ENV = "production";
+      setNodeEnv("production");
       delete process.env.NEXT_PHASE;
       process.env.ENABLE_LIVE_ROUTES = "true";
       process.env.GOOGLE_PLACES_API_KEY = "test-routes-key";
@@ -448,7 +452,7 @@ describe("Config module", () => {
     });
 
     it("is ok in development without the key", () => {
-      process.env.NODE_ENV = "development";
+      setNodeEnv("development");
       delete process.env.NEXT_PHASE;
       delete process.env.GOOGLE_PLACES_API_KEY;
       delete process.env.ENABLE_LIVE_ROUTES;
@@ -457,14 +461,14 @@ describe("Config module", () => {
     });
 
     it("does not throw from getConfig in production without a key", () => {
-      process.env.NODE_ENV = "production";
+      setNodeEnv("production");
       delete process.env.GOOGLE_PLACES_API_KEY;
       delete process.env.ENABLE_LIVE_ROUTES;
       assert.doesNotThrow(() => getConfig());
     });
 
     it("skips the check during next build", () => {
-      process.env.NODE_ENV = "production";
+      setNodeEnv("production");
       process.env.NEXT_PHASE = "phase-production-build";
       delete process.env.GOOGLE_PLACES_API_KEY;
       delete process.env.ENABLE_LIVE_ROUTES;
