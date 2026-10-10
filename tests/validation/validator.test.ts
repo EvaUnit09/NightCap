@@ -540,6 +540,77 @@ describe("validateItinerary", () => {
     }
   });
 
+  it("rejects out-of-order stops using the shared itinerary schema", async () => {
+    const itinerary = twoOptionPlan();
+    itinerary.options[0]!.stops[1]!.start = "2026-10-15T19:30:00-04:00";
+    itinerary.options[0]!.stops[1]!.end = "2026-10-15T20:00:00-04:00";
+    const errors = await validateItinerary(
+      { intent, candidates: fourCandidates(), itinerary },
+      { travelCapMinutes: 25, travelCalculator: calc(10) }
+    );
+    assert.ok(
+      errors.some(
+        (e) =>
+          e.code === "invalid_format" &&
+          e.message.toLowerCase().includes("chronological")
+      ),
+      JSON.stringify(errors)
+    );
+  });
+
+  it("rejects a shared venue using the shared itinerary schema", async () => {
+    const itinerary = twoOptionPlan();
+    itinerary.options[1]!.stops[0]!.placeId = "ChIJ1";
+    const errors = await validateItinerary(
+      { intent, candidates: fourCandidates(), itinerary },
+      { travelCapMinutes: 25, travelCalculator: calc(10) }
+    );
+    assert.ok(
+      errors.some(
+        (e) =>
+          e.code === "invalid_format" &&
+          e.message.toLowerCase().includes("shared")
+      ),
+      JSON.stringify(errors)
+    );
+  });
+
+  it("returns invalid_format when singleStop is not a boolean", async () => {
+    const errors = await validateItinerary(
+      {
+        intent: { ...intent, singleStop: "yes" },
+        candidates: fourCandidates(),
+        itinerary: twoOptionPlan(),
+      },
+      { travelCapMinutes: 25, travelCalculator: calc(10) }
+    );
+    assert.ok(
+      errors.some(
+        (e) =>
+          e.code === "invalid_format" && e.message.toLowerCase().includes("singlestop")
+      ),
+      JSON.stringify(errors)
+    );
+  });
+
+  it("fails closed as travel_unverified when the travel budget is exhausted", async () => {
+    const errors = await validateItinerary(
+      { intent, candidates: fourCandidates(), itinerary: twoOptionPlan() },
+      {
+        travelCapMinutes: 25,
+        travelBudgetMs: 15,
+        travelCalculator: {
+          calculateMinutes() {
+            return new Promise(() => {
+              /* hang past the budget */
+            });
+          },
+        },
+      }
+    );
+    assert.ok(errors.some((e) => e.code === "travel_unverified"));
+  });
+
   it("flags intent.singleStop false vs itinerary.singleStop true with 1 stop", async () => {
     const errors = await validateItinerary(
       {

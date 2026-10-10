@@ -4,6 +4,7 @@ import { z } from "zod";
 import { MAX_TRAVEL_LEGS_PER_REQUEST_DEFAULT } from "../validation/bounds";
 import {
   DEFAULT_PRICE_RANGES,
+  DEFAULT_TRAVEL_BUDGET_MS,
   DEFAULT_TRAVEL_CAP_MINUTES,
   DEFAULT_TRAVEL_TOLERANCE_MINUTES,
 } from "../validation/defaults";
@@ -29,11 +30,14 @@ const priceRangeSchema = z
 function parseRange(value: string | undefined): [number, number] | undefined {
   const raw = preprocessEnvVar(value);
   if (!raw) return undefined;
-  const parts = raw.split(",").map((part) => Number(part.trim()));
-  if (parts.length !== 2 || parts.some((n) => !Number.isFinite(n))) {
-    throw new Error(`Invalid price range "${raw}". Expected "min,max".`);
-  }
-  return priceRangeSchema.parse([parts[0]!, parts[1]!]);
+  const parts = raw.split(",").map((part) => part.trim());
+  const numbers = z.tuple([z.coerce.number(), z.coerce.number()]).parse(parts);
+  return priceRangeSchema.parse(numbers);
+}
+
+function parseBooleanFlag(value: string | undefined): boolean {
+  const raw = preprocessEnvVar(value)?.toLowerCase();
+  return raw === "1" || raw === "true" || raw === "yes";
 }
 
 /**
@@ -85,6 +89,12 @@ const configSchema = z.object({
     .int()
     .nonnegative()
     .default(DEFAULT_TRAVEL_TOLERANCE_MINUTES),
+  travelBudgetMs: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(DEFAULT_TRAVEL_BUDGET_MS),
+  enableLiveRoutes: z.boolean().default(false),
 
   // Heuristic per-person USD ranges (not from Google). Format "min,max".
   priceRangeFree: priceRangeSchema.default([
@@ -149,6 +159,8 @@ function loadConfig(): Config {
     travelClaimToleranceMinutes: preprocessEnvVar(
       process.env.TRAVEL_CLAIM_TOLERANCE_MINUTES
     ),
+    travelBudgetMs: preprocessEnvVar(process.env.TRAVEL_BUDGET_MS),
+    enableLiveRoutes: parseBooleanFlag(process.env.ENABLE_LIVE_ROUTES),
     priceRangeFree: parseRange(process.env.PRICE_RANGE_FREE),
     priceRangeInexpensive: parseRange(process.env.PRICE_RANGE_INEXPENSIVE),
     priceRangeModerate: parseRange(process.env.PRICE_RANGE_MODERATE),
@@ -271,6 +283,19 @@ export function getRoutesApiTimeoutMs(): number {
 /** Get claimed-vs-computed travel tolerance in minutes. */
 export function getTravelClaimToleranceMinutes(): number {
   return getConfig().travelClaimToleranceMinutes;
+}
+
+/** Wall-clock budget for one validation's travel calls (default 6000). */
+export function getTravelBudgetMs(): number {
+  return getConfig().travelBudgetMs;
+}
+
+/**
+ * Live Google Routes is off unless ENABLE_LIVE_ROUTES is 1/true/yes.
+ * Tests and eval use a fake or recorded calculator by default.
+ */
+export function getEnableLiveRoutes(): boolean {
+  return getConfig().enableLiveRoutes;
 }
 
 /**

@@ -39,6 +39,10 @@ function jsonResponse(body: unknown, status = 200): Response {
 }
 
 describe("RoutesMatrixTravelCalculator", () => {
+  it("never calls the live Routes URL from these tests", async () => {
+    assert.equal(process.env.ENABLE_LIVE_ROUTES, undefined);
+  });
+
   it("sends a 1×1 Essentials matrix per leg with no routingPreference", async () => {
     let calls = 0;
     let request: RequestInit | undefined;
@@ -55,7 +59,11 @@ describe("RoutesMatrixTravelCalculator", () => {
       },
     });
 
-    const result = await calculator.calculateMinutes([walkLeg, walkLeg]);
+    const otherWalk: TravelLeg = {
+      ...walkLeg,
+      to: { lat: 40.741, lng: -73.99 },
+    };
+    const result = await calculator.calculateMinutes([walkLeg, otherWalk]);
     assert.equal(calls, 2);
     assert.equal(request?.method, "POST");
     const headers = new Headers(request?.headers);
@@ -193,6 +201,73 @@ describe("RoutesMatrixTravelCalculator", () => {
     assert.equal(result.length, 9);
     assert.ok(result.every((minutes) => minutes === 10));
     assert.deepEqual(new Set(modesSent), new Set(["WALK", "TRANSIT", "BICYCLE"]));
+  });
+
+  it("sends a past departureTime only on TRANSIT and never on BICYCLE or WALK", async () => {
+    const bodies: Array<Record<string, unknown>> = [];
+    const calculator = new RoutesMatrixTravelCalculator({
+      apiKey: "test-key",
+      fetchImpl: async (_url, init) => {
+        bodies.push(JSON.parse(String(init?.body)));
+        return jsonResponse([
+          {
+            originIndex: 0,
+            destinationIndex: 0,
+            status: {},
+            duration: "600s",
+            condition: "ROUTE_EXISTS",
+          },
+        ]);
+      },
+    });
+    const pastDeparture = "2020-03-15T19:30:00-04:00";
+    await calculator.calculateMinutes([
+      { ...walkLeg, mode: "walk", departureTime: pastDeparture },
+      { ...walkLeg, mode: "transit", departureTime: pastDeparture },
+      { ...walkLeg, mode: "bicycle", departureTime: pastDeparture },
+    ]);
+    const byMode = Object.fromEntries(
+      bodies.map((body) => [body.travelMode, body])
+    ) as Record<string, { departureTime?: string }>;
+    assert.equal(byMode.TRANSIT?.departureTime, pastDeparture);
+    assert.equal(byMode.WALK?.departureTime, undefined);
+    assert.equal(byMode.BICYCLE?.departureTime, undefined);
+  });
+
+  it("memos identical legs within one calculateMinutes call", async () => {
+    let calls = 0;
+    const calculator = new RoutesMatrixTravelCalculator({
+      apiKey: "test-key",
+      fetchImpl: async () => {
+        calls += 1;
+        return jsonResponse([
+          {
+            originIndex: 0,
+            destinationIndex: 0,
+            status: {},
+            duration: "600s",
+            condition: "ROUTE_EXISTS",
+          },
+        ]);
+      },
+    });
+    const result = await calculator.calculateMinutes([walkLeg, walkLeg, walkLeg]);
+    assert.equal(calls, 1);
+    assert.deepEqual(result, [10, 10, 10]);
+  });
+
+  it("does not reuse the in-call memo across calculateMinutes calls", async () => {
+    let calls = 0;
+    const calculator = new RoutesMatrixTravelCalculator({
+      apiKey: "test-key",
+      fetchImpl: async () => {
+        calls += 1;
+        return jsonResponse(success);
+      },
+    });
+    await calculator.calculateMinutes([walkLeg]);
+    await calculator.calculateMinutes([walkLeg]);
+    assert.equal(calls, 2);
   });
 
   it("sends departureTime for TRANSIT only and omits it for WALK and BICYCLE", async () => {

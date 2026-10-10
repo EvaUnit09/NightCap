@@ -6,6 +6,7 @@ import { candidateSchema } from "./candidate";
 import { isBefore, isoDateTimeSchema, oneLineSchema, placeIdSchema } from "./common";
 import {
   DEFAULT_PRICE_RANGES,
+  DEFAULT_TRAVEL_BUDGET_MS,
   DEFAULT_TRAVEL_CAP_MINUTES,
   DEFAULT_TRAVEL_TOLERANCE_MINUTES,
   type PriceLevelKey,
@@ -13,6 +14,7 @@ import {
 } from "./defaults";
 import type { Intent } from "./intent";
 import { intentSchema } from "./intent";
+import { itinerarySchema } from "./itinerary";
 import {
   isSupportedTravelMode,
   type TravelCalculator,
@@ -25,6 +27,7 @@ import {
 
 export {
   DEFAULT_PRICE_RANGES,
+  DEFAULT_TRAVEL_BUDGET_MS,
   DEFAULT_TRAVEL_CAP_MINUTES,
   DEFAULT_TRAVEL_TOLERANCE_MINUTES,
   type PriceLevelKey,
@@ -52,6 +55,11 @@ export interface ValidatorOptions {
    * Not from Google. UNSPECIFIED skips the check.
    */
   priceRanges?: PriceRanges;
+  /**
+   * Wall-clock budget for this validation's travel calls.
+   * Default DEFAULT_TRAVEL_BUDGET_MS. Exhausted budget fails closed.
+   */
+  travelBudgetMs?: number;
 }
 
 const MESSAGE_MAX = 300;
@@ -96,61 +104,23 @@ const validationStopSchema = z
     path: ["end"],
   });
 
+/**
+ * Field shape only. Travel rules, chronological order, unique venues, and
+ * #8's exact-1 singleStop bound come from `itinerarySchema` so those
+ * refinements are not duplicated here.
+ */
 const validationOptionSchema = z
   .object({
     theme: oneLineSchema(80),
     stops: z.array(validationStopSchema).min(STOPS_MIN_SINGLE).max(STOPS_MAX),
   })
-  .strict()
-  .superRefine((option, ctx) => {
-    option.stops.forEach((stop, index) => {
-      const isLast = index === option.stops.length - 1;
-      if (isLast && stop.travelToNext !== null) {
-        ctx.addIssue({
-          code: "custom",
-          message: "The last stop has no travel to a next stop",
-          path: ["stops", index, "travelToNext"],
-        });
-      }
-      if (!isLast && stop.travelToNext === null) {
-        ctx.addIssue({
-          code: "custom",
-          message: "Every stop except the last needs travel to the next stop",
-          path: ["stops", index, "travelToNext"],
-        });
-      }
-      const previous = option.stops[index - 1];
-      if (previous && Date.parse(stop.start) < Date.parse(previous.end)) {
-        ctx.addIssue({
-          code: "custom",
-          message: "Stops must be in chronological order",
-          path: ["stops", index, "start"],
-        });
-      }
-    });
-  });
+  .strict();
 
 const validationItinerarySchema = z
   .object({
     options: z.array(validationOptionSchema).min(OPTIONS_MIN).max(OPTIONS_MAX),
   })
-  .strict()
-  .superRefine((itinerary, ctx) => {
-    const seen = new Set<string>();
-    itinerary.options.forEach((option, optionIndex) => {
-      option.stops.forEach((stop, stopIndex) => {
-        if (seen.has(stop.placeId)) {
-          ctx.addIssue({
-            code: "custom",
-            message: "A venue cannot be shared between options",
-            path: ["options", optionIndex, "stops", stopIndex, "placeId"],
-          });
-          return;
-        }
-        seen.add(stop.placeId);
-      });
-    });
-  });
+  .strict();
 
 /**
  * Deterministic itinerary validator.
@@ -170,11 +140,18 @@ export async function validateItinerary(
   input: ValidatorInput,
   options: ValidatorOptions = {}
 ): Promise<ValidationError[]> {
-  const intentSingleStop = readOptionalBoolean(input.intent, "singleStop") ?? false;
-  const itinerarySingleStop =
-    readOptionalBoolean(input.itinerary, "singleStop") ?? false;
+  const intentFlag = readBooleanField(input.intent, "singleStop");
+  const itineraryFlag = readBooleanField(input.itinerary, "singleStop");
+  if (!intentFlag.ok || !itineraryFlag.ok) {
+    return [
+      emitError({
+        code: "invalid_format",
+        message: "singleStop must be a boolean",
+      }),
+    ];
+  }
 
-  const intentParse = intentSchema.safeParse(omitKey(input.intent, "singleStop"));
+  const intentParse = parseKnownSchema(intentSchema, input.intent, ["singleStop"]);
   if (!intentParse.success) {
     return [
       emitError({
@@ -184,10 +161,45 @@ export async function validateItinerary(
     ];
   }
 
+  const errors: ValidationError[] = [];
+  const intentSingleStop =
+    readParsedBoolean(intentParse.data, "singleStop") ?? intentFlag.value ?? false;
+  const itinerarySingleStop = itineraryFlag.value ?? false;
+
+  if (intentSingleStop !== itinerarySingleStop) {
+    errors.push(
+      emitError({
+        code: "invalid_format",
+        message: `itinerary.singleStop (${itinerarySingleStop}) does not match intent.singleStop (${intentSingleStop})`,
+      })
+    );
+  }
+
+  const sharedItinerary = parseSharedItinerary(input.itinerary);
+  if (!sharedItinerary.success) {
+    const structural = sharedItinerary.error.issues.filter(
+      (issue) => !isTravelModeIssue(issue)
+    );
+    if (structural.length > 0) {
+      errors.push(
+        emitError({
+          code: "invalid_format",
+          message: `Invalid itinerary: ${formatZodError(
+            new z.ZodError(structural)
+          )}`,
+        })
+      );
+      return errors;
+    }
+  }
+
   const itineraryParse = validationItinerarySchema.safeParse(
     omitKey(input.itinerary, "singleStop")
   );
   if (!itineraryParse.success) {
+    if (errors.length > 0) {
+      return errors;
+    }
     return [
       emitError({
         code: "invalid_format",
@@ -207,17 +219,7 @@ export async function validateItinerary(
   const candidateMap = new Map(
     candidates.map((candidate) => [candidate.placeId, candidate])
   );
-  const errors: ValidationError[] = [];
   const pendingTravel: PendingTravel[] = [];
-
-  if (intentSingleStop !== itinerarySingleStop) {
-    errors.push(
-      emitError({
-        code: "invalid_format",
-        message: `itinerary.singleStop (${itinerarySingleStop}) does not match intent.singleStop (${intentSingleStop})`,
-      })
-    );
-  }
 
   const minStops = intentSingleStop ? STOPS_MIN_SINGLE : STOPS_MIN;
 
@@ -339,7 +341,11 @@ export async function validateItinerary(
     }
   }
 
-  const computed = await computeTravel(options.travelCalculator, pendingTravel);
+  const computed = await computeTravel(
+    options.travelCalculator,
+    pendingTravel,
+    options.travelBudgetMs ?? DEFAULT_TRAVEL_BUDGET_MS
+  );
   for (const [index, leg] of pendingTravel.entries()) {
     applyTravelRules(
       errors,
@@ -395,7 +401,8 @@ function implausibleCostError(
 
 async function computeTravel(
   calculator: TravelCalculator | undefined,
-  pending: PendingTravel[]
+  pending: PendingTravel[],
+  travelBudgetMs: number
 ): Promise<Array<number | null>> {
   if (pending.length === 0) {
     return [];
@@ -403,21 +410,64 @@ async function computeTravel(
   if (!calculator) {
     return pending.map(() => null);
   }
-  const legs: TravelLeg[] = pending.map((leg) => ({
-    from: leg.from,
-    to: leg.to,
-    mode: leg.mode,
-    departureTime: leg.departureTime,
-  }));
+
+  const unique: TravelLeg[] = [];
+  const uniqueIndexFor = pending.map(() => 0);
+  const seen = new Map<string, number>();
+  for (const [index, leg] of pending.entries()) {
+    const travelLeg: TravelLeg = {
+      from: leg.from,
+      to: leg.to,
+      mode: leg.mode,
+      departureTime: leg.departureTime,
+    };
+    const key = travelLegKey(travelLeg);
+    const existing = seen.get(key);
+    if (existing !== undefined) {
+      uniqueIndexFor[index] = existing;
+      continue;
+    }
+    seen.set(key, unique.length);
+    uniqueIndexFor[index] = unique.length;
+    unique.push(travelLeg);
+  }
+
   try {
-    const result = await calculator.calculateMinutes(legs);
-    if (!Array.isArray(result) || result.length !== pending.length) {
+    const result = await withBudget(
+      Promise.resolve(calculator.calculateMinutes(unique)),
+      travelBudgetMs
+    );
+    if (result === undefined) {
       return pending.map(() => null);
     }
-    return [...result];
+    if (!Array.isArray(result) || result.length !== unique.length) {
+      return pending.map(() => null);
+    }
+    return uniqueIndexFor.map((uniqueIndex) => result[uniqueIndex] ?? null);
   } catch {
     return pending.map(() => null);
   }
+}
+
+function travelLegKey(leg: TravelLeg): string {
+  return JSON.stringify({
+    from: leg.from,
+    to: leg.to,
+    mode: leg.mode,
+    departureTime: leg.mode === "transit" ? (leg.departureTime ?? null) : null,
+  });
+}
+
+function withBudget<T>(promise: Promise<T>, budgetMs: number): Promise<T | undefined> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<undefined>((resolve) => {
+    timer = setTimeout(() => resolve(undefined), budgetMs);
+  });
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timer !== undefined) {
+      clearTimeout(timer);
+    }
+  });
 }
 
 function applyTravelRules(
@@ -529,12 +579,60 @@ function normalizeName(name: string): string {
     .toLowerCase();
 }
 
-function readOptionalBoolean(value: unknown, key: string): boolean | undefined {
+function readBooleanField(
+  value: unknown,
+  key: string
+): { ok: true; value: boolean | undefined } | { ok: false } {
   if (value === null || typeof value !== "object" || !(key in value)) {
+    return { ok: true, value: undefined };
+  }
+  const field = (value as Record<string, unknown>)[key];
+  if (typeof field === "boolean") {
+    return { ok: true, value: field };
+  }
+  return { ok: false };
+}
+
+function readParsedBoolean(value: object, key: string): boolean | undefined {
+  if (!(key in value)) {
     return undefined;
   }
   const field = (value as Record<string, unknown>)[key];
   return typeof field === "boolean" ? field : undefined;
+}
+
+function parseKnownSchema<T>(
+  schema: z.ZodType<T>,
+  raw: unknown,
+  optionalKeys: string[]
+): z.ZodSafeParseResult<T> {
+  const direct = schema.safeParse(raw);
+  if (direct.success) {
+    return direct;
+  }
+  // This branch's schemas are `.strict()` and do not yet know `singleStop`.
+  // #8 adds the field; the first parse then succeeds and those keys stay.
+  let current = raw;
+  for (const key of optionalKeys) {
+    const stripped = omitKey(current, key);
+    if (stripped === current) {
+      continue;
+    }
+    const retry = schema.safeParse(stripped);
+    if (retry.success) {
+      return retry;
+    }
+    current = stripped;
+  }
+  return direct;
+}
+
+function parseSharedItinerary(raw: unknown): z.ZodSafeParseResult<z.infer<typeof itinerarySchema>> {
+  return parseKnownSchema(itinerarySchema, raw, ["singleStop"]);
+}
+
+function isTravelModeIssue(issue: z.core.$ZodIssue): boolean {
+  return issue.path[issue.path.length - 1] === "mode";
 }
 
 function omitKey(value: unknown, key: string): unknown {

@@ -7,6 +7,8 @@
  */
 export const DEFAULT_TRAVEL_CAP_MINUTES = 25;
 export const DEFAULT_TRAVEL_TOLERANCE_MINUTES = 5;
+/** Wall-clock budget for one validation's travel calls. */
+export const DEFAULT_TRAVEL_BUDGET_MS = 6000;
 
 export const DEFAULT_PRICE_RANGES = {
   PRICE_LEVEL_FREE: [0, 0],

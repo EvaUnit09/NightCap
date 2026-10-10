@@ -71,15 +71,25 @@ export class RoutesMatrixTravelCalculator implements TravelCalculator {
       return results;
     }
 
+    // In-call memo only. A new Map per calculateMinutes stays inside
+    // Google's caching terms (no cross-request store).
+    const memo = new Map<string, Promise<number | null>>();
+
     await Promise.all(
       legs.map(async (leg, index) => {
         if (!leg.from || !leg.to || !isSupportedTravelMode(leg.mode)) {
           return;
         }
-        results[index] = await this.matrixForLeg({
-          ...leg,
-          mode: leg.mode,
-        });
+        const key = memoKey({ ...leg, mode: leg.mode });
+        let pending = memo.get(key);
+        if (!pending) {
+          pending = this.matrixForLeg({
+            ...leg,
+            mode: leg.mode,
+          });
+          memo.set(key, pending);
+        }
+        results[index] = await pending;
       })
     );
 
@@ -137,6 +147,15 @@ export class RoutesMatrixTravelCalculator implements TravelCalculator {
       clearTimeout(timer);
     }
   }
+}
+
+function memoKey(leg: TravelLeg & { mode: SupportedTravelMode }): string {
+  return JSON.stringify({
+    from: leg.from,
+    to: leg.to,
+    mode: leg.mode,
+    departureTime: leg.mode === "transit" ? (leg.departureTime ?? null) : null,
+  });
 }
 
 function waypoint(location: { lat: number; lng: number }) {

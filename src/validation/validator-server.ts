@@ -1,9 +1,11 @@
 import "server-only";
 
 import {
+  getEnableLiveRoutes,
   getGooglePlacesApiKey,
   getPriceRanges,
   getRoutesApiTimeoutMs,
+  getTravelBudgetMs,
   getTravelCapMinutes,
   getTravelClaimToleranceMinutes,
 } from "../models/config";
@@ -16,8 +18,10 @@ import {
 } from "./validator";
 
 /**
- * Server-only wrapper: fills thresholds from config and wires Routes as the
- * travel calculator. Missing GOOGLE_PLACES_API_KEY fails closed (null minutes).
+ * Server-only wrapper: fills thresholds from config. Live Routes is attached
+ * only when ENABLE_LIVE_ROUTES is set; otherwise travel fails closed. Tests
+ * and eval pass a fake or recorded calculator. Missing GOOGLE_PLACES_API_KEY
+ * also fails closed (null minutes).
  */
 export async function validateItineraryServer(
   input: ValidatorInput,
@@ -27,7 +31,10 @@ export async function validateItineraryServer(
   const options: ValidatorOptions = {
     travelCapMinutes: getTravelCapMinutes(),
     travelToleranceMinutes: getTravelClaimToleranceMinutes(),
-    travelCalculator: createRoutesTravelCalculator(),
+    travelBudgetMs: getTravelBudgetMs(),
+    travelCalculator: getEnableLiveRoutes()
+      ? createRoutesTravelCalculator()
+      : undefined,
     priceRanges: {
       PRICE_LEVEL_FREE: ranges.free,
       PRICE_LEVEL_INEXPENSIVE: ranges.inexpensive,

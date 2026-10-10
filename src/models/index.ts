@@ -16,6 +16,8 @@ export {
   getRepairModelId,
   getTravelCapMinutes,
   getTravelClaimToleranceMinutes,
+  getTravelBudgetMs,
+  getEnableLiveRoutes,
   getRoutesApiTimeoutMs,
   getPriceRanges,
   getTurnstileSecretKey,

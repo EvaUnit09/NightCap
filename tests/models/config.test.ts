@@ -19,6 +19,8 @@ import {
   getMaxTravelLegsPerRequest,
   getTravelCapMinutes,
   getTravelClaimToleranceMinutes,
+  getTravelBudgetMs,
+  getEnableLiveRoutes,
   getRoutesApiTimeoutMs,
   getPriceRanges,
   getTurnstileSecretKey,
@@ -78,6 +80,10 @@ describe("Config module", () => {
       delete process.env.TRAVEL_CLAIM_TOLERANCE_MINUTES;
       assert.equal(getRoutesApiTimeoutMs(), 5000);
       assert.equal(getTravelClaimToleranceMinutes(), 5);
+      delete process.env.TRAVEL_BUDGET_MS;
+      delete process.env.ENABLE_LIVE_ROUTES;
+      assert.equal(getTravelBudgetMs(), 6000);
+      assert.equal(getEnableLiveRoutes(), false);
       assert.deepEqual(getPriceRanges().moderate, [20, 120]);
     });
   });
@@ -114,12 +120,16 @@ describe("Config module", () => {
       process.env.AGENT_MAX_COST_USD_PER_TURN = "0.05";
       process.env.REPAIR_MAX_ROUNDS = "3";
       process.env.MAX_TRAVEL_LEGS_PER_REQUEST = "6";
+      process.env.TRAVEL_BUDGET_MS = "8000";
+      process.env.ENABLE_LIVE_ROUTES = "true";
 
       assert.equal(getTravelCapMinutes(), 30);
       assert.equal(getAgentMaxToolCalls(), 10);
       assert.equal(getAgentMaxCostUsdPerTurn(), 0.05);
       assert.equal(getRepairMaxRounds(), 3);
       assert.equal(getMaxTravelLegsPerRequest(), 6);
+      assert.equal(getTravelBudgetMs(), 8000);
+      assert.equal(getEnableLiveRoutes(), true);
     });
   });
 
@@ -357,6 +367,20 @@ describe("Config module", () => {
 
     it("rejects a price range whose min is greater than max", () => {
       process.env.PRICE_RANGE_MODERATE = "120,20";
+      assert.throws(() => getConfig(), {
+        name: "ZodError",
+      });
+    });
+
+    it("rejects a non-numeric price range with a ZodError", () => {
+      process.env.PRICE_RANGE_MODERATE = "abc";
+      assert.throws(() => getConfig(), {
+        name: "ZodError",
+      });
+    });
+
+    it("rejects a three-part price range with a ZodError", () => {
+      process.env.PRICE_RANGE_MODERATE = "1,2,3";
       assert.throws(() => getConfig(), {
         name: "ZodError",
       });
