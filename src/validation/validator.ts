@@ -163,8 +163,10 @@ export async function validateItinerary(
   }
 
   const errors: ValidationError[] = [];
+  // Prefer the raw boolean. #8 defaults omitted `singleStop` to false, so a
+  // stripped parse must not hide an explicit true on the input.
   const intentSingleStop =
-    readParsedBoolean(intentParse.data, "singleStop") ?? intentFlag.value ?? false;
+    intentFlag.value ?? readParsedBoolean(intentParse.data, "singleStop") ?? false;
   const itinerarySingleStop = itineraryFlag.value ?? false;
 
   if (intentSingleStop !== itinerarySingleStop) {
