@@ -12,9 +12,17 @@ as a bare `with X`.
    Compiled 1880–2008 via Hadley Wickham’s `data-baby-names`
    (https://github.com/hadley/data-baby-names), which reprints the SSA
    national files. SSA data remains public domain.
-2. **SSA national files 2009–2023** (same public-domain series). Later-year
-   newcomers and spellings that were not in the 1880–2008 extract are in
-   `given-names-extra.ts`.
+2. **21 hand-picked names**, not the whole 2009–2023 SSA years. They
+   come from the U.S. Social Security Administration national annual
+   files for years of birth 2009 through 2023 — specifically
+   `yob2009.txt` through `yob2023.txt` inside `names.zip` from
+   https://www.ssa.gov/oact/babynames/names.zip
+   (described at https://www.ssa.gov/oact/babynames/limits.html as
+   “Beyond the Top 1000 Names”). The 21 keys in
+   `given-names-extra.ts` are: aitana, amiri, aziel, baylor, brynlee,
+   cataleya, ensley, everleigh, halston, kaison, kayson, khaleesi, kylo,
+   maeve, nova, oaklynn, rumi, sutton, ymir, zendaya, ziore. The rest of
+   those yearly files is not bundled.
 3. **International given names** in `given-names-extra.ts` are ordinary
    given names compiled from public government first-name statistics
    (Ireland CSO, and other official first-name publications) and from

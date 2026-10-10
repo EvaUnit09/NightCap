@@ -1,9 +1,10 @@
 /**
  * General place / calendar / cuisine terms that survive a weak "with X" cue.
  *
- * Not a restaurant list and not copied from tests. Neighborhoods are a
- * public geographic gazetteer of New York City. Landmarks are well-known
- * civic sites. Cuisines and holidays are generic English terms.
+ * Not a restaurant list and not copied from tests. Neighborhoods here are
+ * a short hand list; the full 2020 NTA extract lives in
+ * `nyc-neighborhoods.ts`. Landmarks are well-known civic sites. Cuisines,
+ * holidays, and relative-time words are generic English terms.
  */
 
 export const PLACE_TERMS: readonly string[] = [
@@ -49,6 +50,11 @@ export const PLACE_TERMS: readonly string[] = [
   "oct",
   "nov",
   "dec",
+  "tonight",
+  "today",
+  "tomorrow",
+  "yesterday",
+  "weekend",
   // Holidays
   "christmas",
   "halloween",

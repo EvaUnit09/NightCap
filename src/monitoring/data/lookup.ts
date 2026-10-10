@@ -1,5 +1,6 @@
 import { GIVEN_NAME_EXTRA_KEYS } from "./given-names-extra";
 import { GIVEN_NAME_KEYS } from "./given-names";
+import { NYC_NEIGHBORHOOD_TERMS } from "./nyc-neighborhoods";
 import { PLACE_TERMS } from "./place-terms";
 
 function foldKey(value: string): string {
@@ -8,7 +9,9 @@ function foldKey(value: string): string {
 
 export const GIVEN_NAME_SET: ReadonlySet<string> = new Set([...GIVEN_NAME_KEYS, ...GIVEN_NAME_EXTRA_KEYS]);
 
-export const PLACE_TERM_SET: ReadonlySet<string> = new Set(PLACE_TERMS.map(foldKey));
+export const PLACE_TERM_SET: ReadonlySet<string> = new Set(
+  [...PLACE_TERMS, ...NYC_NEIGHBORHOOD_TERMS].map(foldKey),
+);
 
 export function foldedNameKey(token: string): string {
   return foldKey(token);

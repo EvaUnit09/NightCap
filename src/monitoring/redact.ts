@@ -157,7 +157,6 @@ const RELATIONS = new Set([
   "bff",
   "hubby",
   "wifey",
-  "so",
   "bae",
   "grandma",
   "grandpa",
@@ -170,6 +169,10 @@ const RELATIONS = new Set([
   "mentor",
   "teammate",
 ]);
+
+function isRelationToken(token: Tok): boolean {
+  return RELATIONS.has(token.folded) || token.raw === "SO";
+}
 
 const ARTICLES = new Set(["a", "an", "the"]);
 
@@ -585,7 +588,7 @@ function collectNames(text: string): Span[] {
           relationAt = j + 1;
           break;
         }
-        if (RELATIONS.has(tokens[j].folded)) {
+        if (isRelationToken(tokens[j])) {
           relationAt = j;
           break;
         }
@@ -600,7 +603,11 @@ function collectNames(text: string): Span[] {
       if (relationAt >= 0 && relationAt + 1 < tokens.length) {
         const gap = between(text, tokens[relationAt], tokens[relationAt + 1]);
         if (/^[,.]?\s+$/.test(gap)) {
-          markRun(consumeNameRun(text, tokens, folded, relationAt + 1, "strong", false, true), relationAt + 1);
+          const allowPlaceName = tokens[relationAt].folded !== "date";
+          markRun(
+            consumeNameRun(text, tokens, folded, relationAt + 1, "strong", false, allowPlaceName),
+            relationAt + 1,
+          );
           continue;
         }
       }
@@ -611,8 +618,9 @@ function collectNames(text: string): Span[] {
       prev !== undefined &&
       (ARTICLES.has(prev.folded) || POSSESSORS.has(prev.folded) || prev.folded === "with") &&
       /^\s+$/.test(between(text, prev, tok));
-    if (RELATIONS.has(tok.folded) && relationAnchor && i + 1 < tokens.length && /^[,.]?\s+$/.test(between(text, tok, tokens[i + 1]))) {
-      markRun(consumeNameRun(text, tokens, folded, i + 1, "strong", false, POSSESSORS.has(prev?.folded ?? "")), i + 1);
+    if (isRelationToken(tok) && relationAnchor && i + 1 < tokens.length && /^[,.]?\s+$/.test(between(text, tok, tokens[i + 1]))) {
+      const allowPlaceName = POSSESSORS.has(prev?.folded ?? "") && tok.folded !== "date";
+      markRun(consumeNameRun(text, tokens, folded, i + 1, "strong", false, allowPlaceName), i + 1);
     }
 
     const stripped = stripPossessiveRaw(tok.raw);
@@ -806,6 +814,34 @@ const MAX_WALK_NODES = 10_000;
 interface WalkState {
   nodes: number;
   overflow: boolean;
+  budgetExceeded: boolean;
+  counts: { names: number; emails: number; phones: number; addresses: number };
+}
+
+function newWalkState(): WalkState {
+  return {
+    nodes: 0,
+    overflow: false,
+    budgetExceeded: false,
+    counts: { names: 0, emails: 0, phones: 0, addresses: 0 },
+  };
+}
+
+function addCounts(state: WalkState, extra: RedactionCounts): void {
+  state.counts.names += extra.names;
+  state.counts.emails += extra.emails;
+  state.counts.phones += extra.phones;
+  state.counts.addresses += extra.addresses;
+}
+
+function redactCappedString(value: string, state: WalkState): string {
+  if (codePointLength(value) > MAX_INPUT_CHARS) {
+    state.overflow = true;
+    return "";
+  }
+  const redacted = redactTextUncapped(value);
+  addCounts(state, redacted.counts);
+  return redacted.text;
 }
 
 function isBinaryNode(node: object): boolean {
@@ -834,6 +870,7 @@ function uniqueKey(output: Record<string, unknown>, key: string): string {
 function walkValue(node: unknown, depth: number, ancestors: readonly object[], state: WalkState): unknown {
   state.nodes += 1;
   if (state.nodes > MAX_WALK_NODES || depth > MAX_DEPTH) {
+    state.budgetExceeded = true;
     return "[REDACTION_ERROR]";
   }
   if (node === null || node === undefined) {
@@ -843,11 +880,7 @@ function walkValue(node: unknown, depth: number, ancestors: readonly object[], s
     return undefined;
   }
   if (typeof node === "string") {
-    if (codePointLength(node) > MAX_INPUT_CHARS) {
-      state.overflow = true;
-      return "";
-    }
-    return redactTextUncapped(node).text;
+    return redactCappedString(node, state);
   }
   if (typeof node === "number" || typeof node === "boolean") {
     return node;
@@ -889,7 +922,7 @@ function walkValue(node: unknown, depth: number, ancestors: readonly object[], s
   }
   const output: Record<string, unknown> = {};
   for (const [key, nested] of Object.entries(node)) {
-    const safeKey = typeof key === "string" ? redactTextUncapped(key).text : String(key);
+    const safeKey = typeof key === "string" ? redactCappedString(key, state) : String(key);
     output[uniqueKey(output, safeKey)] = walkValue(nested, depth + 1, nextAncestors, state);
   }
   return output;
@@ -898,13 +931,16 @@ function walkValue(node: unknown, depth: number, ancestors: readonly object[], s
 export function redact(text: unknown): RedactionResult {
   try {
     if (typeof text === "object" && text !== null) {
-      const state: WalkState = { nodes: 0, overflow: false };
+      const state = newWalkState();
       const walked = walkValue(text, 0, [], state);
       if (state.overflow) {
         return { ok: false, error: "too_long", text: "", counts: EMPTY_COUNTS };
       }
+      if (state.budgetExceeded) {
+        return { ok: false, error: "internal", text: "", counts: EMPTY_COUNTS };
+      }
       const asText = typeof walked === "string" ? walked : JSON.stringify(walked);
-      return { ok: true, text: asText ?? "", counts: EMPTY_COUNTS };
+      return { ok: true, text: asText ?? "", counts: { ...state.counts } };
     }
     const input = typeof text === "string" ? text : String(text ?? "");
     if (codePointLength(input) > MAX_INPUT_CHARS) {
@@ -919,7 +955,7 @@ export function redact(text: unknown): RedactionResult {
 
 export function redactValue(value: unknown): unknown {
   try {
-    return walkValue(value, 0, [], { nodes: 0, overflow: false });
+    return walkValue(value, 0, [], newWalkState());
   } catch {
     return "[REDACTION_ERROR]";
   }

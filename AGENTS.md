@@ -32,3 +32,10 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 - make-pr-easy-to-review
 - run-smoke-tests
 - control-ui
+
+## PII redactor (`src/monitoring`)
+
+The module imports `server-only` so the given-name list cannot ship to
+the client. Plain-node scripts and the eval runner must load
+`tests/setup.mjs` (or an equivalent shim) or run with
+`--conditions=react-server`. `npm test` already imports the shim.

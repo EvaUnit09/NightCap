@@ -167,6 +167,74 @@ describe("redactValue hardening", () => {
     const result = redactValue(fat);
     assert.ok(result === "[REDACTION_ERROR]" || (Array.isArray(result) && result.includes("[REDACTION_ERROR]")));
   });
+
+  it("returns ok:false from redact(object) when the node budget is exhausted", () => {
+    const fat = Array.from({ length: 12_000 }, (_, i) => i);
+    const result = redact(fat);
+    assert.equal(result.ok, false);
+    if (!result.ok) {
+      assert.equal(result.error, "internal");
+      assert.equal(result.text, "");
+    }
+  });
+
+  it("caps object keys at MAX_INPUT_CHARS instead of the uncapped path", () => {
+    const longKey = "k".repeat(MAX_INPUT_CHARS + 1);
+    const result = redact({ [longKey]: "ok" });
+    assert.equal(result.ok, false);
+    if (!result.ok) {
+      assert.equal(result.error, "too_long");
+      assert.equal(result.text, "");
+    }
+  });
+
+  it("reports real counts for redact(object)", () => {
+    const result = redact({ note: "dinner with my friend Keiko" });
+    assert.equal(result.ok, true);
+    assert.ok(result.counts.names >= 1);
+  });
+});
+
+describe("date-as-relation must not eat calendar words", () => {
+  it("leaves a weekday after our date", () => {
+    assert.equal(redact("book our date Thursday evening").text, "book our date Thursday evening");
+  });
+
+  it("leaves a weekday after my date", () => {
+    assert.equal(redact("after my date Sunday we walk").text, "after my date Sunday we walk");
+  });
+
+  it("leaves a weekday after with our date", () => {
+    assert.equal(redact("with our date Wednesday").text, "with our date Wednesday");
+  });
+
+  it("leaves a relative-time word after my date", () => {
+    assert.equal(redact("after my date Tonight we walk").text, "after my date Tonight we walk");
+  });
+});
+
+describe("name-shaped NYC neighborhoods survive a weak with", () => {
+  it("leaves Hamilton Heights and Forest Hills", () => {
+    assert.equal(redact("drinks with Hamilton Heights views").text, "drinks with Hamilton Heights views");
+    assert.equal(redact("dinner with Forest Hills energy").text, "dinner with Forest Hills energy");
+  });
+
+  it("leaves other name-shaped neighborhoods from the NTA extract", () => {
+    assert.equal(redact("coffee with Morris Park regulars").text, "coffee with Morris Park regulars");
+    assert.equal(redact("brunch with Howard Beach cousins").text, "brunch with Howard Beach cousins");
+    assert.equal(redact("walk with Lincoln Square tourists").text, "walk with Lincoln Square tourists");
+    assert.equal(redact("picnic with Little Island views").text, "picnic with Little Island views");
+  });
+});
+
+describe("significant other is only the capitalized SO token", () => {
+  it("does not treat lowercase so as a relation", () => {
+    assert.equal(redact("dinner with my so Keiko later").text, "dinner with my so Keiko later");
+  });
+
+  it("redacts after capitalized SO", () => {
+    assert.equal(redact("dinner with my SO Keiko later").text, "dinner with my SO [NAME] later");
+  });
 });
 
 describe("given-name list coverage", () => {

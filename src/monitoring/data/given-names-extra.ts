@@ -3,7 +3,7 @@
  * See given-names.LICENSE.md for sources and licenses.
  */
 export const GIVEN_NAME_EXTRA_KEYS: readonly string[] = [
-  // SSA national files 2009–2023 newcomers / later-year spellings (public domain)
+  // 21 hand-picked names from SSA yob2009.txt–yob2023.txt (not those whole years)
   "aitana",
   "amiri",
   "aziel",

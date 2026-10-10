@@ -6,10 +6,18 @@ import { heldOutCases, heldOutMiss, heldOutSurvive } from "./fixtures/held-out-c
 
 const HELD_OUT_FLOOR = 0.8;
 
+/** Bare `gf` has no article/possessive/with anchor; rehearsal is not an event noun. */
+const KNOWN_HELD_OUT_MISSES = new Set(["h9", "h12"]);
+
 describe("held-out corpus (frozen before generalization rewrite)", () => {
   for (const testCase of heldOutCases) {
-    it(`${testCase.id} ${testCase.kind}: ${testCase.description}`, () => {
-      redact(testCase.input);
+    const title = `${testCase.id} ${testCase.kind}: ${testCase.description}`;
+    if (KNOWN_HELD_OUT_MISSES.has(testCase.id)) {
+      it.todo(`${title} (known miss)`);
+      continue;
+    }
+    it(title, () => {
+      assert.equal(redact(testCase.input).text, testCase.expected);
     });
   }
 
@@ -30,6 +38,10 @@ describe("held-out corpus (frozen before generalization rewrite)", () => {
       );
     }
     assert.ok(heldOutMiss.length + heldOutSurvive.length >= 50);
+    assert.deepEqual(
+      misses.map((row) => row.id).sort(),
+      [...KNOWN_HELD_OUT_MISSES].sort(),
+    );
     assert.ok(
       passRate >= HELD_OUT_FLOOR,
       `held-out pass rate ${passRate} below floor ${HELD_OUT_FLOOR}; misses: ${misses.map((row) => row.id).join(", ")}`,
