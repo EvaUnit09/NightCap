@@ -7,8 +7,8 @@ import { createDatadogExporter } from "./datadog-exporter";
 import { createMemoryExporter } from "./memory-exporter";
 import { createNoopExporter } from "./noop-exporter";
 import { hashRequest } from "./request-hash";
-import { spanKindFor } from "./stages";
-import { rootAttributes, stageAttributes, stripForbidden } from "./span-sanitize";
+import { rootAttributes, stageAttributes } from "./span-sanitize";
+import { isTraceStage, spanKindFor } from "./stages";
 import type {
   MemoryExporter,
   RequestTraceInput,
@@ -39,14 +39,7 @@ export async function withRequestTrace<T>(
 ): Promise<T> {
   const exporter = input.exporter ?? createExporter();
   const requestHash = hashRequest(input.requestText);
-  const attributes = stripForbidden(
-    rootAttributes({
-      requestHash,
-      parsedIntent: input.parsedIntent,
-      testCaseId: input.testCaseId,
-    }),
-    input.requestText,
-  );
+  const attributes = rootAttributes(input, requestHash);
   const ctx: TraceContext = {
     exporter,
     requestHash,
@@ -69,13 +62,10 @@ export async function withStage<T>(
   fn: () => Promise<T> | T,
 ): Promise<T> {
   const ctx = storage.getStore();
-  if (!ctx) {
+  if (!ctx || !isTraceStage(attrs.stage)) {
     return await fn();
   }
-  const attributes = stripForbidden(
-    stageAttributes(attrs, ctx.requestHash),
-    ctx.requestText,
-  );
+  const attributes = stageAttributes(attrs, ctx.requestHash, ctx.requestText);
   return ctx.exporter.wrap(
     {
       name: attrs.stage,

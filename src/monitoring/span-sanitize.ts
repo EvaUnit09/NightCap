@@ -1,28 +1,70 @@
 import "server-only";
 
 import { intentSchema } from "../validation/intent";
-import type { RequestHash, SpanIntentSummary } from "./trace-types";
-import type { StageAttrs } from "./trace-types";
+import { validationErrorCodeSchema } from "../validation/validation-error";
+import type { ValidationErrorCode } from "../validation/validation-error";
+import type {
+  CacheHit,
+  PromptTags,
+  RequestHash,
+  RequestTraceInput,
+  RootSpanAttributes,
+  SpanIntentSummary,
+  StageAttrs,
+  StageSpanAttributes,
+} from "./trace-types";
 
-const FORBIDDEN_KEYS = new Set([
-  "user_text",
-  "request",
-  "request_text",
-  "redacted_text",
-  "raw_request",
-  "prompt_body",
-  "input_data",
-  "output_data",
-  "messages",
-  "people",
-]);
+const SAFE_TAG_VALUE = /^[A-Za-z0-9._:\/-]{1,128}$/;
 
-const PROMPT_TAG_KEYS = [
+export const PROMPT_TAG_KEYS = [
   "prompt_name",
   "prompt_version",
   "prompt_hash",
   "prompt_rendered_hash",
 ] as const;
+
+export function isSafeTagValue(value: unknown): value is string {
+  return typeof value === "string" && SAFE_TAG_VALUE.test(value);
+}
+
+/**
+ * A single-token request passes `isSafeTagValue`, so a caller that passes
+ * the request itself as a tag is caught by equality instead.
+ */
+function safeTag(value: string | undefined, rawRequest: string): string | undefined {
+  return isSafeTagValue(value) && value !== rawRequest ? value : undefined;
+}
+
+function finiteNumber(value: number | undefined): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function cacheHit(value: CacheHit | undefined): CacheHit | undefined {
+  return value === "hit" || value === "miss" ? value : undefined;
+}
+
+function outcomeCodesTag(codes: readonly ValidationErrorCode[] | undefined): string | undefined {
+  if (!Array.isArray(codes)) {
+    return undefined;
+  }
+  const valid = codes.filter((code) => validationErrorCodeSchema.safeParse(code).success);
+  return valid.length > 0 ? valid.join(",") : undefined;
+}
+
+function promptTagAttributes(tags: PromptTags | undefined, rawRequest: string): PromptTags {
+  if (!tags) {
+    return {};
+  }
+  return Object.fromEntries(
+    PROMPT_TAG_KEYS.map((key) => [key, safeTag(tags[key], rawRequest)]),
+  ) as PromptTags;
+}
+
+function withoutUndefined<T extends object>(value: T): T {
+  return Object.fromEntries(
+    Object.entries(value).filter(([, entry]) => entry !== undefined),
+  ) as T;
+}
 
 export function summarizeIntent(intent: unknown): SpanIntentSummary {
   const parsed = intentSchema.safeParse(intent);
@@ -40,98 +82,33 @@ export function summarizeIntent(intent: unknown): SpanIntentSummary {
   };
 }
 
-export function rootAttributes(input: {
-  requestHash: RequestHash;
-  parsedIntent?: unknown;
-  testCaseId?: string;
-}): Record<string, unknown> {
-  const attributes: Record<string, unknown> = {
-    request_hash: input.requestHash,
-  };
-  if (input.parsedIntent !== undefined) {
-    attributes.parsed_intent = summarizeIntent(input.parsedIntent);
-  }
-  if (input.testCaseId !== undefined) {
-    attributes.test_case_id = input.testCaseId;
-  }
-  return stripForbidden(attributes, undefined);
+export function rootAttributes(
+  input: RequestTraceInput,
+  requestHash: RequestHash,
+): RootSpanAttributes {
+  return withoutUndefined({
+    request_hash: requestHash,
+    parsed_intent:
+      input.parsedIntent === undefined ? undefined : summarizeIntent(input.parsedIntent),
+    test_case_id: safeTag(input.testCaseId, input.requestText),
+  });
 }
 
 export function stageAttributes(
   attrs: StageAttrs,
-  requestHash: RequestHash | undefined,
-): Record<string, unknown> {
-  const attributes: Record<string, unknown> = {
+  requestHash: RequestHash,
+  rawRequest: string,
+): StageSpanAttributes {
+  return withoutUndefined({
     stage: attrs.stage,
-  };
-  if (requestHash !== undefined) {
-    attributes.request_hash = requestHash;
-  }
-  if (attrs.model !== undefined) {
-    attributes.model = attrs.model;
-  }
-  if (attrs.cache !== undefined) {
-    attributes.cache = attrs.cache;
-  }
-  if (attrs.inputTokens !== undefined) {
-    attributes.input_tokens = attrs.inputTokens;
-  }
-  if (attrs.outputTokens !== undefined) {
-    attributes.output_tokens = attrs.outputTokens;
-  }
-  if (attrs.costUsd !== undefined) {
-    attributes.cost_usd = attrs.costUsd;
-  }
-  if (attrs.outcomeCodes !== undefined) {
-    attributes.outcome_codes = attrs.outcomeCodes.join(",");
-  }
-  if (attrs.testCaseId !== undefined) {
-    attributes.test_case_id = attrs.testCaseId;
-  }
-  if (attrs.promptTags) {
-    for (const key of PROMPT_TAG_KEYS) {
-      const value = attrs.promptTags[key];
-      if (value !== undefined) {
-        attributes[key] = value;
-      }
-    }
-  }
-  return stripForbidden(attributes, undefined);
-}
-
-/**
- * Drop keys that must never leave this process, and replace any string
- * that equals the raw request so a mistaken caller cannot leak it.
- */
-export function stripForbidden(
-  value: Record<string, unknown>,
-  rawRequest: string | undefined,
-): Record<string, unknown> {
-  const out: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
-  for (const [key, nested] of Object.entries(value)) {
-    if (FORBIDDEN_KEYS.has(key)) {
-      continue;
-    }
-    out[key] = scrubValue(nested, rawRequest);
-  }
-  return out;
-}
-
-function scrubValue(value: unknown, rawRequest: string | undefined): unknown {
-  if (typeof value === "string") {
-    if (rawRequest && value === rawRequest) {
-      return "[REDACTED]";
-    }
-    return value;
-  }
-  if (value === null || value === undefined) {
-    return value;
-  }
-  if (typeof value !== "object") {
-    return value;
-  }
-  if (Array.isArray(value)) {
-    return value.map((item) => scrubValue(item, rawRequest));
-  }
-  return stripForbidden(value as Record<string, unknown>, rawRequest);
+    request_hash: requestHash,
+    model: safeTag(attrs.model, rawRequest),
+    cache: cacheHit(attrs.cache),
+    input_tokens: finiteNumber(attrs.inputTokens),
+    output_tokens: finiteNumber(attrs.outputTokens),
+    cost_usd: finiteNumber(attrs.costUsd),
+    outcome_codes: outcomeCodesTag(attrs.outcomeCodes),
+    test_case_id: safeTag(attrs.testCaseId, rawRequest),
+    ...promptTagAttributes(attrs.promptTags, rawRequest),
+  });
 }

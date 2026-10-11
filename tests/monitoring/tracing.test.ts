@@ -13,6 +13,7 @@ import {
   withStage,
   TRACE_STAGES,
 } from "../../src/monitoring";
+import type { StageAttrs } from "../../src/monitoring";
 import {
   assertProductionRequestHashSecret,
   DEV_TEST_REQUEST_HASH_SECRET,
@@ -123,7 +124,7 @@ describe("Datadog LLM Observability tracing", () => {
           {
             stage: "repair",
             model: getModelFor("repair_itinerary"),
-            outcomeCodes: ["ok"],
+            outcomeCodes: ["invented_venue"],
           },
           async () => "repair",
         );
@@ -151,43 +152,71 @@ describe("Datadog LLM Observability tracing", () => {
 
     assert.equal(trace.spans[1].attributes.cache, "miss");
     assert.equal(trace.spans[4].attributes.outcome_codes, "closed,over_budget");
-    assert.equal(trace.spans[5].attributes.outcome_codes, "ok");
+    assert.equal(trace.spans[5].attributes.outcome_codes, "invented_venue");
     assert.equal(trace.attributes.test_case_id, "eval-case-01");
     assert.equal(typeof trace.attributes.request_hash, "string");
     assert.match(String(trace.attributes.request_hash), /^[0-9a-f]{64}$/);
     assert.ok(TRACE_STAGES.includes("agent"));
   });
 
-  it("never puts the raw request or user_text on spans, even with name/email/phone", async () => {
+  it("exports no raw request, PII, or unknown key from hostile stage and root inputs", async () => {
     const exporter = createMemoryExporter();
+    const hostileStage = {
+      stage: "parse",
+      model: `claude ${PII_REQUEST}`,
+      testCaseId: `case ${PII_REQUEST}`,
+      promptTags: { prompt_name: `${PII_REQUEST}!`, prompt_version: "v1" },
+      outcomeCodes: ["closed", `bad: ${PII_REQUEST}`],
+      cache: PII_REQUEST,
+      user_text: PII_REQUEST,
+      people: ["Sarah"],
+    } as unknown as StageAttrs;
 
     await withRequestTrace(
       {
         requestText: PII_REQUEST,
         parsedIntent: PII_INTENT,
+        testCaseId: `case ${PII_REQUEST}`,
         exporter,
       },
       async () => {
-        await withStage({ stage: "parse", model: getModelFor("parse_intent") }, async () => {
-          return { user_text: PII_REQUEST };
-        });
-        await withStage({ stage: "plan" }, async () => undefined);
+        await withStage(hostileStage, async () => undefined);
       },
     );
 
     const blob = serialized(exporter.traces);
-    assert.equal(blob.includes(PII_REQUEST), false, "raw request leaked into spans");
-    assert.equal(blob.includes("jane@example.com"), false, "email leaked into spans");
-    assert.equal(blob.includes("(555) 123-4567"), false, "phone leaked into spans");
-    assert.equal(blob.includes("555-123-4567"), false, "phone leaked into spans");
-    assert.equal(blob.includes("user_text"), false, "user_text key leaked into spans");
-
-    for (const attrs of allAttributes(exporter)) {
-      assert.ok(attrs && typeof attrs === "object");
-      assert.equal("user_text" in attrs, false);
-      assert.equal("request_text" in attrs, false);
-      assert.equal("redacted_text" in attrs, false);
+    for (const fragment of [
+      PII_REQUEST,
+      "Sarah",
+      "jane@example.com",
+      "(555) 123-4567",
+      "user_text",
+      "people",
+    ]) {
+      assert.equal(blob.includes(fragment), false, `${fragment} leaked into spans`);
     }
+    const { latency_ms: latency, ...stage } = exporter.traces[0].spans[0].attributes;
+    assert.equal(typeof latency, "number");
+    assert.deepEqual(stage, {
+      stage: "parse",
+      request_hash: exporter.traces[0].attributes.request_hash,
+      outcome_codes: "closed",
+      prompt_version: "v1",
+    });
+  });
+
+  it("drops a stage or root tag that echoes a single-token raw request", async () => {
+    const exporter = createMemoryExporter();
+    const request = "SarahOkafor";
+
+    await withRequestTrace({ requestText: request, testCaseId: request, exporter }, async () => {
+      await withStage(
+        { stage: "parse", model: request, testCaseId: request, promptTags: { prompt_name: request } },
+        async () => undefined,
+      );
+    });
+
+    assert.equal(serialized(exporter.traces).includes(request), false);
   });
 
   it("HMAC-SHA256 request hash depends on the secret", () => {
@@ -261,7 +290,7 @@ describe("Datadog LLM Observability tracing", () => {
     await assert.doesNotReject(() => exporter.wrap({
       name: "request",
       kind: "workflow",
-      attributes: { request_hash: "abc" },
+      attributes: { request_hash: hashRequest("abc") },
     }, async () => "ok"));
   });
 

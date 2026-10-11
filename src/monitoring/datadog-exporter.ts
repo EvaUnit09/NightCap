@@ -103,7 +103,7 @@ export function createDatadogExporter(): TraceExporter {
       const started = Date.now();
       return await Promise.resolve(
         active.trace({ name: span.name, kind: span.kind }, async (ddSpan) => {
-          const attributes = { ...span.attributes };
+          const attributes: Record<string, unknown> = { ...span.attributes };
           try {
             const result = await fn();
             attributes.latency_ms = Date.now() - started;
