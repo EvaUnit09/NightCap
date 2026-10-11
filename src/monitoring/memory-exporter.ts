@@ -1,5 +1,6 @@
 import "server-only";
 
+import { safeErrorCode } from "./datadog-exporter";
 import type {
   CapturedSpan,
   CapturedTrace,
@@ -40,7 +41,14 @@ export function createMemoryExporter(): MemoryExporter {
       };
       stack[stack.length - 1].spans.push(child);
       try {
-        return await fn();
+        const result = await fn();
+        child.attributes.status = "ok";
+        return result;
+      } catch (error) {
+        // Same outcome tags the Datadog exporter sends, so tests can assert them.
+        child.attributes.status = "error";
+        child.attributes.error_code = safeErrorCode(error);
+        throw error;
       } finally {
         child.attributes.latency_ms = Date.now() - started;
       }

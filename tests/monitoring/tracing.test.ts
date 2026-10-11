@@ -195,6 +195,7 @@ describe("Datadog LLM Observability tracing", () => {
       request_hash: exporter.traces[0].attributes.request_hash,
       outcome_codes: "closed",
       prompt_version: "v1",
+      status: "ok",
     });
   });
 
@@ -285,6 +286,23 @@ describe("Datadog LLM Observability tracing", () => {
       kind: "workflow",
       attributes: { request_hash: hashRequest("abc") },
     }, async () => "ok"));
+  });
+
+  it("memory exporter records a thrown stage as status error with only the safe code", async () => {
+    const exporter = createMemoryExporter();
+    const failure = Object.assign(new Error("West Village bars 429"), { code: "rate_limited" });
+    await assert.rejects(
+      withRequestTrace({ requestText: "x", exporter }, () =>
+        withStage({ stage: "places.search", cache: "miss" }, async () => {
+          throw failure;
+        }),
+      ),
+      (error) => error === failure,
+    );
+    const span = exporter.traces[0].spans[0].attributes;
+    assert.equal(span.status, "error");
+    assert.equal(span.error_code, "rate_limited");
+    assert.equal(JSON.stringify(exporter.traces).includes("West Village"), false);
   });
 
   it("withStage outside a request still runs and does not throw", async () => {
