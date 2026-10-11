@@ -538,7 +538,7 @@ Start: Mon 2026-09-28. Four weeks.
 ## 11. Appendix
 
 - **Links:** repo, live demo, Datadog dashboard, eval results (TBD).
-- **Architecture:** [architecture.md](architecture.md). Build sequence: [architecture.md#build-sequence](architecture.md#build-sequence).
+- **Architecture:** [architecture.md](architecture.md). Build sequence: [build-sequence.md](build-sequence.md).
 - **Decision log:** [decision-log.md](decision-log.md).
 - **Glossary:**
   - *Validity rate:* % of itineraries passing all four checks (exists + operational, open at slot, within budget, travel ≤ 25 min between stops).
