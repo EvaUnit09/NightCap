@@ -11,8 +11,8 @@ flowchart TD
     API --> RED[PII redaction]
     RED --> P1[parse_intent<br/>Haiku 4.5 → Zod intent]
     P1 -->|SSE: parsed intent| U
-    P1 --> R[Retrieval<br/>Places Text/Nearby Search]
-    R <--> C[(places_cache<br/>place_id + coords ≤ 30d)]
+    P1 --> R[Retrieval<br/>Places Text Search:<br/>1 combined + ≤ 1 refill]
+    R -.->|coords port; DB adapter at step 24| C[(places_cache<br/>place_id + coords ≤ 30d)]
     R --> F[Filter: OPERATIONAL, open at slot, price band]
     F --> RR[Re-rank: vibe fit + novelty penalty]
     RR --> P2[plan_itineraries<br/>Sonnet 5, candidate IDs only]
@@ -45,7 +45,7 @@ user text is treated as data.
 | Component | Location | Used by |
 |---|---|---|
 | Itinerary validator (deterministic) | `src/validation/` | Pipeline, repair loop, agent tool, eval runner |
-| Places client + cache + re-rank | `src/retrieval/` | Pipeline, agent `search_venues`, eval |
+| Places client + re-rank + coords-cache port (import via `src/retrieval/index.ts` only) | `src/retrieval/` | Pipeline, agent `search_venues`, eval |
 | Prompt loader (versioned files) | `prompts/` + `src/pipeline/` | All LLM stages |
 | Model config / routing | `src/models/` | All LLM stages, eval model comparison |
 | Tracing, redaction, cost | `src/monitoring/` | Everything |
