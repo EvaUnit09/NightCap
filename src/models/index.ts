@@ -25,6 +25,7 @@ export {
   getEnableLiveRoutes,
   getRoutesApiTimeoutMs,
   getPriceRanges,
+  getPriceRangesByLevel,
   getRetrievalSettings,
   getTurnstileSecretKey,
   resetConfig,

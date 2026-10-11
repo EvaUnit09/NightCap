@@ -7,6 +7,7 @@ import {
   DEFAULT_TRAVEL_BUDGET_MS,
   DEFAULT_TRAVEL_CAP_MINUTES,
   DEFAULT_TRAVEL_TOLERANCE_MINUTES,
+  type PriceLevelKey,
 } from "../validation/defaults";
 
 /**
@@ -426,6 +427,18 @@ export function getPriceRanges(): {
     moderate: cfg.priceRangeModerate,
     expensive: cfg.priceRangeExpensive,
     veryExpensive: cfg.priceRangeVeryExpensive,
+  };
+}
+
+/** getPriceRanges() keyed by Places price level, as the validator and retrieval read it. */
+export function getPriceRangesByLevel(): Record<PriceLevelKey, [number, number]> {
+  const ranges = getPriceRanges();
+  return {
+    PRICE_LEVEL_FREE: ranges.free,
+    PRICE_LEVEL_INEXPENSIVE: ranges.inexpensive,
+    PRICE_LEVEL_MODERATE: ranges.moderate,
+    PRICE_LEVEL_EXPENSIVE: ranges.expensive,
+    PRICE_LEVEL_VERY_EXPENSIVE: ranges.veryExpensive,
   };
 }
 
