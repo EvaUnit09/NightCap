@@ -13,6 +13,7 @@ This directory contains skills vendored from the [pstack plugin](https://github.
 
 The following skills have been copied byte-for-byte with no modifications:
 
+- **poteto-mode** - Default router and playbooks (v0.15.15, https://github.com/cursor/plugins/tree/main/pstack/skills/poteto-mode)
 - **architect** - Sketch types/signatures/module structure before non-trivial code
 - **tdd** - Test-first development for new behavior and bug fixes
 - **blast-radius** - Check what a change could break beyond the diff before shipping
