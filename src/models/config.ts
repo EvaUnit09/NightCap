@@ -143,6 +143,17 @@ const configSchema = z.object({
     .default(DEFAULT_TRAVEL_BUDGET_MS),
   enableLiveRoutes: z.boolean().default(false),
 
+  // Places retrieval (decision-log #33). Retry count is not a knob: step 14 says "once".
+  placesTimeoutMs: z.coerce.number().int().min(100).max(30_000).default(5000),
+  placesRetryDelayMs: z.coerce.number().int().min(0).max(5000).default(300),
+  placesMaxSearchesPerRequest: z.coerce.number().int().min(1).max(4).default(2),
+  retrievalTopK: z.coerce.number().int().min(1).max(20).default(5),
+  retrievalMinPerStop: z.coerce.number().int().min(1).max(20).default(3),
+  retrievalMinOpenMinutes: z.coerce.number().int().min(15).max(240).default(60),
+  rerankVibeWeight: z.coerce.number().min(0).max(10).default(1),
+  rerankPopularityWeight: z.coerce.number().min(0).max(10).default(0.5),
+  rerankReviewSoftCap: z.coerce.number().int().positive().default(2000),
+
   // Heuristic per-person USD ranges (not from Google). Format "min,max".
   // Validator compares estimatedCostUsd / partySize (default 2) to these.
   priceRangeFree: priceRangeSchema.default([
@@ -160,6 +171,9 @@ const configSchema = z.object({
   priceRangeVeryExpensive: priceRangeSchema.default([
     ...DEFAULT_PRICE_RANGES.PRICE_LEVEL_VERY_EXPENSIVE,
   ]),
+}).refine((cfg) => cfg.retrievalMinPerStop <= cfg.retrievalTopK, {
+  message: "RETRIEVAL_MIN_PER_STOP must not exceed RETRIEVAL_TOP_K",
+  path: ["retrievalMinPerStop"],
 });
 
 type Config = z.infer<typeof configSchema>;
@@ -224,6 +238,15 @@ function loadConfig(): Config {
     ),
     travelBudgetMs: preprocessEnvVar(process.env.TRAVEL_BUDGET_MS),
     enableLiveRoutes: parseLiveRoutesFlag(process.env.ENABLE_LIVE_ROUTES),
+    placesTimeoutMs: preprocessEnvVar(process.env.PLACES_TIMEOUT_MS),
+    placesRetryDelayMs: preprocessEnvVar(process.env.PLACES_RETRY_DELAY_MS),
+    placesMaxSearchesPerRequest: preprocessEnvVar(process.env.PLACES_MAX_SEARCHES_PER_REQUEST),
+    retrievalTopK: preprocessEnvVar(process.env.RETRIEVAL_TOP_K),
+    retrievalMinPerStop: preprocessEnvVar(process.env.RETRIEVAL_MIN_PER_STOP),
+    retrievalMinOpenMinutes: preprocessEnvVar(process.env.RETRIEVAL_MIN_OPEN_MINUTES),
+    rerankVibeWeight: preprocessEnvVar(process.env.RERANK_VIBE_WEIGHT),
+    rerankPopularityWeight: preprocessEnvVar(process.env.RERANK_POPULARITY_WEIGHT),
+    rerankReviewSoftCap: preprocessEnvVar(process.env.RERANK_REVIEW_SOFT_CAP),
     priceRangeFree: parseRange(process.env.PRICE_RANGE_FREE),
     priceRangeInexpensive: parseRange(process.env.PRICE_RANGE_INEXPENSIVE),
     priceRangeModerate: parseRange(process.env.PRICE_RANGE_MODERATE),
@@ -403,6 +426,34 @@ export function getPriceRanges(): {
     moderate: cfg.priceRangeModerate,
     expensive: cfg.priceRangeExpensive,
     veryExpensive: cfg.priceRangeVeryExpensive,
+  };
+}
+
+/** Places retrieval knobs (decision-log #33), grouped like getPriceRanges(). */
+export interface RetrievalConfig {
+  readonly placesTimeoutMs: number;
+  readonly retryDelayMs: number;
+  readonly maxSearches: number;
+  readonly topK: number;
+  readonly minPerStop: number;
+  readonly minOpenMinutes: number;
+  readonly vibeWeight: number;
+  readonly popularityWeight: number;
+  readonly reviewSoftCap: number;
+}
+
+export function getRetrievalSettings(): RetrievalConfig {
+  const cfg = getConfig();
+  return {
+    placesTimeoutMs: cfg.placesTimeoutMs,
+    retryDelayMs: cfg.placesRetryDelayMs,
+    maxSearches: cfg.placesMaxSearchesPerRequest,
+    topK: cfg.retrievalTopK,
+    minPerStop: cfg.retrievalMinPerStop,
+    minOpenMinutes: cfg.retrievalMinOpenMinutes,
+    vibeWeight: cfg.rerankVibeWeight,
+    popularityWeight: cfg.rerankPopularityWeight,
+    reviewSoftCap: cfg.rerankReviewSoftCap,
   };
 }
 
