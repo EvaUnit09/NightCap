@@ -5,6 +5,24 @@ import nextTs from "eslint-config-next/typescript";
 const eslintConfig = defineConfig([
   ...nextVitals,
   ...nextTs,
+  {
+    // src/retrieval hides its internals behind index.ts (decision-log #33).
+    files: ["src/**/*.{ts,tsx,mts}", "app/**/*.{ts,tsx}", "evaluation/**/*.{ts,mts}", "scripts/**/*.{ts,mts}", "*.ts"],
+    ignores: ["src/retrieval/**"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["**/retrieval/*", "!**/retrieval/index"],
+              message: "Import retrieval only through src/retrieval/index.ts.",
+            },
+          ],
+        },
+      ],
+    },
+  },
   // Override default ignores of eslint-config-next.
   globalIgnores([
     // Default ignores of eslint-config-next:
