@@ -4,7 +4,7 @@ import {
   getEnableLiveRoutes,
   getGooglePlacesApiKey,
   getMaxTravelLegsPerRequest,
-  getPriceRanges,
+  getPriceRangesByLevel,
   getRoutesApiTimeoutMs,
   getTravelBudgetMs,
   getTravelCapMinutes,
@@ -30,7 +30,6 @@ export async function validateItineraryServer(
   input: ValidatorInput,
   optionOverrides: Partial<ValidatorOptions> = {}
 ): Promise<ReturnType<typeof validateItinerary>> {
-  const ranges = getPriceRanges();
   const options: ValidatorOptions = {
     travelCapMinutes: getTravelCapMinutes(),
     travelToleranceMinutes: getTravelClaimToleranceMinutes(),
@@ -39,13 +38,7 @@ export async function validateItineraryServer(
     travelCalculator: getEnableLiveRoutes()
       ? createRoutesTravelCalculator()
       : undefined,
-    priceRanges: {
-      PRICE_LEVEL_FREE: ranges.free,
-      PRICE_LEVEL_INEXPENSIVE: ranges.inexpensive,
-      PRICE_LEVEL_MODERATE: ranges.moderate,
-      PRICE_LEVEL_EXPENSIVE: ranges.expensive,
-      PRICE_LEVEL_VERY_EXPENSIVE: ranges.veryExpensive,
-    },
+    priceRanges: getPriceRangesByLevel(),
     ...optionOverrides,
   };
   return validateItinerary(input, options);

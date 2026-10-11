@@ -25,9 +25,12 @@ export {
   getEnableLiveRoutes,
   getRoutesApiTimeoutMs,
   getPriceRanges,
+  getPriceRangesByLevel,
+  getRetrievalSettings,
   getTurnstileSecretKey,
   resetConfig,
 } from "./config";
+export type { RetrievalConfig } from "./config";
 
 export { getModelFor } from "./router";
 export { getTemperatureFor } from "./temperature";
