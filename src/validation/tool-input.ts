@@ -7,7 +7,8 @@ import {
   priceLevelSchema,
   stopTypeSchema,
 } from "./common";
-import { itinerarySchema } from "./itinerary";
+import { MAX_TRAVEL_LEGS_PER_REQUEST_DEFAULT, STOPS_MAX, STOPS_MIN_SINGLE } from "./bounds";
+import { itinerarySchemaFor } from "./itinerary";
 
 const timeSlotSchema = z
   .object({
@@ -34,7 +35,7 @@ const replaceStopInputSchema = z
   .object({
     tool: z.literal("replace_stop"),
     optionIndex: z.int().min(0).max(2),
-    stopIndex: z.int().min(0).max(3),
+    stopIndex: z.int().min(0).max(STOPS_MAX - 1),
     placeId: placeIdSchema,
   })
   .strict();
@@ -43,8 +44,8 @@ const reorderStopsInputSchema = z
   .object({
     tool: z.literal("reorder_stops"),
     optionIndex: z.int().min(0).max(2),
-    order: z.array(z.int().min(0).max(3)).min(2).max(4),
-    times: z.array(timeSlotSchema).min(2).max(4),
+    order: z.array(z.int().min(0).max(STOPS_MAX - 1)).min(STOPS_MIN_SINGLE).max(STOPS_MAX),
+    times: z.array(timeSlotSchema).min(STOPS_MIN_SINGLE).max(STOPS_MAX),
   })
   .strict()
   .superRefine((input, ctx) => {
@@ -64,19 +65,27 @@ const reorderStopsInputSchema = z
     }
   });
 
-const validateItineraryInputSchema = z
-  .object({
-    tool: z.literal("validate_itinerary"),
-    itinerary: itinerarySchema,
-  })
-  .strict();
+function validateItineraryInputSchemaFor(maxLegs: number) {
+  return z
+    .object({
+      tool: z.literal("validate_itinerary"),
+      itinerary: itinerarySchemaFor({ maxLegs }),
+    })
+    .strict();
+}
 
 /** Input to one refinement tool. Each tool name is its own object shape. */
-export const toolInputSchema = z.discriminatedUnion("tool", [
-  searchVenuesInputSchema,
-  replaceStopInputSchema,
-  reorderStopsInputSchema,
-  validateItineraryInputSchema,
-]);
+export function toolInputSchemaFor(
+  maxLegs: number = MAX_TRAVEL_LEGS_PER_REQUEST_DEFAULT,
+) {
+  return z.discriminatedUnion("tool", [
+    searchVenuesInputSchema,
+    replaceStopInputSchema,
+    reorderStopsInputSchema,
+    validateItineraryInputSchemaFor(maxLegs),
+  ]);
+}
+
+export const toolInputSchema = toolInputSchemaFor();
 
 export type ToolInput = z.infer<typeof toolInputSchema>;

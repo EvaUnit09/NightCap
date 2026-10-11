@@ -102,20 +102,26 @@ describe("prompt loader security", () => {
     });
 
     it("should not leak absolute paths in error messages", () => {
-      try {
-        loadPrompt("parse_intent", "v999");
-        assert.fail("Should have thrown");
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        assert.ok(
-          !message.includes(process.cwd()),
-          "Error message should not contain absolute workspace path"
-        );
-        assert.ok(
-          !message.includes("/workspace"),
-          "Error message should not contain absolute paths"
-        );
-      }
+      assert.throws(
+        () => {
+          loadPrompt("parse_intent", "v2");
+        },
+        (error: unknown) => {
+          if (error instanceof assert.AssertionError) {
+            throw error;
+          }
+          const message = error instanceof Error ? error.message : String(error);
+          assert.equal(message.includes(process.cwd()), false);
+          assert.equal(message.includes("/workspace"), false);
+          assert.match(message, /not found/);
+          return true;
+        }
+      );
+    });
+
+    it("rejects v0 and leading-zero versions", () => {
+      assert.throws(() => loadPrompt("parse_intent", "v0"), { message: /Invalid version format/ });
+      assert.throws(() => loadPrompt("parse_intent", "v01"), { message: /Invalid version format/ });
     });
 
     it("should accept valid version formats", () => {

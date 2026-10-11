@@ -16,6 +16,7 @@ import {
   getRateLimitRequestsPerHour,
   getRepairMaxRounds,
   getRepairModelId,
+  getMaxTravelLegsPerRequest,
   getTravelCapMinutes,
   getTurnstileSecretKey,
   resetConfig,
@@ -64,10 +65,12 @@ describe("Config module", () => {
       delete process.env.AGENT_MAX_TOOL_CALLS;
       delete process.env.AGENT_MAX_COST_USD_PER_TURN;
       delete process.env.REPAIR_MAX_ROUNDS;
+      delete process.env.MAX_TRAVEL_LEGS_PER_REQUEST;
       assert.equal(getTravelCapMinutes(), 25);
       assert.equal(getAgentMaxToolCalls(), 6);
       assert.equal(getAgentMaxCostUsdPerTurn(), 0.03);
       assert.equal(getRepairMaxRounds(), 2);
+      assert.equal(getMaxTravelLegsPerRequest(), 4);
     });
   });
 
@@ -102,11 +105,13 @@ describe("Config module", () => {
       process.env.AGENT_MAX_TOOL_CALLS = "10";
       process.env.AGENT_MAX_COST_USD_PER_TURN = "0.05";
       process.env.REPAIR_MAX_ROUNDS = "3";
+      process.env.MAX_TRAVEL_LEGS_PER_REQUEST = "6";
 
       assert.equal(getTravelCapMinutes(), 30);
       assert.equal(getAgentMaxToolCalls(), 10);
       assert.equal(getAgentMaxCostUsdPerTurn(), 0.05);
       assert.equal(getRepairMaxRounds(), 3);
+      assert.equal(getMaxTravelLegsPerRequest(), 6);
     });
   });
 
@@ -272,6 +277,25 @@ describe("Config module", () => {
       assert.throws(() => getConfig(), {
         name: "ZodError",
       });
+    });
+
+    it("rejects MAX_TRAVEL_LEGS_PER_REQUEST outside 2–9 with a readable error", () => {
+      for (const value of ["0", "1", "10", "-1", "4.5"]) {
+        resetConfig();
+        process.env.MAX_TRAVEL_LEGS_PER_REQUEST = value;
+        assert.throws(
+          () => getConfig(),
+          (error: unknown) => {
+            const message = error instanceof Error ? error.message : String(error);
+            assert.match(
+              message,
+              /MAX_TRAVEL_LEGS_PER_REQUEST must be an integer from 2 to 9/,
+            );
+            return true;
+          },
+          `expected ${value} to fail with a readable range message`,
+        );
+      }
     });
 
     it("rejects zero agent max tool calls", () => {

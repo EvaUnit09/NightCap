@@ -25,8 +25,49 @@ export const priceLevelSchema = z.enum([
   "PRICE_LEVEL_VERY_EXPENSIVE",
 ]);
 
-/** How the party gets to the next stop. The duration cap is a later check. */
-export const travelModeSchema = z.enum(["walk", "transit", "rideshare"]);
+/** NightCap v1 travel modes. Same strings Google Routes uses; #7's mapping is identity. */
+export const TRAVEL_MODES = ["TRANSIT", "BICYCLE", "WALK"] as const;
+export type TravelMode = (typeof TRAVEL_MODES)[number];
+export const travelModeSchema = z.enum(TRAVEL_MODES);
+
+/** Model-output boundary only: trim + uppercase. Dropped modes are not mapped. */
+export function normalizeModelTravelMode(mode: string): string {
+  return mode.trim().toUpperCase();
+}
+
+const FORBIDDEN_OBJECT_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+
+function entriesWithoutForbidden(
+  record: Record<string, unknown>,
+  mapValue: (key: string, child: unknown) => unknown,
+): Array<[string, unknown]> {
+  const entries: Array<[string, unknown]> = [];
+  for (const [key, child] of Object.entries(record)) {
+    if (FORBIDDEN_OBJECT_KEYS.has(key)) {
+      continue;
+    }
+    entries.push([key, mapValue(key, child)]);
+  }
+  return entries;
+}
+
+export function normalizeModelTravelModes(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(normalizeModelTravelModes);
+  }
+  if (value === null || typeof value !== "object") {
+    return value;
+  }
+  const record = value as Record<string, unknown>;
+  return Object.fromEntries(
+    entriesWithoutForbidden(record, (key, child) => {
+      if (key === "mode" && typeof child === "string") {
+        return normalizeModelTravelMode(child);
+      }
+      return normalizeModelTravelModes(child);
+    }),
+  );
+}
 
 /** Places `business_status` values. */
 export const businessStatusSchema = z.enum([

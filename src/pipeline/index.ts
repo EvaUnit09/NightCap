@@ -3,13 +3,23 @@
  * Parse, plan, and repair all read these schemas.
  */
 export {
+  MAX_TRAVEL_LEGS_PER_REQUEST_DEFAULT,
+  STOPS_MAX,
+  STOPS_MIN,
+  STOPS_MIN_SINGLE,
   candidateSchema,
   intentSchema,
+  itineraryOptionSchema,
+  itineraryOptionSchemaFor,
+  allowedShapes,
   itinerarySchema,
+  itinerarySchemaFor,
   parseCandidate,
   parseIntent,
   parseItinerary,
   parseValidationError,
+  singleStopMatchesIntent,
+  stampSingleStopFromIntent,
   validationErrorSchema,
 } from "../validation";
 
@@ -19,6 +29,9 @@ export {
   clearPromptCache,
   getPromptTraceTags,
   loadPrompt,
+  type LoadPromptOptions,
   type PipelineStage,
   type PromptMetadata,
 } from "./prompt-loader";
+
+export { WRAP_USER_TEXT_MAX_CHARS, wrapUserText } from "./wrap-user-text";
