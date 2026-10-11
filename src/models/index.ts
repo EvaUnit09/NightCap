@@ -9,7 +9,7 @@ export {
   getGooglePlacesApiKey,
   getMaxTravelLegsPerRequest,
   getParseModelId,
-  getPlacesCacheTtlHours,
+  getPlacesCoordsCacheTtlDays,
   getPlanModelId,
   getRateLimitDailySpendUsd,
   getRateLimitRequestsPerHour,
