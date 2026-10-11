@@ -1,0 +1,390 @@
+/**
+ * Held-out generalization corpus.
+ *
+ * Written before the generalization rewrite. Do not add cases here to chase
+ * a score after implementation. Names and places are chosen to be distinct
+ * from the original regression fixture.
+ *
+ * Provenance: some names and cue shapes came from reviewer reports. This
+ * file is not the reviewer's held-out v3 set.
+ */
+
+export interface HeldOutCase {
+  readonly id: string;
+  readonly input: string;
+  readonly expected: string;
+  readonly kind: "miss" | "survive";
+  readonly description: string;
+}
+
+export const heldOutMiss: HeldOutCase[] = [
+  {
+    id: "h1",
+    input: "me, Helena, and Viktor want a late dinner",
+    expected: "me, [NAME], and [NAME] want a late dinner",
+    kind: "miss",
+    description: "list with me + two given names",
+  },
+  {
+    id: "h2",
+    input: "Yasmin & Callum after the show",
+    expected: "[NAME] & [NAME] after the show",
+    kind: "miss",
+    description: "ampersand name pair",
+  },
+  {
+    id: "h3",
+    input: "Noor/Soren for drinks",
+    expected: "[NAME]/[NAME] for drinks",
+    kind: "miss",
+    description: "slash name pair",
+  },
+  {
+    id: "h4",
+    input: "Leila and Matteo and I",
+    expected: "[NAME] and [NAME] and I",
+    kind: "miss",
+    description: "name and name and I",
+  },
+  {
+    id: "h5",
+    input: "plan something for me n freya",
+    expected: "plan something for me n [NAME]",
+    kind: "miss",
+    description: "casual n + lowercase given name",
+  },
+  {
+    id: "h6",
+    input: "w/ Idris tonight",
+    expected: "w/ [NAME] tonight",
+    kind: "miss",
+    description: "w/ abbreviation",
+  },
+  {
+    id: "h7",
+    input: "w Anika after 9",
+    expected: "w [NAME] after 9",
+    kind: "miss",
+    description: "w space abbreviation",
+  },
+  {
+    id: "h8",
+    input: "me + Pavel near the waterfront",
+    expected: "me + [NAME] near the waterfront",
+    kind: "miss",
+    description: "plus-sign companion",
+  },
+  {
+    id: "h9",
+    input: "gf Sigrid wants wine",
+    expected: "gf [NAME] wants wine",
+    kind: "miss",
+    description: "bare gf + given name",
+  },
+  {
+    id: "h10",
+    input: "surprise for Tomas at 8",
+    expected: "surprise for [NAME] at 8",
+    kind: "miss",
+    description: "surprise for X",
+  },
+  {
+    id: "h11",
+    input: "celebrating Aisha this weekend",
+    expected: "celebrating [NAME] this weekend",
+    kind: "miss",
+    description: "celebrating X",
+  },
+  {
+    id: "h12",
+    input: "Nikolai's rehearsal dinner",
+    expected: "[NAME]'s rehearsal dinner",
+    kind: "miss",
+    description: "possessive + event noun",
+  },
+  {
+    id: "h13",
+    input: "my best friend Kamila",
+    expected: "my best friend [NAME]",
+    kind: "miss",
+    description: "modified relation",
+  },
+  {
+    id: "h14",
+    input: "my roommate Henrik",
+    expected: "my roommate [NAME]",
+    kind: "miss",
+    description: "roommate as relation",
+  },
+  {
+    id: "h15",
+    input: "my sister-in-law Farah",
+    expected: "my sister-in-law [NAME]",
+    kind: "miss",
+    description: "hyphenated kinship",
+  },
+  {
+    id: "h16",
+    input: "Farah (my wife) likes jazz",
+    expected: "[NAME] (my wife) likes jazz",
+    kind: "miss",
+    description: "appositive after a given name",
+  },
+  {
+    id: "h17",
+    input: "her name is Soren",
+    expected: "her name is [NAME]",
+    kind: "miss",
+    description: "her name is",
+  },
+  {
+    id: "h18",
+    input: "email @leila the recs",
+    expected: "email [NAME] the recs",
+    kind: "miss",
+    description: "at-handle",
+  },
+  {
+    id: "h19",
+    input: "💕Freya💕 and I",
+    expected: "💕[NAME]💕 and I",
+    kind: "miss",
+    description: "emoji-adjacent given name",
+  },
+  {
+    id: "h20",
+    input: "Ólafur and I want coffee",
+    expected: "[NAME] and I want coffee",
+    kind: "miss",
+    description: "leading accented capital",
+  },
+  {
+    id: "h21",
+    input: "Émile's graduation dinner",
+    expected: "[NAME]'s graduation dinner",
+    kind: "miss",
+    description: "accented possessive event",
+  },
+  {
+    id: "h22",
+    input: "taking Yasmin to dinner",
+    expected: "taking [NAME] to dinner",
+    kind: "miss",
+    description: "taking X",
+  },
+  {
+    id: "h23",
+    input: "for me and Callum, walkable",
+    expected: "for me and [NAME], walkable",
+    kind: "miss",
+    description: "for me and X",
+  },
+  {
+    id: "h24",
+    input: "dinner with my boyfriend Idris",
+    expected: "dinner with my boyfriend [NAME]",
+    kind: "miss",
+    description: "strong relation after with",
+  },
+  {
+    id: "h25",
+    input: "my partner June",
+    expected: "my partner [NAME]",
+    kind: "miss",
+    description: "month after strong relation is a name",
+  },
+  {
+    id: "h26",
+    input: "Dr. Pavel at 7",
+    expected: "[NAME] at 7",
+    kind: "miss",
+    description: "title + given/surname shape",
+  },
+  {
+    id: "h27",
+    input: "named Leila in the reservation",
+    expected: "named [NAME] in the reservation",
+    kind: "miss",
+    description: "named X",
+  },
+  {
+    id: "h28",
+    input: "Hi Matteo, we are nearby",
+    expected: "Hi [NAME], we are nearby",
+    kind: "miss",
+    description: "greeting",
+  },
+];
+
+export const heldOutSurvive: HeldOutCase[] = [
+  {
+    id: "s1",
+    input: "dinner with Thai food",
+    expected: "dinner with Thai food",
+    kind: "survive",
+    description: "cuisine after with",
+  },
+  {
+    id: "s2",
+    input: "with Korean BBQ later",
+    expected: "with Korean BBQ later",
+    kind: "survive",
+    description: "cuisine after with",
+  },
+  {
+    id: "s3",
+    input: "walk with Christmas lights",
+    expected: "walk with Christmas lights",
+    kind: "survive",
+    description: "holiday after with",
+  },
+  {
+    id: "s4",
+    input: "with May or June",
+    expected: "with May or June",
+    kind: "survive",
+    description: "months after weak with",
+  },
+  {
+    id: "s5",
+    input: "date with Friday energy",
+    expected: "date with Friday energy",
+    kind: "survive",
+    description: "weekday after with",
+  },
+  {
+    id: "s6",
+    input: "my partner prefers quiet bars",
+    expected: "my partner prefers quiet bars",
+    kind: "survive",
+    description: "verb after relation is not a name",
+  },
+  {
+    id: "s7",
+    input: "my friend recommended this",
+    expected: "my friend recommended this",
+    kind: "survive",
+    description: "verb after relation",
+  },
+  {
+    id: "s8",
+    input: "my boyfriend hates loud places",
+    expected: "my boyfriend hates loud places",
+    kind: "survive",
+    description: "verb after relation",
+  },
+  {
+    id: "s9",
+    input: "start with the tasting menu",
+    expected: "start with the tasting menu",
+    kind: "survive",
+    description: "common noun phrase after with",
+  },
+  {
+    id: "s10",
+    input: "with live jazz then a walk",
+    expected: "with live jazz then a walk",
+    kind: "survive",
+    description: "common noun after with",
+  },
+  {
+    id: "s11",
+    input: "with natural wine in the back room",
+    expected: "with natural wine in the back room",
+    kind: "survive",
+    description: "common noun after with",
+  },
+  {
+    id: "s12",
+    input: "dinner with Park Slope views",
+    expected: "dinner with Park Slope views",
+    kind: "survive",
+    description: "neighborhood after with",
+  },
+  {
+    id: "s13",
+    input: "drinks with Fort Greene energy",
+    expected: "drinks with Fort Greene energy",
+    kind: "survive",
+    description: "neighborhood after with",
+  },
+  {
+    id: "s14",
+    input: "with Lincoln Center after",
+    expected: "with Lincoln Center after",
+    kind: "survive",
+    description: "landmark after with",
+  },
+  {
+    id: "s15",
+    input: "with Grand Central nearby",
+    expected: "with Grand Central nearby",
+    kind: "survive",
+    description: "landmark after with",
+  },
+  {
+    id: "s16",
+    input: "with omakase if possible",
+    expected: "with omakase if possible",
+    kind: "survive",
+    description: "cuisine lowercase",
+  },
+  {
+    id: "s17",
+    input: "with Quince if they have a seat",
+    expected: "with Quince if they have a seat",
+    kind: "survive",
+    description: "unknown venue-shaped token not in given-name list",
+  },
+  {
+    id: "s18",
+    input: "with Canlis on the trip",
+    expected: "with Canlis on the trip",
+    kind: "survive",
+    description: "unknown venue-shaped token",
+  },
+  {
+    id: "s19",
+    input: "Anniversary dinner with my wife",
+    expected: "Anniversary dinner with my wife",
+    kind: "survive",
+    description: "relation without a given name",
+  },
+  {
+    id: "s20",
+    input: "something near 11215",
+    expected: "something near 11215",
+    kind: "survive",
+    description: "bare ZIP-like number",
+  },
+  {
+    id: "s21",
+    input: "under $140 for two",
+    expected: "under $140 for two",
+    kind: "survive",
+    description: "budget",
+  },
+  {
+    id: "s22",
+    input: "hey find a place called Canlis",
+    expected: "hey find a place called Canlis",
+    kind: "survive",
+    description: "place called + unknown venue",
+  },
+  {
+    id: "s23",
+    input: "with New Year fireworks",
+    expected: "with New Year fireworks",
+    kind: "survive",
+    description: "holiday phrase",
+  },
+  {
+    id: "s24",
+    input: "bars on the waterfront then dessert",
+    expected: "bars on the waterfront then dessert",
+    kind: "survive",
+    description: "no person cue",
+  },
+];
+
+export const heldOutCases: HeldOutCase[] = [...heldOutMiss, ...heldOutSurvive];

@@ -1,0 +1,210 @@
+/**
+ * Round-3 regressions. Inputs are intentionally different from the
+ * reviewer-quoted examples so the fixes have to be general.
+ */
+import assert from "node:assert/strict";
+import { describe, it } from "node:test";
+
+import { isGivenName } from "../../src/monitoring/data/lookup";
+import { GIVEN_NAME_COUNT, MAX_INPUT_CHARS, redact, redactValue } from "../../src/monitoring";
+
+describe("strong cues must not wipe calendar or borough terms", () => {
+  it("leaves a weekday after a bare date-noun", () => {
+    assert.equal(redact("brunch reservation Wednesday in Tribeca").text, "brunch reservation Wednesday in Tribeca");
+  });
+
+  it("leaves a month used as a calendar date", () => {
+    assert.equal(redact("reservation April 3 around 8").text, "reservation April 3 around 8");
+  });
+
+  it("leaves a labeled weekday and month abbreviation", () => {
+    assert.equal(redact("Night out: Saturday, Nov 8").text, "Night out: Saturday, Nov 8");
+  });
+
+  it("leaves a multi-word borough after an action verb", () => {
+    assert.equal(redact("Taking Staten Island by storm").text, "Taking Staten Island by storm");
+  });
+
+  it("still redacts a month after possessive + relation", () => {
+    assert.equal(redact("dinner with my girlfriend April").text, "dinner with my girlfriend [NAME]");
+  });
+
+  it("still redacts after an article + relation with a whitespace gap", () => {
+    assert.equal(redact("a roommate Dorota").text, "a roommate [NAME]");
+  });
+});
+
+describe("possessive event cue is an allowlist", () => {
+  it("leaves a possessive venue + food noun", () => {
+    assert.equal(redact("Lombardi's slices after the show").text, "Lombardi's slices after the show");
+  });
+
+  it("leaves another possessive venue + common noun", () => {
+    assert.equal(redact("Di Fara's oven if we can walk").text, "Di Fara's oven if we can walk");
+  });
+
+  it("never fires before day", () => {
+    assert.equal(redact("Father's day brunch").text, "Father's day brunch");
+    assert.equal(redact("New Year's day walk").text, "New Year's day walk");
+  });
+
+  it("redacts possessive + allowlisted event noun", () => {
+    assert.equal(redact("plan for Nia's bday").text, "plan for [NAME]'s bday");
+    assert.equal(redact("Keiko's anniversary dinner").text, "[NAME]'s anniversary dinner");
+  });
+
+  it("skips a two-token capitalized venue possessive", () => {
+    assert.equal(redact("walk past L'Artusi's pasta").text, "walk past L'Artusi's pasta");
+  });
+});
+
+describe("added relation words and first-person list cues", () => {
+  it("redacts after newer kinship slang", () => {
+    assert.equal(redact("my bestie Nia wants wine").text, "my bestie [NAME] wants wine");
+    assert.equal(redact("my bff Keiko").text, "my bff [NAME]");
+    assert.equal(redact("my hubby Tarek and I").text, "my hubby [NAME] and I");
+    assert.equal(redact("my grandma Aoife").text, "my grandma [NAME]");
+    assert.equal(redact("my crush Chioma").text, "my crush [NAME]");
+  });
+
+  it("redacts X & I and X + me and myself and X", () => {
+    assert.equal(redact("Nia & I want ramen").text, "[NAME] & I want ramen");
+    assert.equal(redact("Keiko + me need sushi").text, "[NAME] + me need sushi");
+    assert.equal(redact("myself and Tarek").text, "myself and [NAME]");
+  });
+
+  it("catches a third list member after & and a second after /", () => {
+    assert.equal(redact("Nia, Keiko & Tarek").text, "[NAME], [NAME] & [NAME]");
+    assert.equal(redact("Nia/Keiko/Tarek").text, "[NAME]/[NAME]/[NAME]");
+  });
+});
+
+describe("public API", () => {
+  it("keeps redactForStorage and does not export redactForTrace from the barrel", async () => {
+    const monitoring = await import("../../src/monitoring");
+    assert.equal(typeof monitoring.redactForStorage, "function");
+    assert.equal("redactForTrace" in monitoring, false);
+    assert.equal("redactTextUncapped" in monitoring, false);
+  });
+
+});
+
+describe("redactValue hardening", () => {
+  it("maps binary-like values to [BINARY]", () => {
+    assert.equal(redactValue(Buffer.from("secret")), "[BINARY]");
+    assert.equal(redactValue(new Uint8Array([1, 2, 3])), "[BINARY]");
+    assert.equal(redactValue(new ArrayBuffer(8)), "[BINARY]");
+    assert.equal(redactValue(new DataView(new ArrayBuffer(4))), "[BINARY]");
+  });
+
+  it("fails closed on an invalid Date", () => {
+    const result = redactValue(new Date("not-a-date"));
+    assert.equal(result, "[REDACTION_ERROR]");
+  });
+
+  it("disambiguates colliding redacted keys", () => {
+    const result = redactValue({
+      "my friend Nia": "a",
+      "my friend Keiko": "b",
+    }) as Record<string, string>;
+    const keys = Object.keys(result);
+    assert.equal(keys.length, 2);
+    assert.ok(keys.every((key) => key.includes("[NAME]")));
+    assert.notEqual(keys[0], keys[1]);
+  });
+
+  it("propagates overflow from a nested string on redact(object)", () => {
+    const result = redact({ note: "x".repeat(MAX_INPUT_CHARS + 1) });
+    assert.equal(result.ok, false);
+    if (!result.ok) {
+      assert.equal(result.error, "too_long");
+      assert.equal(result.text, "");
+    }
+  });
+
+  it("fails closed after a node budget", () => {
+    const fat = Array.from({ length: 12_000 }, (_, i) => i);
+    const result = redactValue(fat);
+    assert.ok(result === "[REDACTION_ERROR]" || (Array.isArray(result) && result.includes("[REDACTION_ERROR]")));
+  });
+
+  it("returns ok:false from redact(object) when the node budget is exhausted", () => {
+    const fat = Array.from({ length: 12_000 }, (_, i) => i);
+    const result = redact(fat);
+    assert.equal(result.ok, false);
+    if (!result.ok) {
+      assert.equal(result.error, "internal");
+      assert.equal(result.text, "");
+    }
+  });
+
+  it("caps object keys at MAX_INPUT_CHARS instead of the uncapped path", () => {
+    const longKey = "k".repeat(MAX_INPUT_CHARS + 1);
+    const result = redact({ [longKey]: "ok" });
+    assert.equal(result.ok, false);
+    if (!result.ok) {
+      assert.equal(result.error, "too_long");
+      assert.equal(result.text, "");
+    }
+  });
+
+  it("reports real counts for redact(object)", () => {
+    const result = redact({ note: "dinner with my friend Keiko" });
+    assert.equal(result.ok, true);
+    assert.ok(result.counts.names >= 1);
+  });
+});
+
+describe("date-as-relation must not eat calendar words", () => {
+  it("leaves a weekday after our date", () => {
+    assert.equal(redact("book our date Thursday evening").text, "book our date Thursday evening");
+  });
+
+  it("leaves a weekday after my date", () => {
+    assert.equal(redact("after my date Sunday we walk").text, "after my date Sunday we walk");
+  });
+
+  it("leaves a weekday after with our date", () => {
+    assert.equal(redact("with our date Wednesday").text, "with our date Wednesday");
+  });
+
+  it("leaves a relative-time word after my date", () => {
+    assert.equal(redact("after my date Tonight we walk").text, "after my date Tonight we walk");
+  });
+});
+
+describe("name-shaped NYC neighborhoods survive a weak with", () => {
+  it("leaves Hamilton Heights and Forest Hills", () => {
+    assert.equal(redact("drinks with Hamilton Heights views").text, "drinks with Hamilton Heights views");
+    assert.equal(redact("dinner with Forest Hills energy").text, "dinner with Forest Hills energy");
+  });
+
+  it("leaves other name-shaped neighborhoods from the NTA extract", () => {
+    assert.equal(redact("coffee with Morris Park regulars").text, "coffee with Morris Park regulars");
+    assert.equal(redact("brunch with Howard Beach cousins").text, "brunch with Howard Beach cousins");
+    assert.equal(redact("walk with Lincoln Square tourists").text, "walk with Lincoln Square tourists");
+    assert.equal(redact("picnic with Little Island views").text, "picnic with Little Island views");
+  });
+});
+
+describe("significant other is only the capitalized SO token", () => {
+  it("does not treat lowercase so as a relation", () => {
+    assert.equal(redact("dinner with my so Keiko later").text, "dinner with my so Keiko later");
+  });
+
+  it("redacts after capitalized SO", () => {
+    assert.equal(redact("dinner with my SO Keiko later").text, "dinner with my SO [NAME] later");
+  });
+});
+
+describe("given-name list coverage", () => {
+  it("includes later-year and international names used in this round", () => {
+    assert.equal(isGivenName("Kaveh"), true);
+    assert.equal(isGivenName("Uchenna"), true);
+    assert.equal(isGivenName("Dorota"), true);
+    assert.equal(isGivenName("Saoirse"), true);
+    assert.equal(isGivenName("Chioma"), true);
+    assert.equal(isGivenName("Tarek"), true);
+    assert.ok(GIVEN_NAME_COUNT >= 5000);
+  });
+});
