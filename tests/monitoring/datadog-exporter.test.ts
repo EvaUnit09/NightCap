@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { afterEach, beforeEach, describe, it } from "node:test";
 
+import { resetConfig } from "../../src/models";
 import {
+  createDatadogExporter,
+  registerDatadogTracing,
+  resetDatadogTracingForTests,
   safeErrorCode,
   traceWithClient,
   type LlmobsAnnotation,
@@ -93,4 +97,49 @@ describe("safeErrorCode", () => {
     assert.equal(safeErrorCode(LEAKY_MESSAGE), "UnknownError");
     assert.equal(safeErrorCode(undefined), "UnknownError");
   });
+});
+
+describe("registerDatadogTracing", () => {
+  const originalEnv = { ...process.env };
+
+  beforeEach(() => {
+    process.env.DD_API_KEY = "ci-placeholder-not-a-real-key";
+    resetConfig();
+    resetDatadogTracingForTests();
+  });
+
+  afterEach(() => {
+    process.env = { ...originalEnv };
+    resetConfig();
+    resetDatadogTracingForTests();
+  });
+
+  const failingLoaders = {
+    "tracer.init throws": async () => ({
+      default: {
+        init(): never {
+          throw new RangeError(LEAKY_MESSAGE);
+        },
+        llmobs: {},
+      },
+    }),
+    "the dd-trace import rejects": async () => {
+      throw new RangeError(LEAKY_MESSAGE);
+    },
+  };
+
+  for (const [label, load] of Object.entries(failingLoaders)) {
+    it(`continues untraced with one name-only warning when ${label}`, async (t) => {
+      const warn = t.mock.method(console, "warn", () => undefined);
+
+      await assert.doesNotReject(registerDatadogTracing(load));
+      const result = await createDatadogExporter().wrap(ROOT_SPAN, () => 7);
+
+      assert.equal(result, 7);
+      assert.equal(warn.mock.callCount(), 1);
+      const logged = warn.mock.calls[0].arguments.join(" ");
+      assert.match(logged, /RangeError/);
+      assert.equal(logged.includes("Sarah"), false);
+    });
+  }
 });

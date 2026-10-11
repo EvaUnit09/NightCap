@@ -18,6 +18,15 @@ export interface LlmobsClient {
   ): T | Promise<T>;
 }
 
+interface DdTraceModule {
+  readonly default: {
+    init(options: object): unknown;
+    readonly llmobs: unknown;
+  };
+}
+
+type LoadDdTrace = () => Promise<DdTraceModule>;
+
 type SpanOutcome = { status: "ok" } | { status: "error"; error_code: string };
 
 const SAFE_ERROR_CODE = /^[A-Za-z0-9_.:-]{1,64}$/;
@@ -57,18 +66,16 @@ function metricsFrom(attributes: Record<string, unknown>): Record<string, number
   return metrics;
 }
 
-export function safeErrorCode(error: unknown): string {
+function safeField(error: unknown, field: "code" | "name"): string | undefined {
   if (typeof error !== "object" || error === null) {
-    return UNKNOWN_ERROR_CODE;
+    return undefined;
   }
-  const { code, name } = error as { code?: unknown; name?: unknown };
-  if (typeof code === "string" && SAFE_ERROR_CODE.test(code)) {
-    return code;
-  }
-  if (typeof name === "string" && SAFE_ERROR_CODE.test(name)) {
-    return name;
-  }
-  return UNKNOWN_ERROR_CODE;
+  const value = (error as Record<string, unknown>)[field];
+  return typeof value === "string" && SAFE_ERROR_CODE.test(value) ? value : undefined;
+}
+
+export function safeErrorCode(error: unknown): string {
+  return safeField(error, "code") ?? safeField(error, "name") ?? UNKNOWN_ERROR_CODE;
 }
 
 /**
@@ -126,25 +133,8 @@ export async function traceWithClient<T>(
   }
 }
 
-/**
- * Init dd-trace LLM Observability only when a key is present and this is
- * a running server, never during `next build`. Plugins stay off so APM
- * auto-instrumentation cannot capture request bodies (#27).
- */
-export async function registerDatadogTracing(): Promise<void> {
-  if (initAttempted || llmobs) {
-    return;
-  }
-  if (isBuildPhase() || process.env.NEXT_RUNTIME === "edge") {
-    return;
-  }
-  const apiKey = getOptionalDdApiKey();
-  if (!apiKey) {
-    return;
-  }
-  initAttempted = true;
-  const dd = await import("dd-trace");
-  const tracer = dd.default;
+async function initLlmobs(load: LoadDdTrace): Promise<LlmobsClient> {
+  const tracer = (await load()).default;
   tracer.init({
     llmobs: {
       mlApp: process.env.DD_LLMOBS_ML_APP ?? "nightcap",
@@ -155,7 +145,34 @@ export async function registerDatadogTracing(): Promise<void> {
     runtimeMetrics: false,
     logInjection: false,
   });
-  llmobs = tracer.llmobs as unknown as LlmobsClient;
+  return tracer.llmobs as LlmobsClient;
+}
+
+/**
+ * Init dd-trace LLM Observability only when a key is present and this is
+ * a running server, never during `next build`. Plugins stay off so APM
+ * auto-instrumentation cannot capture request bodies (#27). A failed init
+ * leaves requests untraced rather than failing them.
+ */
+export async function registerDatadogTracing(
+  load: LoadDdTrace = () => import("dd-trace"),
+): Promise<void> {
+  if (initAttempted || llmobs) {
+    return;
+  }
+  if (isBuildPhase() || process.env.NEXT_RUNTIME === "edge") {
+    return;
+  }
+  if (!getOptionalDdApiKey()) {
+    return;
+  }
+  initAttempted = true;
+  try {
+    llmobs = await initLlmobs(load);
+  } catch (error) {
+    const name = safeField(error, "name") ?? UNKNOWN_ERROR_CODE;
+    console.warn(`[monitoring] Datadog tracing disabled, continuing untraced: ${name}`);
+  }
 }
 
 export function resetDatadogTracingForTests(): void {
