@@ -1,5 +1,6 @@
 import "server-only";
 
+import type { Intent } from "../validation/intent";
 import type { TraceStage } from "./stages";
 
 export type RequestHash = string & { readonly __brand: "RequestHash" };
@@ -9,6 +10,21 @@ export type ExporterKind = "noop" | "memory" | "datadog";
 export type SpanKind = "workflow" | "llm" | "task" | "retrieval";
 
 export type CacheHit = "hit" | "miss";
+
+/**
+ * The only intent fields a span may carry. Every free-text field
+ * (`area`, `dietary`, `vibeTags`) is reduced to a count (#27).
+ */
+export interface SpanIntent {
+  readonly budgetUsd: Intent["budgetUsd"];
+  readonly stopTypes: Intent["stopTypes"];
+  readonly singleStop: Intent["singleStop"];
+  readonly window: Intent["window"];
+  readonly dietaryCount: number;
+  readonly vibeTagCount: number;
+}
+
+export type SpanIntentSummary = SpanIntent | { readonly valid: false };
 
 /**
  * Tags a stage span may carry. Closed set: callers cannot pass `user_text`.

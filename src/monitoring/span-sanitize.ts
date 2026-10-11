@@ -1,7 +1,7 @@
 import "server-only";
 
-import { redactValue } from "./redact";
-import type { RequestHash } from "./trace-types";
+import { intentSchema } from "../validation/intent";
+import type { RequestHash, SpanIntentSummary } from "./trace-types";
 import type { StageAttrs } from "./trace-types";
 
 const FORBIDDEN_KEYS = new Set([
@@ -24,21 +24,20 @@ const PROMPT_TAG_KEYS = [
   "prompt_rendered_hash",
 ] as const;
 
-export function sanitizeParsedIntent(intent: unknown): unknown {
-  const redacted = redactValue(intent);
-  if (redacted === null || redacted === undefined) {
-    return redacted;
+export function summarizeIntent(intent: unknown): SpanIntentSummary {
+  const parsed = intentSchema.safeParse(intent);
+  if (!parsed.success) {
+    return { valid: false };
   }
-  if (typeof redacted !== "object" || Array.isArray(redacted)) {
-    return redacted;
-  }
-  const record = redacted as Record<string, unknown>;
-  if (!Object.hasOwn(record, "people")) {
-    return record;
-  }
-  const rest: Record<string, unknown> = { ...record };
-  delete rest.people;
-  return rest;
+  const { budgetUsd, stopTypes, singleStop, window, dietary, vibeTags } = parsed.data;
+  return {
+    budgetUsd,
+    stopTypes,
+    singleStop,
+    window: { start: window.start, end: window.end },
+    dietaryCount: dietary.length,
+    vibeTagCount: vibeTags.length,
+  };
 }
 
 export function rootAttributes(input: {
@@ -50,7 +49,7 @@ export function rootAttributes(input: {
     request_hash: input.requestHash,
   };
   if (input.parsedIntent !== undefined) {
-    attributes.parsed_intent = sanitizeParsedIntent(input.parsedIntent);
+    attributes.parsed_intent = summarizeIntent(input.parsedIntent);
   }
   if (input.testCaseId !== undefined) {
     attributes.test_case_id = input.testCaseId;

@@ -33,13 +33,22 @@ const PII_INTENT = {
   },
   budgetUsd: 150,
   dietary: ["vegetarian, with Sarah"],
-  vibeTags: ["low-key night with Sarah", "call (555) 123-4567"],
+  vibeTags: [
+    "low-key night with Sarah",
+    "call (555) 123-4567",
+    "with sarah",
+    "Marcus Okafor's bday",
+  ],
   stopTypes: ["dinner", "drinks"],
   singleStop: false,
 };
 
 function serialized(value: unknown): string {
   return JSON.stringify(value);
+}
+
+function exportedIntent(exporter: ReturnType<typeof createMemoryExporter>): unknown {
+  return JSON.parse(serialized(exporter.traces[0].attributes.parsed_intent));
 }
 
 function allAttributes(exporter: ReturnType<typeof createMemoryExporter>): unknown[] {
@@ -191,74 +200,44 @@ describe("Datadog LLM Observability tracing", () => {
     assert.match(a, /^[0-9a-f]{64}$/);
   });
 
-  it("redacts parsed_intent free-text fields before they land on a span", async () => {
+  it("exports only the allowlisted, non-free-text parsed_intent fields", async () => {
     const exporter = createMemoryExporter();
 
     await withRequestTrace(
-      {
-        requestText: PII_REQUEST,
-        parsedIntent: PII_INTENT,
-        exporter,
-      },
+      { requestText: PII_REQUEST, parsedIntent: PII_INTENT, exporter },
       async () => {
         await withStage({ stage: "parse" }, async () => undefined);
       },
     );
 
-    const intent = exporter.traces[0].attributes.parsed_intent;
-    assert.ok(intent && typeof intent === "object");
-    const record = intent as Record<string, unknown>;
-    assert.equal(typeof record.area, "string");
-    assert.match(String(record.area), /\[NAME\]/);
-    assert.equal(String(record.area).includes("Sarah"), false);
-    assert.equal(String(record.area).includes("jane@example.com"), false);
-
-    const dietary = record.dietary;
-    assert.ok(Array.isArray(dietary));
-    assert.equal(
-      dietary.some((value) => String(value).includes("Sarah")),
-      false,
-    );
-    assert.ok(dietary.some((value) => String(value).includes("[NAME]")));
-
-    const vibeTags = record.vibeTags;
-    assert.ok(Array.isArray(vibeTags));
-    assert.equal(
-      vibeTags.some((value) => String(value).includes("Sarah")),
-      false,
-    );
-    assert.equal(
-      vibeTags.some((value) => String(value).includes("(555) 123-4567")),
-      false,
-    );
-    assert.ok(record.people === undefined);
+    assert.deepEqual(exportedIntent(exporter), {
+      budgetUsd: 150,
+      stopTypes: ["dinner", "drinks"],
+      singleStop: false,
+      window: PII_INTENT.window,
+      dietaryCount: 1,
+      vibeTagCount: 4,
+    });
+    const blob = serialized(exporter.traces).toLowerCase();
+    for (const fragment of ["sarah", "okafor", "union square", "vegetarian", "low-key"]) {
+      assert.equal(blob.includes(fragment), false, `${fragment} leaked into spans`);
+    }
   });
 
-  it("drops a people field from span payload without requiring it on the intent schema", async () => {
+  it("exports { valid: false } for a parsed_intent the schema rejects", async () => {
     const exporter = createMemoryExporter();
 
     await withRequestTrace(
       {
         requestText: "a night out",
-        parsedIntent: {
-          area: "Brooklyn",
-          window: PII_INTENT.window,
-          budgetUsd: 80,
-          dietary: ["vegetarian"],
-          vibeTags: ["low-key"],
-          stopTypes: ["dinner", "drinks"],
-          singleStop: false,
-          people: ["Sarah"],
-        },
+        parsedIntent: { ...PII_INTENT, people: ["Sarah"] },
         exporter,
       },
       async () => undefined,
     );
 
-    const intent = exporter.traces[0].attributes.parsed_intent as Record<string, unknown>;
-    assert.equal("people" in intent, false);
-    const blob = serialized(exporter.traces);
-    assert.equal(blob.includes("Sarah"), false);
+    assert.deepEqual(exportedIntent(exporter), { valid: false });
+    assert.equal(serialized(exporter.traces).includes("Sarah"), false);
   });
 
   it("selects the datadog exporter when DD_API_KEY is set, without sending", () => {
