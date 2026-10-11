@@ -89,8 +89,7 @@ const configSchema = z.object({
   // API Keys - required secrets, fail at runtime when accessed if missing
   anthropicApiKey: z.string().min(1).optional(),
   googlePlacesApiKey: z.string().min(1).optional(),
-  datadogApiKey: z.string().min(1).optional(),
-  /** Official Datadog SDK key (`DD_API_KEY`). Alias of `DATADOG_API_KEY`. */
+  /** Datadog key. `DD_API_KEY` is the only name dd-trace reads. */
   ddApiKey: z.string().min(1).optional(),
   turnstileSecretKey: z.string().min(1).optional(),
   /**
@@ -169,6 +168,20 @@ type Config = z.infer<typeof configSchema>;
 let config: Config | null = null;
 
 /**
+ * dd-trace reads only `DD_API_KEY`. A key left under the old alias would
+ * select the Datadog exporter while the SDK sends nothing.
+ */
+function readDdApiKey(): string | undefined {
+  const ddApiKey = preprocessEnvVar(process.env.DD_API_KEY);
+  if (ddApiKey === undefined && preprocessEnvVar(process.env.DATADOG_API_KEY) !== undefined) {
+    throw new Error(
+      "DATADOG_API_KEY is set but DD_API_KEY is not: rename it to DD_API_KEY. dd-trace reads only DD_API_KEY.",
+    );
+  }
+  return ddApiKey;
+}
+
+/**
  * Load and validate configuration from environment variables.
  * Non-secrets use sensible defaults; secrets are optional here but fail when accessed if missing.
  */
@@ -181,8 +194,7 @@ function loadConfig(): Config {
     // API Keys - preprocess to handle empty strings
     anthropicApiKey: preprocessEnvVar(process.env.ANTHROPIC_API_KEY),
     googlePlacesApiKey: preprocessEnvVar(process.env.GOOGLE_PLACES_API_KEY),
-    datadogApiKey: preprocessEnvVar(process.env.DATADOG_API_KEY),
-    ddApiKey: preprocessEnvVar(process.env.DD_API_KEY),
+    ddApiKey: readDdApiKey(),
     turnstileSecretKey: preprocessEnvVar(process.env.TURNSTILE_SECRET_KEY),
     requestHashSecret: preprocessEnvVar(process.env.REQUEST_HASH_SECRET),
 
@@ -257,17 +269,12 @@ export function getGooglePlacesApiKey(): string {
 /** Get Datadog API key, failing if not configured. */
 export function getDatadogApiKey(): string {
   const cfg = getConfig();
-  return requireSecret("DATADOG_API_KEY", cfg.datadogApiKey ?? cfg.ddApiKey);
+  return requireSecret("DD_API_KEY", cfg.ddApiKey);
 }
 
-/**
- * Optional Datadog key for the LLM Obs exporter.
- * Reads `DD_API_KEY`, then the existing `DATADOG_API_KEY` alias.
- * Missing is a no-op exporter, not a throw.
- */
+/** Optional `DD_API_KEY` for the LLM Obs exporter. Missing is a no-op exporter, not a throw. */
 export function getOptionalDdApiKey(): string | undefined {
-  const cfg = getConfig();
-  return cfg.ddApiKey ?? cfg.datadogApiKey;
+  return getConfig().ddApiKey;
 }
 
 /**

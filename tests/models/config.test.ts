@@ -219,7 +219,7 @@ describe("Config module", () => {
       assert.throws(
         () => getDatadogApiKey(),
         {
-          message: /Missing required secret: DATADOG_API_KEY/,
+          message: /Missing required secret: DD_API_KEY/,
         }
       );
     });
@@ -235,11 +235,23 @@ describe("Config module", () => {
       );
     });
 
-    it("treats DD_API_KEY as an alias for the Datadog key", () => {
+    it("reads the Datadog key from DD_API_KEY, the only name dd-trace reads", () => {
       delete process.env.DATADOG_API_KEY;
       process.env.DD_API_KEY = "dd-key-from-official-name";
       assert.equal(getOptionalDdApiKey(), "dd-key-from-official-name");
       assert.equal(getDatadogApiKey(), "dd-key-from-official-name");
+    });
+
+    it("refuses DATADOG_API_KEY without DD_API_KEY and names the rename", () => {
+      delete process.env.DD_API_KEY;
+      process.env.DATADOG_API_KEY = "dd-key-under-the-old-name";
+      assert.throws(() => getOptionalDdApiKey(), {
+        message: /DATADOG_API_KEY.*rename it to DD_API_KEY/,
+      });
+      resetConfig();
+      assert.throws(() => getConfig(), {
+        message: /rename it to DD_API_KEY/,
+      });
     });
 
     it("returns undefined from getOptionalDdApiKey when no Datadog key is set", () => {
