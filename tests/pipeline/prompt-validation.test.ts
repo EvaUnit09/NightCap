@@ -308,20 +308,20 @@ describe("single-stop prompt rules", () => {
       assert.doesNotMatch(body, /"mode": "(walk|transit|rideshare|taxi|DRIVE)"/);
     }
     const scope = readFileSync(resolve("docs/scope.md"), "utf8");
-    const architecture = readFileSync(resolve("docs/architecture.md"), "utf8");
+    const buildSequence = readFileSync(resolve("docs/build-sequence.md"), "utf8");
     assert.match(scope, /TRANSIT/);
     assert.match(scope, /BICYCLE/);
     assert.match(scope, /WALK/);
-    assert.match(architecture, /TRANSIT, BICYCLE, and WALK/);
+    assert.match(buildSequence, /TRANSIT, BICYCLE, and WALK/);
   });
 
-  it("mentions the single-stop exception in refine_agent, scope, and architecture", () => {
+  it("mentions the single-stop exception in refine_agent, scope, and the build sequence", () => {
     const refine = loadPrompt("refine_agent", "v1").body;
     assert.match(refine, /singleStop|exactly \{\{min_stops_single\}\}/);
     const scope = readFileSync(resolve("docs/scope.md"), "utf8");
-    const architecture = readFileSync(resolve("docs/architecture.md"), "utf8");
+    const buildSequence = readFileSync(resolve("docs/build-sequence.md"), "utf8");
     assert.match(scope, /single (place|stop)/i);
-    assert.match(architecture, /singleStop|single (place|stop)/i);
+    assert.match(buildSequence, /singleStop|single (place|stop)/i);
   });
 });
 
