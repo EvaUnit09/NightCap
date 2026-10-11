@@ -36,7 +36,8 @@ export function sanitizeParsedIntent(intent: unknown): unknown {
   if (!Object.hasOwn(record, "people")) {
     return record;
   }
-  const { people: _dropped, ...rest } = record;
+  const rest: Record<string, unknown> = { ...record };
+  delete rest.people;
   return rest;
 }
 
