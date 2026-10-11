@@ -8,6 +8,9 @@ import {
   getAnthropicApiKey,
   getConfig,
   getDatadogApiKey,
+  getOptionalDdApiKey,
+  getRequestHashSecret,
+  DEV_TEST_REQUEST_HASH_SECRET,
   getGooglePlacesApiKey,
   getParseModelId,
   getPlacesCoordsCacheTtlDays,
@@ -211,6 +214,7 @@ describe("Config module", () => {
 
     it("throws clear error when Datadog API key is missing", () => {
       delete process.env.DATADOG_API_KEY;
+      delete process.env.DD_API_KEY;
 
       assert.throws(
         () => getDatadogApiKey(),
@@ -229,6 +233,27 @@ describe("Config module", () => {
           message: /Missing required secret: TURNSTILE_SECRET_KEY/,
         }
       );
+    });
+
+    it("treats DD_API_KEY as an alias for the Datadog key", () => {
+      delete process.env.DATADOG_API_KEY;
+      process.env.DD_API_KEY = "dd-key-from-official-name";
+      assert.equal(getOptionalDdApiKey(), "dd-key-from-official-name");
+      assert.equal(getDatadogApiKey(), "dd-key-from-official-name");
+    });
+
+    it("returns undefined from getOptionalDdApiKey when no Datadog key is set", () => {
+      delete process.env.DATADOG_API_KEY;
+      delete process.env.DD_API_KEY;
+      assert.equal(getOptionalDdApiKey(), undefined);
+    });
+
+    it("uses REQUEST_HASH_SECRET when set and the marked test key otherwise", () => {
+      delete process.env.REQUEST_HASH_SECRET;
+      assert.equal(getRequestHashSecret(), DEV_TEST_REQUEST_HASH_SECRET);
+      resetConfig();
+      process.env.REQUEST_HASH_SECRET = "unit-test-hmac-secret";
+      assert.equal(getRequestHashSecret(), "unit-test-hmac-secret");
     });
 
     it("allows getConfig to succeed even when secrets are missing", () => {

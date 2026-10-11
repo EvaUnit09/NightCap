@@ -75,6 +75,13 @@ function preprocessPlainInt(value: string | undefined): string | undefined {
 }
 
 /**
+ * HMAC key used only in development and `npm test` when REQUEST_HASH_SECRET
+ * is unset. Production startup rejects this value.
+ */
+export const DEV_TEST_REQUEST_HASH_SECRET =
+  "nightcap-dev-test-request-hash-secret-not-for-production";
+
+/**
  * Configuration schema with Zod validation.
  * Secrets must be provided; non-secrets have documented defaults.
  */
@@ -83,7 +90,14 @@ const configSchema = z.object({
   anthropicApiKey: z.string().min(1).optional(),
   googlePlacesApiKey: z.string().min(1).optional(),
   datadogApiKey: z.string().min(1).optional(),
+  /** Official Datadog SDK key (`DD_API_KEY`). Alias of `DATADOG_API_KEY`. */
+  ddApiKey: z.string().min(1).optional(),
   turnstileSecretKey: z.string().min(1).optional(),
+  /**
+   * HMAC-SHA256 key for the request hash attached to Datadog spans.
+   * Required in production. Dev/test fall back to DEV_TEST_REQUEST_HASH_SECRET.
+   */
+  requestHashSecret: z.string().min(1).optional(),
 
   // Model IDs - defaults from architecture (Haiku 4-5 for parse, Sonnet 5 for others)
   parseModelId: z.string().min(1).default("claude-haiku-4-5"),
@@ -168,7 +182,9 @@ function loadConfig(): Config {
     anthropicApiKey: preprocessEnvVar(process.env.ANTHROPIC_API_KEY),
     googlePlacesApiKey: preprocessEnvVar(process.env.GOOGLE_PLACES_API_KEY),
     datadogApiKey: preprocessEnvVar(process.env.DATADOG_API_KEY),
+    ddApiKey: preprocessEnvVar(process.env.DD_API_KEY),
     turnstileSecretKey: preprocessEnvVar(process.env.TURNSTILE_SECRET_KEY),
+    requestHashSecret: preprocessEnvVar(process.env.REQUEST_HASH_SECRET),
 
     // Model IDs
     parseModelId: preprocessEnvVar(process.env.PARSE_MODEL_ID),
@@ -241,7 +257,34 @@ export function getGooglePlacesApiKey(): string {
 /** Get Datadog API key, failing if not configured. */
 export function getDatadogApiKey(): string {
   const cfg = getConfig();
-  return requireSecret("DATADOG_API_KEY", cfg.datadogApiKey);
+  return requireSecret("DATADOG_API_KEY", cfg.datadogApiKey ?? cfg.ddApiKey);
+}
+
+/**
+ * Optional Datadog key for the LLM Obs exporter.
+ * Reads `DD_API_KEY`, then the existing `DATADOG_API_KEY` alias.
+ * Missing is a no-op exporter, not a throw.
+ */
+export function getOptionalDdApiKey(): string | undefined {
+  const cfg = getConfig();
+  return cfg.ddApiKey ?? cfg.datadogApiKey;
+}
+
+/**
+ * HMAC key for request hashes. Dev and test use a marked fallback when
+ * REQUEST_HASH_SECRET is unset. Production must set a real secret.
+ */
+export function getRequestHashSecret(): string {
+  const configured = getConfig().requestHashSecret;
+  if (configured) {
+    return configured;
+  }
+  if (process.env.NODE_ENV === "production" && !isNextBuildPhase(process.env.NEXT_PHASE)) {
+    throw new Error(
+      "Missing required secret: REQUEST_HASH_SECRET. Production cannot use the marked dev/test HMAC key.",
+    );
+  }
+  return DEV_TEST_REQUEST_HASH_SECRET;
 }
 
 /** Get Turnstile secret key, failing if not configured. */
@@ -382,6 +425,28 @@ export function assertProductionLiveRoutes(): void {
   }
   throw new Error(
     "Production refuses to start without ENABLE_LIVE_ROUTES=true and GOOGLE_PLACES_API_KEY. Runtime Routes outages use travel_service_unavailable."
+  );
+}
+
+/**
+ * Prod-only startup gate for the request-hash HMAC key (#32).
+ * `next build` sets NODE_ENV=production, so this must not run during a
+ * build phase — only when a production server starts. The marked
+ * DEV_TEST_REQUEST_HASH_SECRET is never valid in production.
+ */
+export function assertProductionRequestHashSecret(): void {
+  if (process.env.NODE_ENV !== "production") {
+    return;
+  }
+  if (isNextBuildPhase(process.env.NEXT_PHASE)) {
+    return;
+  }
+  const configured = getConfig().requestHashSecret;
+  if (configured && configured !== DEV_TEST_REQUEST_HASH_SECRET) {
+    return;
+  }
+  throw new Error(
+    "Production refuses to start without REQUEST_HASH_SECRET (a server-only HMAC key). The marked dev/test key is not allowed.",
   );
 }
 
