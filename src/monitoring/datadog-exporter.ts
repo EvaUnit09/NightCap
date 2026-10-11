@@ -1,24 +1,31 @@
 import "server-only";
 
 import { getOptionalDdApiKey } from "../models/config";
-import type { SpanKind, TraceExporter, TraceSpan } from "./trace-types";
+import type { SpanAttributes, SpanKind, TraceExporter, TraceSpan } from "./trace-types";
 
-type LlmobsAnnotate = {
-  annotate(
-    span: unknown,
-    options: {
-      tags?: Record<string, string>;
-      metadata?: Record<string, unknown>;
-      metrics?: Record<string, number>;
-    },
-  ): void;
+export interface LlmobsAnnotation {
+  readonly tags?: Record<string, string>;
+  readonly metadata?: Record<string, unknown>;
+  readonly metrics?: Record<string, number>;
+}
+
+/** The slice of dd-trace's `tracer.llmobs` this exporter calls. */
+export interface LlmobsClient {
+  annotate(span: unknown, options: LlmobsAnnotation): void;
   trace<T>(
     options: { name: string; kind: SpanKind },
     fn: (span: unknown) => T | Promise<T>,
   ): T | Promise<T>;
-};
+}
 
-let llmobs: LlmobsAnnotate | null = null;
+type SpanOutcome = { status: "ok" } | { status: "error"; error_code: string };
+
+const SAFE_ERROR_CODE = /^[A-Za-z0-9_.:-]{1,64}$/;
+const UNKNOWN_ERROR_CODE = "UnknownError";
+
+const originalErrors = new WeakMap<Error, unknown>();
+
+let llmobs: LlmobsClient | null = null;
 let initAttempted = false;
 
 function isBuildPhase(): boolean {
@@ -32,8 +39,6 @@ function isBuildPhase(): boolean {
 function flattenTags(attributes: Record<string, unknown>): Record<string, string> {
   const tags: Record<string, string> = {};
   for (const [key, value] of Object.entries(attributes)) {
-    if (value === undefined || value === null) continue;
-    if (key === "parsed_intent") continue;
     if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
       tags[key] = String(value);
     }
@@ -50,6 +55,75 @@ function metricsFrom(attributes: Record<string, unknown>): Record<string, number
     }
   }
   return metrics;
+}
+
+export function safeErrorCode(error: unknown): string {
+  if (typeof error !== "object" || error === null) {
+    return UNKNOWN_ERROR_CODE;
+  }
+  const { code, name } = error as { code?: unknown; name?: unknown };
+  if (typeof code === "string" && SAFE_ERROR_CODE.test(code)) {
+    return code;
+  }
+  if (typeof name === "string" && SAFE_ERROR_CODE.test(name)) {
+    return name;
+  }
+  return UNKNOWN_ERROR_CODE;
+}
+
+/**
+ * dd-trace copies `message` and `stack` of the error it sees into the
+ * exported event, and model output can echo the user's words into either.
+ */
+function redactedError(original: unknown, code: string): Error {
+  const error = new Error(code);
+  error.name = code;
+  error.stack = code;
+  originalErrors.set(error, original);
+  return error;
+}
+
+function annotateSpan(
+  client: LlmobsClient,
+  ddSpan: unknown,
+  attributes: SpanAttributes,
+  latencyMs: number,
+  outcome: SpanOutcome,
+): void {
+  const { parsed_intent: parsedIntent, ...rest } = attributes as Record<string, unknown>;
+  const measured = { ...rest, latency_ms: latencyMs };
+  client.annotate(ddSpan, {
+    tags: flattenTags({ ...measured, ...outcome }),
+    metadata: parsedIntent === undefined ? undefined : { parsed_intent: parsedIntent },
+    metrics: metricsFrom(measured),
+  });
+}
+
+/** Trace `fn` through `client`; the caller always gets `fn`'s own result or error. */
+export async function traceWithClient<T>(
+  client: LlmobsClient,
+  span: TraceSpan,
+  fn: () => Promise<T> | T,
+): Promise<T> {
+  const started = Date.now();
+  try {
+    return await client.trace({ name: span.name, kind: span.kind }, async (ddSpan) => {
+      try {
+        const result = await fn();
+        annotateSpan(client, ddSpan, span.attributes, Date.now() - started, { status: "ok" });
+        return result;
+      } catch (error) {
+        const code = safeErrorCode(error);
+        annotateSpan(client, ddSpan, span.attributes, Date.now() - started, {
+          status: "error",
+          error_code: code,
+        });
+        throw redactedError(error, code);
+      }
+    });
+  } catch (error) {
+    throw error instanceof Error && originalErrors.has(error) ? originalErrors.get(error) : error;
+  }
 }
 
 /**
@@ -81,7 +155,7 @@ export async function registerDatadogTracing(): Promise<void> {
     runtimeMetrics: false,
     logInjection: false,
   });
-  llmobs = tracer.llmobs as unknown as LlmobsAnnotate;
+  llmobs = tracer.llmobs as unknown as LlmobsClient;
 }
 
 export function resetDatadogTracingForTests(): void {
@@ -96,40 +170,7 @@ export function createDatadogExporter(): TraceExporter {
       if (!llmobs) {
         await registerDatadogTracing();
       }
-      const active = llmobs;
-      if (!active) {
-        return await fn();
-      }
-      const started = Date.now();
-      return await Promise.resolve(
-        active.trace({ name: span.name, kind: span.kind }, async (ddSpan) => {
-          const attributes: Record<string, unknown> = { ...span.attributes };
-          try {
-            const result = await fn();
-            attributes.latency_ms = Date.now() - started;
-            active.annotate(ddSpan, {
-              tags: flattenTags(attributes),
-              metadata:
-                attributes.parsed_intent !== undefined
-                  ? { parsed_intent: attributes.parsed_intent }
-                  : undefined,
-              metrics: metricsFrom(attributes),
-            });
-            return result;
-          } catch (error) {
-            attributes.latency_ms = Date.now() - started;
-            active.annotate(ddSpan, {
-              tags: flattenTags(attributes),
-              metadata:
-                attributes.parsed_intent !== undefined
-                  ? { parsed_intent: attributes.parsed_intent }
-                  : undefined,
-              metrics: metricsFrom(attributes),
-            });
-            throw error;
-          }
-        }),
-      );
+      return llmobs ? traceWithClient(llmobs, span, fn) : await fn();
     },
   };
 }

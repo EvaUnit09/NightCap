@@ -52,13 +52,6 @@ function exportedIntent(exporter: ReturnType<typeof createMemoryExporter>): unkn
   return JSON.parse(serialized(exporter.traces[0].attributes.parsed_intent));
 }
 
-function allAttributes(exporter: ReturnType<typeof createMemoryExporter>): unknown[] {
-  return exporter.traces.flatMap((trace) => [
-    trace.attributes,
-    ...trace.spans.map((span) => span.attributes),
-  ]);
-}
-
 describe("Datadog LLM Observability tracing", () => {
   const originalEnv = { ...process.env };
 
