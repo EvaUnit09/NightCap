@@ -36,6 +36,8 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 ## PII redactor (`src/monitoring`)
 
 The module imports `server-only` so the given-name list cannot ship to
-the client. Plain-node scripts and the eval runner must load
+the client. Tracing (`withRequestTrace` / `withStage`) is server-only
+for the same reason and must not be imported from `app/` client files.
+Plain-node scripts and the eval runner must load
 `tests/setup.mjs` (or an equivalent shim) or run with
 `--conditions=react-server`. `npm test` already imports the shim.

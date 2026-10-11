@@ -6,6 +6,11 @@ export async function register(): Promise<void> {
   if (process.env.NEXT_RUNTIME === "edge") {
     return;
   }
-  const { assertProductionLiveRoutes } = await import("./src/models/config");
+  const { assertProductionLiveRoutes, assertProductionRequestHashSecret } = await import(
+    "./src/models/config"
+  );
   assertProductionLiveRoutes();
+  assertProductionRequestHashSecret();
+  const { registerDatadogTracing } = await import("./src/monitoring/datadog-exporter");
+  await registerDatadogTracing();
 }
