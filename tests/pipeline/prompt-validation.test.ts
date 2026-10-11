@@ -152,6 +152,7 @@ describe("repair_itinerary error codes", () => {
     "implausible_cost",
     "travel_unverified",
     "travel_mismatch",
+    "travel_service_unavailable",
   ] as const;
 
   it("lists #7 validation codes with one-line repair guidance and no premature JSON examples", () => {

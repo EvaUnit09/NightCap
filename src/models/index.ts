@@ -1,4 +1,5 @@
 export {
+  assertProductionLiveRoutes,
   getAgentMaxCostUsdPerTurn,
   getAgentMaxToolCalls,
   getAgentModelId,
@@ -15,6 +16,11 @@ export {
   getRepairMaxRounds,
   getRepairModelId,
   getTravelCapMinutes,
+  getTravelClaimToleranceMinutes,
+  getTravelBudgetMs,
+  getEnableLiveRoutes,
+  getRoutesApiTimeoutMs,
+  getPriceRanges,
   getTurnstileSecretKey,
   resetConfig,
 } from "./config";

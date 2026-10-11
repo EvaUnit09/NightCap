@@ -2,6 +2,12 @@ import "server-only";
 import { z } from "zod";
 
 import { MAX_TRAVEL_LEGS_PER_REQUEST_DEFAULT } from "../validation/bounds";
+import {
+  DEFAULT_PRICE_RANGES,
+  DEFAULT_TRAVEL_BUDGET_MS,
+  DEFAULT_TRAVEL_CAP_MINUTES,
+  DEFAULT_TRAVEL_TOLERANCE_MINUTES,
+} from "../validation/defaults";
 
 /**
  * Preprocess an environment variable: treat empty or whitespace-only strings as undefined.
@@ -11,6 +17,47 @@ function preprocessEnvVar(value: string | undefined): string | undefined {
   if (value === undefined) return undefined;
   const trimmed = value.trim();
   return trimmed === "" ? undefined : trimmed;
+}
+
+/** Inclusive heuristic per-person USD pair. Rejects min > max.
+ * Compared to estimatedCostUsd / partySize (default 2). */
+const priceRangeSchema = z
+  .tuple([z.number(), z.number()])
+  .refine(([min, max]) => min <= max, {
+    message: "Price range min must not exceed max",
+  });
+
+/** Parse `min,max` range env vars. Empty/whitespace → undefined (Zod default). */
+function parseRange(value: string | undefined): [number, number] | undefined {
+  const raw = preprocessEnvVar(value);
+  if (!raw) return undefined;
+  const parts = raw.split(",").map((part) => part.trim());
+  const sides = z
+    .tuple([
+      z.string().min(1, "Price range side must not be empty"),
+      z.string().min(1, "Price range side must not be empty"),
+    ])
+    .parse(parts);
+  const numbers = z.tuple([z.coerce.number(), z.coerce.number()]).parse(sides);
+  return priceRangeSchema.parse(numbers);
+}
+
+/** ENABLE_LIVE_ROUTES: only true/false/1/0. Unset/empty → false. */
+function parseLiveRoutesFlag(value: string | undefined): boolean {
+  const raw = preprocessEnvVar(value);
+  if (raw === undefined) {
+    return false;
+  }
+  const normalized = raw.toLowerCase();
+  if (normalized === "true" || normalized === "1") {
+    return true;
+  }
+  if (normalized === "false" || normalized === "0") {
+    return false;
+  }
+  throw new Error(
+    `ENABLE_LIVE_ROUTES must be true, false, 1, or 0 (got ${JSON.stringify(raw)})`
+  );
 }
 
 /**
@@ -39,7 +86,11 @@ const configSchema = z.object({
   rateLimitDailySpendUsd: z.coerce.number().positive().default(5),
 
   // Validation Caps - from architecture
-  travelCapMinutes: z.coerce.number().int().positive().default(25),
+  travelCapMinutes: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(DEFAULT_TRAVEL_CAP_MINUTES),
   agentMaxToolCalls: z.coerce.number().int().positive().default(6),
   agentMaxCostUsdPerTurn: z.coerce.number().positive().default(0.03),
   repairMaxRounds: z.coerce.number().int().positive().default(2),
@@ -50,6 +101,38 @@ const configSchema = z.object({
       { message: "MAX_TRAVEL_LEGS_PER_REQUEST must be an integer from 2 to 9" },
     )
     .default(MAX_TRAVEL_LEGS_PER_REQUEST_DEFAULT),
+
+  // Routes API
+  routesApiTimeoutMs: z.coerce.number().int().positive().default(5000),
+  travelClaimToleranceMinutes: z.coerce
+    .number()
+    .int()
+    .nonnegative()
+    .default(DEFAULT_TRAVEL_TOLERANCE_MINUTES),
+  travelBudgetMs: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(DEFAULT_TRAVEL_BUDGET_MS),
+  enableLiveRoutes: z.boolean().default(false),
+
+  // Heuristic per-person USD ranges (not from Google). Format "min,max".
+  // Validator compares estimatedCostUsd / partySize (default 2) to these.
+  priceRangeFree: priceRangeSchema.default([
+    ...DEFAULT_PRICE_RANGES.PRICE_LEVEL_FREE,
+  ]),
+  priceRangeInexpensive: priceRangeSchema.default([
+    ...DEFAULT_PRICE_RANGES.PRICE_LEVEL_INEXPENSIVE,
+  ]),
+  priceRangeModerate: priceRangeSchema.default([
+    ...DEFAULT_PRICE_RANGES.PRICE_LEVEL_MODERATE,
+  ]),
+  priceRangeExpensive: priceRangeSchema.default([
+    ...DEFAULT_PRICE_RANGES.PRICE_LEVEL_EXPENSIVE,
+  ]),
+  priceRangeVeryExpensive: priceRangeSchema.default([
+    ...DEFAULT_PRICE_RANGES.PRICE_LEVEL_VERY_EXPENSIVE,
+  ]),
 });
 
 type Config = z.infer<typeof configSchema>;
@@ -92,6 +175,18 @@ function loadConfig(): Config {
     agentMaxCostUsdPerTurn: preprocessEnvVar(process.env.AGENT_MAX_COST_USD_PER_TURN),
     repairMaxRounds: preprocessEnvVar(process.env.REPAIR_MAX_ROUNDS),
     maxTravelLegsPerRequest: preprocessEnvVar(process.env.MAX_TRAVEL_LEGS_PER_REQUEST),
+
+    routesApiTimeoutMs: preprocessEnvVar(process.env.ROUTES_API_TIMEOUT_MS),
+    travelClaimToleranceMinutes: preprocessEnvVar(
+      process.env.TRAVEL_CLAIM_TOLERANCE_MINUTES
+    ),
+    travelBudgetMs: preprocessEnvVar(process.env.TRAVEL_BUDGET_MS),
+    enableLiveRoutes: parseLiveRoutesFlag(process.env.ENABLE_LIVE_ROUTES),
+    priceRangeFree: parseRange(process.env.PRICE_RANGE_FREE),
+    priceRangeInexpensive: parseRange(process.env.PRICE_RANGE_INEXPENSIVE),
+    priceRangeModerate: parseRange(process.env.PRICE_RANGE_MODERATE),
+    priceRangeExpensive: parseRange(process.env.PRICE_RANGE_EXPENSIVE),
+    priceRangeVeryExpensive: parseRange(process.env.PRICE_RANGE_VERY_EXPENSIVE),
   });
 
   config = parsed;
@@ -176,7 +271,7 @@ export function getRateLimitDailySpendUsd(): number {
   return getConfig().rateLimitDailySpendUsd;
 }
 
-/** Get travel cap in minutes (25 by default). */
+/** Get travel cap in minutes (DEFAULT_TRAVEL_CAP_MINUTES by default). */
 export function getTravelCapMinutes(): number {
   return getConfig().travelCapMinutes;
 }
@@ -199,6 +294,81 @@ export function getRepairMaxRounds(): number {
 /** Get max travel legs per request, summed across options (4 by default). */
 export function getMaxTravelLegsPerRequest(): number {
   return getConfig().maxTravelLegsPerRequest;
+}
+
+/** Get Routes API timeout in milliseconds (5000 by default). */
+export function getRoutesApiTimeoutMs(): number {
+  return getConfig().routesApiTimeoutMs;
+}
+
+/** Get claimed-vs-computed travel tolerance in minutes. */
+export function getTravelClaimToleranceMinutes(): number {
+  return getConfig().travelClaimToleranceMinutes;
+}
+
+/** Wall-clock budget for one validation's travel calls (default 6000). */
+export function getTravelBudgetMs(): number {
+  return getConfig().travelBudgetMs;
+}
+
+/**
+ * Live Google Routes is off unless ENABLE_LIVE_ROUTES is true/1.
+ * Only true/false/1/0 are accepted; any other value throws.
+ * Tests and eval use a fake or recorded calculator by default.
+ */
+export function getEnableLiveRoutes(): boolean {
+  return getConfig().enableLiveRoutes;
+}
+
+/**
+ * Heuristic per-person USD ranges for PRICE_LEVEL_* checks.
+ * Not from Google. Overridable via PRICE_RANGE_* env vars.
+ * Compared to estimatedCostUsd / partySize (default 2).
+ */
+export function getPriceRanges(): {
+  free: [number, number];
+  inexpensive: [number, number];
+  moderate: [number, number];
+  expensive: [number, number];
+  veryExpensive: [number, number];
+} {
+  const cfg = getConfig();
+  return {
+    free: cfg.priceRangeFree,
+    inexpensive: cfg.priceRangeInexpensive,
+    moderate: cfg.priceRangeModerate,
+    expensive: cfg.priceRangeExpensive,
+    veryExpensive: cfg.priceRangeVeryExpensive,
+  };
+}
+
+/**
+ * Prod-only startup gate (#31). `next build` sets NODE_ENV=production, so this
+ * must not run during a build phase — only when a production server starts.
+ * Dev and test stay mock-friendly. Runtime Routes failures stay
+ * `travel_service_unavailable`.
+ */
+function isNextBuildPhase(phase: string | undefined): boolean {
+  if (phase && (phase.includes("build") || phase.includes("export"))) {
+    return true;
+  }
+  return process.env.npm_lifecycle_event === "build";
+}
+
+export function assertProductionLiveRoutes(): void {
+  if (process.env.NODE_ENV !== "production") {
+    return;
+  }
+  if (isNextBuildPhase(process.env.NEXT_PHASE)) {
+    return;
+  }
+  const cfg = getConfig();
+  if (cfg.enableLiveRoutes && cfg.googlePlacesApiKey) {
+    return;
+  }
+  throw new Error(
+    "Production refuses to start without ENABLE_LIVE_ROUTES=true and GOOGLE_PLACES_API_KEY. Runtime Routes outages use travel_service_unavailable."
+  );
 }
 
 /** Reset config for testing. */

@@ -281,6 +281,22 @@ describe("boundary schemas", () => {
     assert.equal(parsed.code, "travel_too_long");
   });
 
+  it("parses the split validation error codes", () => {
+    for (const code of [
+      "invalid_format",
+      "name_mismatch",
+      "implausible_cost",
+      "travel_unverified",
+      "travel_mismatch",
+      "travel_service_unavailable",
+    ] as const) {
+      assert.equal(
+        validationErrorSchema.parse({ code, message: `code ${code}` }).code,
+        code
+      );
+    }
+  });
+
   it("parses each tool input", () => {
     assert.equal(
       toolInputSchema.parse({

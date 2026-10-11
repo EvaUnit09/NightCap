@@ -18,8 +18,14 @@ import {
   getRepairModelId,
   getMaxTravelLegsPerRequest,
   getTravelCapMinutes,
+  getTravelClaimToleranceMinutes,
+  getTravelBudgetMs,
+  getEnableLiveRoutes,
+  getRoutesApiTimeoutMs,
+  getPriceRanges,
   getTurnstileSecretKey,
   resetConfig,
+  assertProductionLiveRoutes,
 } from "../../src/models";
 
 describe("Config module", () => {
@@ -71,6 +77,15 @@ describe("Config module", () => {
       assert.equal(getAgentMaxCostUsdPerTurn(), 0.03);
       assert.equal(getRepairMaxRounds(), 2);
       assert.equal(getMaxTravelLegsPerRequest(), 4);
+      delete process.env.ROUTES_API_TIMEOUT_MS;
+      delete process.env.TRAVEL_CLAIM_TOLERANCE_MINUTES;
+      assert.equal(getRoutesApiTimeoutMs(), 5000);
+      assert.equal(getTravelClaimToleranceMinutes(), 5);
+      delete process.env.TRAVEL_BUDGET_MS;
+      delete process.env.ENABLE_LIVE_ROUTES;
+      assert.equal(getTravelBudgetMs(), 6000);
+      assert.equal(getEnableLiveRoutes(), false);
+      assert.deepEqual(getPriceRanges().moderate, [20, 120]);
     });
   });
 
@@ -106,12 +121,16 @@ describe("Config module", () => {
       process.env.AGENT_MAX_COST_USD_PER_TURN = "0.05";
       process.env.REPAIR_MAX_ROUNDS = "3";
       process.env.MAX_TRAVEL_LEGS_PER_REQUEST = "6";
+      process.env.TRAVEL_BUDGET_MS = "8000";
+      process.env.ENABLE_LIVE_ROUTES = "true";
 
       assert.equal(getTravelCapMinutes(), 30);
       assert.equal(getAgentMaxToolCalls(), 10);
       assert.equal(getAgentMaxCostUsdPerTurn(), 0.05);
       assert.equal(getRepairMaxRounds(), 3);
       assert.equal(getMaxTravelLegsPerRequest(), 6);
+      assert.equal(getTravelBudgetMs(), 8000);
+      assert.equal(getEnableLiveRoutes(), true);
     });
   });
 
@@ -345,6 +364,115 @@ describe("Config module", () => {
     it("accepts decimals on non-integer numeric field", () => {
       process.env.AGENT_MAX_COST_USD_PER_TURN = "0.05";
       assert.equal(getAgentMaxCostUsdPerTurn(), 0.05);
+    });
+
+    it("rejects a price range whose min is greater than max", () => {
+      process.env.PRICE_RANGE_MODERATE = "120,20";
+      assert.throws(() => getConfig(), {
+        name: "ZodError",
+      });
+    });
+
+    it("rejects a non-numeric price range with a ZodError", () => {
+      process.env.PRICE_RANGE_MODERATE = "abc";
+      assert.throws(() => getConfig(), {
+        name: "ZodError",
+      });
+    });
+
+    it("rejects a three-part price range with a ZodError", () => {
+      process.env.PRICE_RANGE_MODERATE = "1,2,3";
+      assert.throws(() => getConfig(), {
+        name: "ZodError",
+      });
+    });
+
+    it("rejects a price range with an empty side", () => {
+      process.env.PRICE_RANGE_MODERATE = ",50";
+      assert.throws(() => getConfig(), {
+        name: "ZodError",
+      });
+    });
+  });
+
+  describe("ENABLE_LIVE_ROUTES", () => {
+    it("accepts true, false, 1, and 0", () => {
+      process.env.ENABLE_LIVE_ROUTES = "true";
+      assert.equal(getEnableLiveRoutes(), true);
+      resetConfig();
+      process.env.ENABLE_LIVE_ROUTES = "1";
+      assert.equal(getEnableLiveRoutes(), true);
+      resetConfig();
+      process.env.ENABLE_LIVE_ROUTES = "false";
+      assert.equal(getEnableLiveRoutes(), false);
+      resetConfig();
+      process.env.ENABLE_LIVE_ROUTES = "0";
+      assert.equal(getEnableLiveRoutes(), false);
+    });
+
+    it("throws a readable error for any other value", () => {
+      for (const value of ["yes", "YES", "maybe", "2", "on"]) {
+        resetConfig();
+        process.env.ENABLE_LIVE_ROUTES = value;
+        assert.throws(
+          () => getEnableLiveRoutes(),
+          (error: unknown) => {
+            assert.ok(error instanceof Error);
+            assert.match(error.message, /ENABLE_LIVE_ROUTES/);
+            assert.match(error.message, /true, false, 1, or 0/);
+            return true;
+          }
+        );
+      }
+    });
+  });
+
+  describe("production live-Routes startup", () => {
+    function setNodeEnv(value: string) {
+      Object.assign(process.env, { NODE_ENV: value });
+    }
+
+    it("throws in production without the Routes key", () => {
+      setNodeEnv("production");
+      delete process.env.NEXT_PHASE;
+      delete process.env.GOOGLE_PLACES_API_KEY;
+      process.env.ENABLE_LIVE_ROUTES = "true";
+      assert.throws(
+        () => assertProductionLiveRoutes(),
+        /ENABLE_LIVE_ROUTES|GOOGLE_PLACES_API_KEY/
+      );
+    });
+
+    it("is ok in production with ENABLE_LIVE_ROUTES and the Routes key", () => {
+      setNodeEnv("production");
+      delete process.env.NEXT_PHASE;
+      process.env.ENABLE_LIVE_ROUTES = "true";
+      process.env.GOOGLE_PLACES_API_KEY = "test-routes-key";
+      assert.doesNotThrow(() => assertProductionLiveRoutes());
+    });
+
+    it("is ok in development without the key", () => {
+      setNodeEnv("development");
+      delete process.env.NEXT_PHASE;
+      delete process.env.GOOGLE_PLACES_API_KEY;
+      delete process.env.ENABLE_LIVE_ROUTES;
+      assert.doesNotThrow(() => assertProductionLiveRoutes());
+      assert.doesNotThrow(() => getConfig());
+    });
+
+    it("does not throw from getConfig in production without a key", () => {
+      setNodeEnv("production");
+      delete process.env.GOOGLE_PLACES_API_KEY;
+      delete process.env.ENABLE_LIVE_ROUTES;
+      assert.doesNotThrow(() => getConfig());
+    });
+
+    it("skips the check during next build", () => {
+      setNodeEnv("production");
+      process.env.NEXT_PHASE = "phase-production-build";
+      delete process.env.GOOGLE_PLACES_API_KEY;
+      delete process.env.ENABLE_LIVE_ROUTES;
+      assert.doesNotThrow(() => assertProductionLiveRoutes());
     });
   });
 

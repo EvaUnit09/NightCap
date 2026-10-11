@@ -83,7 +83,7 @@ Anonymous by default. A magic link saves and shares plans. Names and other PII a
 | Constraint            | Target                             | Notes                                                                                        |
 | --------------------- | ---------------------------------- | -------------------------------------------------------------------------------------------- |
 | Latency (p50 / p99)   | < 8s / < 20s end to end            | First itinerary is streamed as soon as it passes validation                                  |
-| Cost per request      | < $0.05 avg                        | Places cache plus per-stage model routing; estimated about $0.03 for the Sonnet 5 plan stage |
+| Cost per request      | < $0.10 avg                        | Beta target (#30). Places Enterprise fields stay (novelty re-rank needs rating and review count). Plan stage ≈ $0.03; #36 model comparison is the lever to bring cost down. |
 | Quality bar           | ≥ 90% validity, 0% invented venues | Validity defined under Success Metrics                                                       |
 | Privacy / compliance  | No PII in logs or DB               | Redaction before Datadog and DB; Google Places terms respected                               |
 | Availability / uptime | Best-effort                        | Portfolio demo; daily spend cap may pause service                                            |

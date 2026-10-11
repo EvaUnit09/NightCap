@@ -1,0 +1,9 @@
+[
+  {
+    "originIndex": 0,
+    "destinationIndex": 0,
+    "status": { "code": 5, "message": "NOT_FOUND" },
+    "duration": "120s",
+    "condition": "ROUTE_EXISTS"
+  }
+]
