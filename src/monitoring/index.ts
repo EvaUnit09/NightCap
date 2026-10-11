@@ -3,8 +3,8 @@
  *
  * Server-only: the given-name list and the tracing SDK must not reach a
  * client bundle. Callers must check `result.ok` and must never forward
- * `{ ok: false }` text to a model. Datadog spans get parsed_intent plus a
- * hash, not this free text — use `redact` / `redactForStorage` before a
+ * `{ ok: false }` text to a model. Datadog spans get an allowlisted parsed_intent
+ * summary plus a hash, not this free text — use `redact` / `redactForStorage` before a
  * database write.
  */
 import "server-only";

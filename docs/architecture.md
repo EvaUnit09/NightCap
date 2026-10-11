@@ -65,7 +65,7 @@ user text is treated as data.
 One trace per request (or agent turn) in Datadog LLM Observability. Spans: `parse` → `places.search` (× N, cache hit/miss) →
 `rerank` → `plan` → `validate` → `repair` (× ≤ 2) → `stream`. Tags: prompt versions, model IDs,
 test-case ID (eval runs). Metadata: tokens, cost, latency, validation errors by type.
-Spans carry redacted `parsed_intent` plus an HMAC-SHA256 request hash, never free text (#27, #32).
+Spans carry an allowlisted `parsed_intent` summary (no `area`, `dietary`, or `vibeTags` text) plus an HMAC-SHA256 request hash, never free text (#27, #32).
 Eval runs push to Datadog datasets/experiments for version comparison.
 
 ## Deployment
