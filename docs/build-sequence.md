@@ -55,12 +55,12 @@ Do this before prompt iteration. Later phases call these modules; they do not re
 | # | Action | Lands in | Done when | Is done |
 |---|---|---|---|---|
 | 15 | Orchestrate redact → parse → retrieve → plan → validate → repair. | `src/pipeline/` | Repair fixes only the failing stops, at most twice, then that option is dropped. | yes |
-| 16 | Hard-gate invented venues. Any Place ID absent from retrieval fails the case. | `src/pipeline/`, `src/validation/` | The pipeline cannot emit an unknown id, and the eval can compute invented-venue rate. | partial |
-| 17 | Stream with SSE: parsed intent first, then each itinerary only after it passes validation. | `app/` route handler | The client never receives an unvalidated stop. | no |
+| 16 | Hard-gate invented venues. Any Place ID absent from retrieval fails the case. | `src/pipeline/`, `src/validation/` | The pipeline cannot emit an unknown id, and the eval can compute invented-venue rate. | yes |
+| 17 | Stream with SSE: parsed intent first, then each itinerary only after it passes validation. | `app/` route handler | The client never receives an unvalidated stop. | yes |
 | 18 | Check in the frozen 60-case synthetic set. | `evaluation/` | Cases cover borough, budget ($15–$320), time, vibe, and edges (late Sunday, dietary, tight budget). v1 stays frozen; new failures go to v2. | yes |
-| 19 | Score validity, invented-venue rate, diversity/novelty, and format compliance. | `evaluation/` runner | One command prints the four metrics. Candidate recall is scored separately so a retrieval miss is not blamed on the planner. | no |
-| 20 | Run both baselines on the same set: filter-only (no LLM) and raw ChatGPT/Claude (no retrieval). | `evaluation/` | The comparison table exists before a prompt version is called done. | no |
-| 21 | CI on every PR: typecheck, lint, unit tests, and a small eval smoke subset. | `.github/workflows`, Dockerfile | A prompt change cannot merge without the smoke subset. Target 80% coverage on `src/`. | no |
+| 19 | Score validity, invented-venue rate, diversity/novelty, and format compliance. | `evaluation/` runner | One command prints the four metrics. Candidate recall is scored separately so a retrieval miss is not blamed on the planner. | yes |
+| 20 | Run both baselines on the same set: filter-only (no LLM) and raw ChatGPT/Claude (no retrieval). | `evaluation/` | The comparison table exists before a prompt version is called done. | partial |
+| 21 | CI on every PR: typecheck, lint, unit tests, and a small eval smoke subset. | `.github/workflows`, Dockerfile | A prompt change cannot merge without the smoke subset. Target 80% coverage on `src/`. | partial |
 
 ### 5. API and UI — target 2026-10-18
 
