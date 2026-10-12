@@ -251,6 +251,36 @@ describe("registerDatadogTracing", () => {
     assert.equal(warn.mock.callCount(), 0);
   });
 
+  it("keeps a second bundled copy untraced, with no second warning, when the first copy's init threw", async (t) => {
+    const warn = t.mock.method(console, "warn", () => undefined);
+    const tracer = {
+      _initialized: false,
+      init() {
+        tracer._initialized = true;
+        throw new RangeError(LEAKY_MESSAGE);
+      },
+      use: () => undefined,
+      llmobs: {
+        trace: () => assert.fail("traced through a tracer whose init threw"),
+        annotate: () => undefined,
+        annotationContext: () => undefined,
+      },
+    };
+    const load = async () => ({ default: tracer });
+    const secondCopy = (await import(
+      `../../src/monitoring/datadog-exporter.ts?copy=${Date.now()}`
+    )) as typeof import("../../src/monitoring/datadog-exporter");
+    t.after(() => secondCopy.resetDatadogTracingForTests());
+
+    await registerDatadogTracing(load);
+    await secondCopy.registerDatadogTracing(load);
+    const result = await secondCopy.createDatadogExporter().wrap(ROOT_SPAN, () => 7);
+
+    assert.equal(result, 7);
+    assert.equal(warn.mock.callCount(), 1);
+    assert.match(warn.mock.calls[0].arguments.join(" "), /RangeError/);
+  });
+
   for (const [label, load] of Object.entries(failingLoaders)) {
     it(`continues untraced with one name-only warning when ${label}`, async (t) => {
       const warn = t.mock.method(console, "warn", () => undefined);

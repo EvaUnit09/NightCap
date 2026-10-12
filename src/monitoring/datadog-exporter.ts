@@ -163,13 +163,31 @@ export async function traceWithClient<T>(
   }
 }
 
+/**
+ * Next bundles this module more than once (instrumentation and each route
+ * chunk), and each copy has its own module state, while dd-trace is one
+ * process-wide tracer. This global records which init the tracer got.
+ * `started` without `configured` means our own init threw and was logged.
+ */
+const OUR_INIT = Symbol.for("nightcap.ddtrace.init");
+type OurInitState = "started" | "configured";
+const processWide = globalThis as { [OUR_INIT]?: OurInitState };
+
 /** Null when another init got there first: its plugins would trace Places and Routes. */
 async function initLlmobs(load: LoadDdTrace): Promise<LlmobsClient | null> {
   const tracer = (await load()).default;
+  const state = processWide[OUR_INIT];
+  if (state === "configured") {
+    return tracer.llmobs as LlmobsClient;
+  }
+  if (state === "started") {
+    return null;
+  }
   if (tracer._initialized === true) {
     console.warn(PRELOADED_TRACER_WARNING);
     return null;
   }
+  processWide[OUR_INIT] = "started";
   tracer.init({
     llmobs: {
       mlApp: process.env.DD_LLMOBS_ML_APP ?? "nightcap",
@@ -183,6 +201,7 @@ async function initLlmobs(load: LoadDdTrace): Promise<LlmobsClient | null> {
   for (const integration of ENABLED_INTEGRATIONS) {
     tracer.use(integration, true);
   }
+  processWide[OUR_INIT] = "configured";
   return tracer.llmobs as LlmobsClient;
 }
 
@@ -226,6 +245,7 @@ export async function registerDatadogTracing(load: LoadDdTrace = loadDdTraceWith
 export function resetDatadogTracingForTests(): void {
   llmobs = null;
   initAttempted = false;
+  delete processWide[OUR_INIT];
 }
 
 export function createDatadogExporter(): TraceExporter {
