@@ -292,16 +292,18 @@ function scorePlanGivenPool(records: readonly EvalCaseRecord[], verdicts: readon
  * Budget fit: did the parse read the party budget right?
  * - numerator: cases whose parsed `intent.budgetUsd` lies in the case's
  *   whole-party range, inclusive: `min <= budgetUsd <= max`.
- * - denominator: cases whose intent parsed (`intent !== null`) and whose id
- *   has an entry in `partyBudgets`. A case that never parsed is charged by
- *   validity, not here; a case with no known budget cannot be judged.
+ * - denominator: cases whose intent a model parsed (`intent.source ===
+ *   "model"`) and whose id has an entry in `partyBudgets`. A case that never
+ *   parsed is charged by validity, not here; a case with no known budget
+ *   cannot be judged. Baselines record the case label's own budget, so they
+ *   have an empty denominator and report n/a.
  * The range is the frozen label's own tolerance band, so "under $150"
  * accepts any parse from the band's floor up to $150.
  */
 function scoreBudgetFit(records: readonly EvalCaseRecord[], partyBudgets: ReadonlyMap<string, PartyBudget>): Ratio {
   const judged = records.flatMap((record) => {
     const budget = partyBudgets.get(record.caseId);
-    return record.intent === null || budget === undefined ? [] : [{ parsed: record.intent.budgetUsd, budget }];
+    return record.intent?.source !== "model" || budget === undefined ? [] : [{ parsed: record.intent.budgetUsd, budget }];
   });
   return ratio(countWhere(judged, ({ parsed, budget }) => parsed >= budget.min && parsed <= budget.max), judged.length);
 }

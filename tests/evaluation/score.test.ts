@@ -35,7 +35,7 @@ function opt(optionIndex: number, ...placeIds: string[]): RecordedOption {
   return { optionIndex, repairRounds: 0, placeIds };
 }
 
-const INTENT = { budgetUsd: 150, stopTypes: ["drinks", "dinner"] as const, singleStop: false };
+const INTENT = { source: "model" as const, budgetUsd: 150, stopTypes: ["drinks", "dinner"] as const, singleStop: false };
 
 function completed(caseId: string, options: RecordedOption[], overrides: Partial<EvalCaseRecord> = {}): EvalCaseRecord {
   return {

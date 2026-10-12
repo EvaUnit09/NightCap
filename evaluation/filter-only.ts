@@ -71,7 +71,7 @@ function failedRecord(
   return {
     caseId: evalCase.id,
     outcome: { kind: "failed", failure },
-    intent: recordedIntent(intent),
+    intent: recordedIntent(intent, "case_label"),
     options: [],
     ...rest,
   };
@@ -125,7 +125,7 @@ export function filterOnlyCaseRunner(deps: FilterOnlyDeps): CaseRunner {
     return {
       caseId: evalCase.id,
       outcome: { kind: "completed" },
-      intent: recordedIntent(intent),
+      intent: recordedIntent(intent, "case_label"),
       options: judged.validIndexes.map((index) => ({
         optionIndex: index,
         repairRounds: 0,

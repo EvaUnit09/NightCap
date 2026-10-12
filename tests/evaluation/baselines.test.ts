@@ -448,6 +448,21 @@ describe("eval CLI with baselines", () => {
     }
   });
 
+  it("reports budget fit as n/a for a baseline and as a number for the pipeline", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "nightcap-eval-budget-"));
+    try {
+      const baseline = io();
+      assert.equal(await runEvalCli(["--system", "filter-only", "--out", dir], baseline.io), EXIT_OK, baseline.err.join("\n"));
+      assert.match(baseline.out.join("\n"), /Budget fit \(party\)\s+n\/a \(0\/0\)/);
+
+      const pipeline = io();
+      assert.equal(await runEvalCli(["--system", "pipeline", "--out", dir], pipeline.io), EXIT_OK, pipeline.err.join("\n"));
+      assert.match(pipeline.out.join("\n"), /Budget fit \(party\)\s+\d+\.\d% \(\d+\/2\)/);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it("--system filter-only writes its own report and prints that system's metrics", async () => {
     const dir = await mkdtemp(join(tmpdir(), "nightcap-eval-one-"));
     try {
