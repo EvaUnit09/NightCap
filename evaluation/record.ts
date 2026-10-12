@@ -7,6 +7,7 @@ import type {
 } from "../src/pipeline/lifecycle";
 import type { StopType } from "../src/retrieval";
 import type { Candidate } from "../src/validation/candidate";
+import type { Intent } from "../src/validation/intent";
 
 /**
  * One eval case after it ran: the data shape the scorer reads (build step 19).
@@ -66,6 +67,10 @@ export interface PoolVenue {
   readonly reviewCount: number;
 }
 
+export function recordedIntent(intent: Intent): RecordedIntent {
+  return { budgetUsd: intent.budgetUsd, stopTypes: intent.stopTypes, singleStop: intent.singleStop };
+}
+
 export function poolOf(candidates: readonly Candidate[]): PoolVenue[] {
   return candidates.map(({ placeId, stopType, reviewCount }) => ({ placeId, stopType, reviewCount }));
 }
@@ -81,9 +86,7 @@ export function recordFromResult(
   result: PipelineResult,
   observed: PipelineObservation,
 ): EvalCaseRecord {
-  const intent = result.intent === null
-    ? null
-    : { budgetUsd: result.intent.budgetUsd, stopTypes: result.intent.stopTypes, singleStop: result.intent.singleStop };
+  const intent = result.intent === null ? null : recordedIntent(result.intent);
   const options = result.kind === "completed"
     ? result.options.map((emitted) => ({
         optionIndex: emitted.optionIndex,

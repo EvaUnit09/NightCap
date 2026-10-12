@@ -254,6 +254,7 @@ describe("eval CLI", () => {
         stdout: (text: string) => out.push(text),
         stderr: (text: string) => err.push(text),
         now: () => new Date(Date.UTC(2026, 9, 12, 12, 0, tick++)),
+        createTravel: () => TEN_MINUTES,
         ...overrides,
       },
     };
@@ -286,7 +287,7 @@ describe("eval CLI", () => {
   it("parses --limit and --concurrency and rejects bad values", () => {
     assert.deepEqual(
       { ...parseEvalArgs(["--limit", "5", "--concurrency", "2", "--out", "x"]) },
-      { limit: 5, concurrency: 2, outDir: "x", help: false },
+      { system: "pipeline", compare: false, limit: 5, concurrency: 2, outDir: "x", help: false },
     );
     assert.equal(parseEvalArgs([]).limit, null);
     assert.throws(() => parseEvalArgs(["--limit", "0"]), /positive integer/);
@@ -340,6 +341,6 @@ describe("eval CLI", () => {
 
     assert.equal(await runEvalCli(["--limit", "2", "--out", outDir], harness.io), EXIT_OK);
 
-    assert.deepEqual(harness.err.map((line) => line.split(" ")[0]).sort(), ["nc-001", "nc-002"]);
+    assert.deepEqual(harness.err.map((line) => line.split(" ")[1]).sort(), ["nc-001", "nc-002"]);
   });
 });

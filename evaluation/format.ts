@@ -1,6 +1,6 @@
 import type { EvalMetrics, Ratio } from "./score";
 
-function percent(value: Ratio): string {
+export function percent(value: Ratio): string {
   const rate = value.rate === null ? "n/a" : `${(value.rate * 100).toFixed(1)}%`;
   return `${rate} (${value.numerator}/${value.denominator})`;
 }
