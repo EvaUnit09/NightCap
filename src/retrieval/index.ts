@@ -9,6 +9,7 @@ export { queryFromIntent, queryFromSearchVenues } from "./query";
 export type { SearchVenuesInput, TimeSlot, VenueQuery } from "./query";
 export type { StopType } from "./stop-types";
 export { PlacesError } from "./places-client";
+export type { PlacesClient } from "./places-client";
 export type { PlacesErrorCode } from "./places-client";
 export { coordsTtlDays, createMemoryCoordsCache, isLive, planCoordsWrite } from "./coords-cache";
 export type { CoordsCache, CoordsEntry, CoordsObservation, CoordsTtlDays, CoordsWrite, LatLng } from "./coords-cache";

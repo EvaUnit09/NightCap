@@ -51,7 +51,8 @@ export function extractJson(text: string): unknown {
   }
 }
 
-function readResponse<T>(
+/** The JSON a reply holds, parsed against the stage's contract, or why it is unusable. */
+export function readResponse<T>(
   response: ModelResponse,
   parse: (json: unknown) => BoundaryParse<T>,
 ): { ok: true; value: T } | { ok: false; code: ModelFailureCode } {

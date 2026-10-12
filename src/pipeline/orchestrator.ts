@@ -127,7 +127,8 @@ function gapsOf(retrieval: Retrieval): RetrievalGap[] {
   );
 }
 
-function parsePlan(json: unknown, intent: Intent, maxLegs: number) {
+/** Plan JSON against the itinerary contract, after the same stamping and mode normalization the planner gets. */
+export function parsePlan(json: unknown, intent: Intent, maxLegs: number) {
   const stamped = typeof json === "object" && json !== null ? stampSingleStopFromIntent(json, intent.singleStop) : json;
   return itinerarySchemaFor({ maxLegs }).safeParse(normalizeModelTravelModes(stamped));
 }

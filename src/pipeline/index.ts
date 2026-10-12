@@ -7,6 +7,7 @@ export {
   PLAN_MAX_TOKENS,
   PROMPT_VERSIONS,
   createPipelineDeps,
+  parsePlan,
   runPipeline,
   type PipelineDeps,
   type PipelineRequest,
@@ -29,7 +30,7 @@ export { admitOption, unknownPlaceIds, type AdmitResult, type EmittedOption } fr
 export type { ModelClient, ModelRequest, ModelResponse, ModelStage, ModelStopReason } from "./model-client";
 export { createAnthropicModelClient } from "./anthropic-model-client";
 export { REPAIR_MAX_TOKENS } from "./repair-loop";
-export { extractJson } from "./stage-call";
+export { extractJson, readResponse } from "./stage-call";
 export {
   MAX_TRAVEL_LEGS_PER_REQUEST_DEFAULT,
   STOPS_MAX,
