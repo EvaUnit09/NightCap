@@ -36,4 +36,4 @@ export type { RetrievalConfig } from "./config";
 export { getModelFor } from "./router";
 export { costUsdFor } from "./pricing";
 export type { ModelPrice, TokenUsage } from "./pricing";
-export { getTemperatureFor } from "./temperature";
+export { acceptsTemperature, getTemperatureFor, getTemperatureParamFor } from "./temperature";

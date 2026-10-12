@@ -38,3 +38,23 @@ export function getTemperatureFor(stage: PipelineStage): number {
     }
   }
 }
+
+/**
+ * Model id prefixes known to accept `temperature`. Sonnet 5 rejects
+ * temperature/top_p/top_k with a 400, so the allowlist is closed: a model
+ * not listed gets no temperature, which every model accepts.
+ */
+const TEMPERATURE_ACCEPTING_MODEL_PREFIXES: readonly string[] = ["claude-haiku-4-5"];
+
+/** Whether the Messages API accepts a `temperature` for this model id. */
+export function acceptsTemperature(modelId: string): boolean {
+  return TEMPERATURE_ACCEPTING_MODEL_PREFIXES.some((prefix) => modelId.startsWith(prefix));
+}
+
+/**
+ * Temperature to send for this stage on this model, or undefined when the
+ * model rejects it. Values still come from `getTemperatureFor`.
+ */
+export function getTemperatureParamFor(stage: PipelineStage, modelId: string): number | undefined {
+  return acceptsTemperature(modelId) ? getTemperatureFor(stage) : undefined;
+}

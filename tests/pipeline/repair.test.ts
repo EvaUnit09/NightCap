@@ -106,6 +106,33 @@ describe("createAnthropicModelClient", () => {
   });
 });
 
+describe("createAnthropicModelClient temperature", () => {
+  function recordingClient(bodies: Array<Record<string, unknown>>): Anthropic {
+    return {
+      messages: {
+        create: async (body: Record<string, unknown>) => {
+          bodies.push(body);
+          return { content: [], stop_reason: "end_turn", usage: { input_tokens: 1, output_tokens: 1 } };
+        },
+      },
+    } as unknown as Anthropic;
+  }
+
+  it("sends temperature 0 on parse (Haiku 4.5) and none on plan or repair (Sonnet 5)", async () => {
+    const bodies: Array<Record<string, unknown>> = [];
+    const models = createAnthropicModelClient({ client: recordingClient(bodies) });
+    const base = { system: "s", user: "u", maxTokens: 10 };
+
+    await models.complete({ ...base, stage: "parse_intent", model: "claude-haiku-4-5" });
+    await models.complete({ ...base, stage: "plan_itineraries", model: "claude-sonnet-5" });
+    await models.complete({ ...base, stage: "repair_itinerary", model: "claude-sonnet-5" });
+
+    assert.equal(bodies[0].temperature, 0);
+    assert.equal("temperature" in bodies[1], false);
+    assert.equal("temperature" in bodies[2], false);
+  });
+});
+
 describe("createAnthropicSdkClient", () => {
   it("passes the configured timeout and retries to the SDK client", () => {
     const saved = { ...process.env };

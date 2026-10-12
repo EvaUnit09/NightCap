@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { getTemperatureFor } from "../../src/models/temperature";
+import { acceptsTemperature, getTemperatureFor, getTemperatureParamFor } from "../../src/models/temperature";
 import { PIPELINE_STAGES, type PipelineStage } from "../../src/pipeline/prompt-loader";
 
 describe("temperature configuration", () => {
@@ -39,5 +39,20 @@ describe("temperature configuration", () => {
         { message: /Unknown pipeline stage at runtime/ }
       );
     });
+  });
+});
+
+describe("temperature capability", () => {
+  it("accepts temperature on Haiku 4.5, including dated ids, and rejects Sonnet 5 and unknown models", () => {
+    assert.equal(acceptsTemperature("claude-haiku-4-5"), true);
+    assert.equal(acceptsTemperature("claude-haiku-4-5-20251001"), true);
+    assert.equal(acceptsTemperature("claude-sonnet-5"), false);
+    assert.equal(acceptsTemperature("claude-unknown"), false);
+  });
+
+  it("returns the stage temperature only for accepting models", () => {
+    assert.equal(getTemperatureParamFor("parse_intent", "claude-haiku-4-5"), 0);
+    assert.equal(getTemperatureParamFor("parse_intent", "claude-sonnet-5"), undefined);
+    assert.equal(getTemperatureParamFor("plan_itineraries", "claude-sonnet-5"), undefined);
   });
 });
