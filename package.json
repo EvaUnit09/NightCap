@@ -12,7 +12,8 @@
     "lint": "eslint",
     "typecheck": "next typegen && tsc --noEmit",
     "test": "node --import tsx --import ./tests/setup.mjs --test 'tests/**/*.test.ts'",
-    "bench": "node --import tsx --import ./tests/setup.mjs scripts/bench-redact.ts"
+    "bench": "node --import tsx --import ./tests/setup.mjs scripts/bench-redact.ts",
+    "eval": "node --import tsx --import ./tests/setup.mjs evaluation/run.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.133.0",
