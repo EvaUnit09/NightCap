@@ -60,7 +60,46 @@ describe("runPipeline tracing", () => {
     assert.deepEqual(codes, ["name_mismatch", undefined]);
   });
 
-  it("the root carries the request hash and the allowlisted intent, and no span carries free text", async () => {
+  it("model stages are task spans that hand their prompt name and version to the nested llm span", async () => {
+    const exporter = await tracedRun();
+
+    for (const [name, id] of [["parse", "parse_intent"], ["plan", "plan_itineraries"], ["repair", "repair_itinerary"]] as const) {
+      const [span] = spansNamed(exporter, name);
+      assert.equal(span.kind, "task", name);
+      assert.equal(span.prompt?.id, id, name);
+      assert.equal(span.prompt?.version, "v1", name);
+      assert.equal(span.prompt?.tags?.prompt_hash, span.attributes.prompt_hash, name);
+    }
+    assert.equal(spansNamed(exporter, "validate")[0].prompt, undefined);
+  });
+
+  it("the root's input is the redacted request and its output the emitted place ids and names", async () => {
+    const exporter = await tracedRun();
+    const { io } = exporter.traces[0];
+
+    assert.equal(typeof io.input, "string");
+    assert.ok(io.input?.includes("West Village"), "redacted text keeps the area");
+    for (const pii of ["Sarah", "Connor", "555", "123-4567"]) {
+      assert.ok(!io.input?.includes(pii), `input kept ${pii}`);
+    }
+    assert.deepEqual(io.output, {
+      status: "completed",
+      options: [
+        { stops: [{ placeId: "ChIJbar0", name: "Little Branch" }, { placeId: "ChIJdin0", name: "Via Carota" }] },
+        { stops: [{ placeId: "ChIJbar1", name: "Employees Only" }, { placeId: "ChIJdin1", name: "I Sodi" }] },
+      ],
+    });
+  });
+
+  it("a failed request's output names the stage and code, not text", async () => {
+    const models = fakeModels({ parse_intent: [{ text: "not json" }] });
+    const h = harness({ models });
+    await runPipeline({ text: PII_REQUEST }, h.deps);
+
+    assert.deepEqual(h.exporter.traces[0].io.output, { status: "failed", stage: "parse", code: "no_json" });
+  });
+
+  it("the root carries the request hash and the allowlisted intent; free text stays out of every attribute", async () => {
     const exporter = await tracedRun();
     const root = exporter.traces[0];
 
@@ -74,9 +113,31 @@ describe("runPipeline tracing", () => {
       dietaryCount: 0,
       vibeTagCount: 1,
     });
-    const exported = JSON.stringify(exporter.traces);
-    for (const leak of ["Sarah", "555", "West Village", "cozy", "Little Branch", "Employes Only", "Fits a cozy night"]) {
-      assert.ok(!exported.includes(leak), `trace leaked ${leak}`);
+    const attributes = JSON.stringify(exporter.traces.map(({ attributes: rootAttrs, spans }) => ({ rootAttrs, spans })));
+    for (const leak of ["Sarah", "555", "West Village", "cozy", "Little Branch", "Employes Only", "Employees Only", "Via Carota", "Fits a cozy night"]) {
+      assert.ok(!attributes.includes(leak), `attributes leaked ${leak}`);
+    }
+  });
+
+  it("no API key value or the request hash secret appears anywhere in the trace, input and output included", async () => {
+    const secrets = {
+      ANTHROPIC_API_KEY: "sk-ant-sentinel-anthropic-0001",
+      GOOGLE_PLACES_API_KEY: "AIza-sentinel-places-0002",
+      DD_API_KEY: "dd-sentinel-datadog-0003",
+      REQUEST_HASH_SECRET: "hash-secret-sentinel-0004",
+    };
+    const saved = { ...process.env };
+    Object.assign(process.env, secrets);
+    resetConfig();
+    try {
+      const exporter = await tracedRun();
+      const exported = JSON.stringify(exporter.traces);
+      for (const [name, value] of Object.entries(secrets)) {
+        assert.ok(!exported.includes(value), `trace leaked ${name}`);
+      }
+    } finally {
+      process.env = saved;
+      resetConfig();
     }
   });
 });

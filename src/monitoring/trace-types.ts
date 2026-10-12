@@ -1,6 +1,7 @@
 import "server-only";
 
 import type { Intent } from "../validation/intent";
+import type { RedactionResult } from "./redact";
 import type { ValidationErrorCode } from "../validation/validation-error";
 import type { PROMPT_TAG_KEYS } from "./span-sanitize";
 import type { TraceStage } from "./stages";
@@ -9,7 +10,11 @@ export type RequestHash = string & { readonly __brand: "RequestHash" };
 
 export type ExporterKind = "noop" | "memory" | "datadog";
 
-export type SpanKind = "workflow" | "llm" | "task" | "retrieval";
+/**
+ * Hand-made span kinds. `llm` spans come only from dd-trace's Anthropic
+ * plugin, nested under the stage that made the call, so no stage is one.
+ */
+export type SpanKind = "workflow" | "task" | "retrieval" | "agent";
 
 export type CacheHit = "hit" | "miss";
 
@@ -78,9 +83,40 @@ export interface StageRecorder {
   record(measures: StageMeasures): void;
 }
 
+/** A successful `redact` result. Taking the result, not a string, keeps raw request text out of the trace input. */
+export type RedactedRequest = Extract<RedactionResult, { ok: true }>;
+
+/** What the request's workflow span shows as its output: the emitted venues, or where it stopped. */
+export type RequestOutput =
+  | {
+      readonly status: "completed";
+      readonly options: readonly {
+        readonly stops: readonly { readonly placeId: string; readonly name: string }[];
+      }[];
+    }
+  | { readonly status: "failed"; readonly stage: string; readonly code: string };
+
+/**
+ * Free text a span may carry (#42). It goes only to LLM Obs input and
+ * output, never to tags or metadata.
+ */
+export interface SpanIO {
+  readonly input?: string;
+  readonly output?: RequestOutput;
+}
+
+/** Prompt Tracking identity for the `llm` spans a stage's model call opens. */
+export interface LlmPrompt {
+  readonly id: string;
+  readonly version: string;
+  readonly tags?: Readonly<Record<string, string>>;
+}
+
 /** Handed to a `withRequestTrace` callback so the root span carries the parsed intent once parse runs. */
 export interface RequestRecorder {
   recordParsedIntent(intent: unknown): void;
+  recordInput(redacted: RedactedRequest): void;
+  recordOutput(output: RequestOutput): void;
 }
 
 export interface RequestTraceInput {
@@ -93,13 +129,16 @@ export interface RequestTraceInput {
 
 export interface CapturedSpan {
   readonly name: string;
+  readonly kind: SpanKind;
   readonly attributes: Record<string, unknown>;
+  readonly prompt?: LlmPrompt;
 }
 
 export interface CapturedTrace {
   readonly name: string;
   readonly attributes: Record<string, unknown>;
   readonly spans: CapturedSpan[];
+  io: SpanIO;
 }
 
 export interface TraceSpan {
@@ -109,6 +148,10 @@ export interface TraceSpan {
   readonly attributes: SpanAttributes;
   /** Attributes after the work ran, read once as the span closes. Already sanitized. */
   readonly resolveAttributes?: () => SpanAttributes;
+  /** Input and output after the work ran, read once as the span closes. */
+  readonly resolveIO?: () => SpanIO;
+  /** Applied to every `llm` span opened inside this one. */
+  readonly prompt?: LlmPrompt;
 }
 
 export interface TraceExporter {

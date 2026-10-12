@@ -65,7 +65,8 @@ user text is treated as data.
 One trace per request (or agent turn) in Datadog LLM Observability. Spans: `parse` → `places.search` (× N, cache hit/miss) →
 `rerank` → `plan` → `validate` → `repair` (× ≤ 2) → `stream`. Tags: prompt versions, model IDs,
 test-case ID (eval runs). Metadata: tokens, cost, latency, validation errors by type.
-Spans carry an allowlisted `parsed_intent` summary (no `area`, `dietary`, or `vibeTags` text) plus an HMAC-SHA256 request hash, never free text (#27, #32).
+Span tags and metadata carry an allowlisted `parsed_intent` summary (no `area`, `dietary`, or `vibeTags` text) plus an HMAC-SHA256 request hash (#27, #32).
+Free text goes only to LLM Obs input and output (#42). `parse`, `plan`, and `repair` are `task` spans; dd-trace's Anthropic integration, the one plugin on, nests an `llm` span under each with the prompt, reply, tokens, cost, and Prompt Tracking id and version. The `request` workflow span's input is the redacted request and its output the emitted place ids and names. HTTP and fetch plugins stay off, so Places and Routes calls are never traced, and no API key or `REQUEST_HASH_SECRET` reaches a span.
 Eval runs push to Datadog datasets/experiments for version comparison.
 
 ## Deployment

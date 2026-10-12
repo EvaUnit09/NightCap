@@ -1,5 +1,7 @@
 import "server-only";
 
+import type { SpanKind } from "./trace-types";
+
 /**
  * Pipeline and retrieval stages that open a child span.
  * Names match architecture.md observability (`parse`, `places.search`, …).
@@ -21,21 +23,15 @@ export function isTraceStage(value: string): value is TraceStage {
   return (TRACE_STAGES as readonly string[]).includes(value);
 }
 
-export function spanKindFor(name: string): "workflow" | "llm" | "task" | "retrieval" {
+/** Model stages are `task` spans; the Anthropic plugin's `llm` span nests under each call. */
+export function spanKindFor(name: string): SpanKind {
   switch (name) {
     case "request":
       return "workflow";
-    case "parse":
-    case "plan":
-    case "repair":
-    case "agent":
-      return "llm";
     case "places.search":
       return "retrieval";
-    case "rerank":
-    case "validate":
-    case "stream":
-      return "task";
+    case "agent":
+      return "agent";
     default:
       return "task";
   }

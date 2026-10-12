@@ -4,7 +4,7 @@ const nextConfig: NextConfig = {
   /* config options here */
   cacheComponents: true,
   partialPrefetching: true,
-  serverExternalPackages: ["dd-trace"],
+  serverExternalPackages: ["dd-trace", "@anthropic-ai/sdk"],
 
   outputFileTracingIncludes: {
     "/*": ["./prompts/**/*"],

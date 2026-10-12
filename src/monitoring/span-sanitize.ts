@@ -5,6 +5,7 @@ import { validationErrorCodeSchema } from "../validation/validation-error";
 import type { ValidationErrorCode } from "../validation/validation-error";
 import type {
   CacheHit,
+  LlmPrompt,
   PromptTags,
   RequestHash,
   RequestTraceInput,
@@ -111,4 +112,13 @@ export function stageAttributes(
     test_case_id: safeTag(attrs.testCaseId, rawRequest),
     ...promptTagAttributes(attrs.promptTags, rawRequest),
   });
+}
+
+/** The Prompt Tracking identity of a stage that carries a prompt name and version. */
+export function stagePrompt(attributes: StageSpanAttributes): LlmPrompt | undefined {
+  const { prompt_name: id, prompt_version: version, prompt_hash: hash } = attributes;
+  if (id === undefined || version === undefined) {
+    return undefined;
+  }
+  return hash === undefined ? { id, version } : { id, version, tags: { prompt_hash: hash } };
 }
