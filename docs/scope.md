@@ -353,7 +353,7 @@ Flow: user message + current itinerary → agent calls tools → must call `vali
 | Framework      | Next.js route handlers (TypeScript)                                                                                                  |
 | Streaming      | Yes. Server-sent events stream the parsed intent first, then each itinerary once it passes validation                                |
 | Authentication | Anonymous by default; Supabase magic link to save/share plans                                                                        |
-| Rate limiting  | 5 plans/hour/IP (Upstash Redis / Vercel KV) + global daily spend cap → "come back tomorrow" mode; Turnstile captcha on first request |
+| Rate limiting  | 5 plans/hour/IP (Upstash Redis / Vercel KV) + global daily spend cap → "come back tomorrow" mode; no captcha (decision #40) |
 | Error handling | Anthropic/Places timeout or 429 → one retry → partial results with a friendly message; errors traced in Datadog                      |
 
 

@@ -67,7 +67,7 @@ Do this before prompt iteration. Later phases call these modules; they do not re
 | # | Action | Lands in | Done when | Is done |
 |---|---|---|---|---|
 | 22 | Cap anonymous use: 5 plans per hour per IP, plus a global daily spend cap. | Upstash or Vercel KV, `src/monitoring/` | Over the daily cap, the API returns a come-back-tomorrow response and stops calling models. | no |
-| 23 | Require Turnstile on the first request. Keep API keys server-side. | `app/` route handler | A request with no captcha token is rejected. The browser never sees the Anthropic or Places key. | no |
+| 23 | Keep API keys server-side. No captcha (decision #40). | `app/` route handler | The browser never sees the Anthropic or Places key. | yes |
 | 24 | Persist the redacted request, parsed intent, options (placeIds + planning fields), validation result, prompt versions, model, cost, and latency. Pipeline must strip venue names before persist. | `requests`, `itineraries` | A finished plan reloads placeIds from Postgres; names and Places details are hydrated live on view. | no |
 | 25 | Build the request screen: free text plus optional date, budget, and neighborhood, then side-by-side stop timelines. | `app/` | A beta user can submit a request and see 2–3 streamed itineraries with a one-line why on each stop. | no |
 | 26 | Collect thumbs, would-go, did-you-go, new-to-you, and closed-venue reports. | `feedback`, UI | Each signal is stored against the itinerary or place id and can be joined back to the Datadog trace. | no |

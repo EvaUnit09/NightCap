@@ -7,7 +7,7 @@ Status: design (pre-implementation). Build order: [build-sequence.md](build-sequ
 
 ```mermaid
 flowchart TD
-    U[User: free-text request + optional filters] --> API[Next.js route handler<br/>rate limit + spend cap + Turnstile]
+    U[User: free-text request + optional filters] --> API[Next.js route handler<br/>rate limit + spend cap]
     API --> RED[PII redaction]
     RED --> P1[parse_intent<br/>Haiku 4.5 → Zod intent]
     P1 -->|SSE: parsed intent| U
