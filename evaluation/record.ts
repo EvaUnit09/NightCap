@@ -44,12 +44,17 @@ export type EvalOutcome =
   /** The run threw: an abort, a per-case timeout, or a bug. Scored as an invalid case. */
   | { readonly kind: "error"; readonly message: string };
 
+/** Who produced a recorded intent. Budget fit only judges `model` parses. */
+export type IntentSource = "model" | "case_label";
+
 /**
- * The parsed intent fields eval needs. `budgetUsd` is kept so a later pass
- * can compare it with the case's budget once the per-person vs per-party
- * question in the v1 set is settled (see `score.ts`).
+ * The parsed intent fields eval needs. `budgetUsd` is compared with the
+ * case's whole-party budget by the budget-fit metric (see `score.ts`).
+ * `source` says whether a model parsed it or the baseline took it from the
+ * frozen case label, whose budget is the party band's own max.
  */
 export interface RecordedIntent {
+  readonly source: IntentSource;
   readonly budgetUsd: number;
   readonly stopTypes: readonly StopType[];
   readonly singleStop: boolean;
@@ -67,8 +72,8 @@ export interface PoolVenue {
   readonly reviewCount: number;
 }
 
-export function recordedIntent(intent: Intent): RecordedIntent {
-  return { budgetUsd: intent.budgetUsd, stopTypes: intent.stopTypes, singleStop: intent.singleStop };
+export function recordedIntent(intent: Intent, source: IntentSource): RecordedIntent {
+  return { source, budgetUsd: intent.budgetUsd, stopTypes: intent.stopTypes, singleStop: intent.singleStop };
 }
 
 export function poolOf(candidates: readonly Candidate[]): PoolVenue[] {
@@ -86,7 +91,7 @@ export function recordFromResult(
   result: PipelineResult,
   observed: PipelineObservation,
 ): EvalCaseRecord {
-  const intent = result.intent === null ? null : recordedIntent(result.intent);
+  const intent = result.intent === null ? null : recordedIntent(result.intent, "model");
   const options = result.kind === "completed"
     ? result.options.map((emitted) => ({
         optionIndex: emitted.optionIndex,

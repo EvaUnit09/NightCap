@@ -35,7 +35,7 @@ function opt(optionIndex: number, ...placeIds: string[]): RecordedOption {
   return { optionIndex, repairRounds: 0, placeIds };
 }
 
-const INTENT = { budgetUsd: 150, stopTypes: ["drinks", "dinner"] as const, singleStop: false };
+const INTENT = { source: "model" as const, budgetUsd: 150, stopTypes: ["drinks", "dinner"] as const, singleStop: false };
 
 function completed(caseId: string, options: RecordedOption[], overrides: Partial<EvalCaseRecord> = {}): EvalCaseRecord {
   return {
@@ -222,5 +222,33 @@ describe("scoreRecords", () => {
     assert.equal(empty.validity.cases.rate, null);
     assert.equal(empty.gates.validity.pass, false);
     assert.equal(empty.gates.inventedVenue.pass, true);
+  });
+});
+
+describe("budget fit", () => {
+  const budgets = new Map([
+    ["nc-001", { min: 80, max: 150 }],
+    ["nc-002", { min: 80, max: 160 }],
+    ["nc-003", { min: 70, max: 130 }],
+    ["nc-004", { min: 180, max: 280 }],
+  ]);
+  const withBudget = (caseId: string, budgetUsd: number): EvalCaseRecord =>
+    completed(caseId, [opt(0, "bar-2")], { intent: { ...INTENT, stopTypes: [...INTENT.stopTypes], budgetUsd } });
+
+  it("counts parsed budgets inside the party range, bounds included", () => {
+    const records = [withBudget("nc-001", 150), withBudget("nc-002", 80), withBudget("nc-003", 131), withBudget("nc-004", 100)];
+    assert.deepEqual(scoreRecords(records, { partyBudgets: budgets }).budgetFit, ratio(2, 4));
+  });
+
+  it("catches a per-person parse of a party budget", () => {
+    assert.deepEqual(scoreRecords([withBudget("nc-002", 60)], { partyBudgets: budgets }).budgetFit, ratio(0, 1));
+    assert.deepEqual(scoreRecords([withBudget("nc-002", 120)], { partyBudgets: budgets }).budgetFit, ratio(1, 1));
+  });
+
+  it("leaves out cases with no parsed intent or no known budget", () => {
+    const unparsed = failed("nc-003", { stage: "parse", code: "schema_invalid" }, { intent: null });
+    const records = [withBudget("nc-001", 120), unparsed, withBudget("nc-999", 50)];
+    assert.deepEqual(scoreRecords(records, { partyBudgets: budgets }).budgetFit, ratio(1, 1));
+    assert.deepEqual(scoreRecords(records).budgetFit, ratio(0, 0));
   });
 });

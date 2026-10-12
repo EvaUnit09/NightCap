@@ -14,6 +14,7 @@ import { RAW_MODEL_PROMPT_VERSION, rawModelCaseRunner } from "./raw-model";
 import type { EvalCaseRecord } from "./record";
 import { DEFAULT_RESULTS_DIR, REPORT_SCHEMA_VERSION, writeReport, type EvalReport } from "./report";
 import { DEFAULT_CONCURRENCY, pipelineCaseRunner, runCases, type CaseRunner } from "./runner";
+import { partyBudgetsById } from "./party-budget";
 import { scoreRecords } from "./score";
 
 export const EXIT_OK = 0;
@@ -218,7 +219,7 @@ async function runSystem(system: RunnableSystem, context: RunContext): Promise<S
     limit: args.limit,
     concurrency: args.concurrency,
     promptVersions: promptVersionsFor(system, deps),
-    metrics: scoreRecords(records),
+    metrics: scoreRecords(records, { partyBudgets: partyBudgetsById(cases) }),
     records,
   };
   return { report, path: await writeReport(args.outDir, report) };

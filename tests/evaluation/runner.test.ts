@@ -133,7 +133,7 @@ describe("pipelineCaseRunner", () => {
       ["ChIJbar1", "ChIJdin1"],
     ]);
     assert.equal(ok.pool.length, 8);
-    assert.deepEqual(ok.intent, { budgetUsd: 200, stopTypes: ["drinks", "dinner"], singleStop: false });
+    assert.deepEqual(ok.intent, { source: "model", budgetUsd: 200, stopTypes: ["drinks", "dinner"], singleStop: false });
 
     assert.deepEqual(byId(records, "nc-902").outcome, { kind: "failed", failure: { stage: "parse", code: "no_json" } });
     assert.equal(byId(records, "nc-902").intent, null);

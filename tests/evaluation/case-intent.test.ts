@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 
 import { intentFromCase } from "../../evaluation/case-intent";
 import { loadEvalCasesV1 } from "../../evaluation/cases";
+import { partyBudgetFor } from "../../evaluation/party-budget";
 
 const CASES = loadEvalCasesV1();
 
@@ -18,11 +19,15 @@ describe("intentFromCase", () => {
       const intent = intentFromCase(entry);
       assert.ok(intent.window.start.endsWith("-04:00"), entry.id);
       assert.ok(Date.parse(intent.window.start) < Date.parse(intent.window.end), entry.id);
-      assert.equal(intent.budgetUsd, entry.constraints.budget_max, entry.id);
+      assert.equal(intent.budgetUsd, partyBudgetFor(entry).max, entry.id);
       assert.equal(intent.singleStop, entry.constraints.single_stop, entry.id);
       assert.equal(intent.stopTypes.length === 1, entry.constraints.single_stop, entry.id);
       assert.equal(new Set(intent.stopTypes).size, intent.stopTypes.length, `${entry.id} repeats a stop type`);
     }
+  });
+
+  it("reads the whole-party budget, not the per-person label (nc-002)", () => {
+    assert.equal(intentFromCase(caseById("nc-002")).budgetUsd, 160);
   });
 
   it("builds nc-001 from its constraints and keywords", () => {
