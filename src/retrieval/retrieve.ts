@@ -1,5 +1,7 @@
 import { withStage } from "../monitoring";
 import type { Candidate } from "../validation/candidate";
+import type { CoordsCache } from "./coords-cache";
+import { overlayCachedCoords } from "./coords-overlay";
 import { PlacesError, type PlaceRecord, type PlacesClient, type PlacesErrorCode } from "./places-client";
 import { initialSearch, refillSearches, type SearchSpec, type VenueQuery } from "./query";
 import { rankCandidates, type RankedByStopType, type RankSettings } from "./rank";
@@ -31,6 +33,10 @@ export interface RetrievalDeps {
   readonly settings: RetrievalSettings;
   /** Injected so tests do not wait on retryDelayMs. Rejects when `signal` aborts. */
   readonly sleep: (ms: number, signal?: AbortSignal) => Promise<void>;
+  /** Optional. Without it every coordinate is the live Text Search value. */
+  readonly coordsCache?: CoordsCache;
+  /** Clock for cache expiry. Defaults to the wall clock. */
+  readonly now?: () => Date;
 }
 
 type SearchResult =
@@ -127,7 +133,9 @@ function assemble(
  * when the combined search needed a retry: a 429 will not clear in
  * retryDelayMs. A failed refill keeps what the combined search found.
  * Places failures become gaps; only a parent abort throws. Every candidate
- * comes from a Places response made during this call.
+ * comes from a Places response made during this call. With deps.coordsCache,
+ * a live cached coordinate replaces the response's and the rest are recorded;
+ * an expired one is never served.
  */
 export async function retrieveVenues(query: VenueQuery, deps: RetrievalDeps, signal?: AbortSignal): Promise<Retrieval> {
   const { settings } = deps;
@@ -141,7 +149,10 @@ export async function retrieveVenues(query: VenueQuery, deps: RetrievalDeps, sig
   const refills = blocker === null ? refillSearches(query, starved, settings.maxSearches - 1) : [];
   const results = await Promise.all(refills.map((spec) => searchWithRetry(spec, deps, signal)));
   const pool = [initial.places, ...results.map((result) => (result.ok ? result.places : []))].flat();
-  const ranked = await withStage({ stage: "rerank" }, () => rankCandidates(pool, query, settings));
+  const reranked = await withStage({ stage: "rerank" }, () => rankCandidates(pool, query, settings));
+  const ranked = deps.coordsCache
+    ? await overlayCachedCoords(reranked, deps.coordsCache, (deps.now ?? (() => new Date()))(), signal)
+    : reranked;
   const failures =
     blocker === null
       ? failuresByStopType(refills, results)
