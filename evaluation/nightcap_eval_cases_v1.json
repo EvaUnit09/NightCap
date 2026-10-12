@@ -1,0 +1,1202 @@
+[
+  {
+    "id": "nc-001",
+    "query": "Date night in the West Village. Something romantic with good cocktails, under $150 total for two. Friday around 7-10pm.",
+    "tags": ["manhattan", "romantic", "mid-budget", "friday", "cocktails"],
+    "constraints": {
+      "boroughs": ["Manhattan"],
+      "budget_min": 80,
+      "budget_max": 150,
+      "time_window": "evening",
+      "day_of_week": "Friday",
+      "vibes": ["romantic", "cocktails"],
+      "dietary": [],
+      "single_stop": false,
+      "expected_options": 2,
+      "stops_per_option": "2-4",
+      "travel_modes": ["WALK", "TRANSIT"],
+      "max_travel_minutes": 25
+    },
+    "edge": false
+  },
+  {
+    "id": "nc-002",
+    "query": "Cheap drinks and something fun in Brooklyn this Saturday. Max $60 per person. Starting around 9pm.",
+    "tags": ["brooklyn", "party", "tight-budget", "saturday", "late"],
+    "constraints": {
+      "boroughs": ["Brooklyn"],
+      "budget_min": 40,
+      "budget_max": 80,
+      "time_window": "late-evening",
+      "day_of_week": "Saturday",
+      "vibes": ["party", "casual"],
+      "dietary": [],
+      "single_stop": false,
+      "expected_options": 3,
+      "stops_per_option": "2-3",
+      "travel_modes": ["TRANSIT", "WALK"],
+      "max_travel_minutes": 25
+    },
+    "edge": true
+  },
+  {
+    "id": "nc-003",
+    "query": "Late Sunday night in Queens. Looking for places still open after 11pm, chill vibes, budget around $100.",
+    "tags": ["queens", "chill", "late-sunday", "mid-budget"],
+    "constraints": {
+      "boroughs": ["Queens"],
+      "budget_min": 70,
+      "budget_max": 130,
+      "time_window": "late-night",
+      "day_of_week": "Sunday",
+      "vibes": ["chill", "late-night"],
+      "dietary": [],
+      "single_stop": false,
+      "expected_options": 2,
+      "stops_per_option": "2-3",
+      "travel_modes": ["TRANSIT", "WALK"],
+      "max_travel_minutes": 25
+    },
+    "edge": true
+  },
+  {
+    "id": "nc-004",
+    "query": "Foodie night in Manhattan. Want a great dinner and a cocktail bar after. Budget $200-250. Thursday.",
+    "tags": ["manhattan", "foodie", "high-budget", "thursday"],
+    "constraints": {
+      "boroughs": ["Manhattan"],
+      "budget_min": 180,
+      "budget_max": 280,
+      "time_window": "evening",
+      "day_of_week": "Thursday",
+      "vibes": ["foodie", "cocktails"],
+      "dietary": [],
+      "single_stop": false,
+      "expected_options": 2,
+      "stops_per_option": "2-4",
+      "travel_modes": ["WALK", "TRANSIT"],
+      "max_travel_minutes": 25
+    },
+    "edge": false
+  },
+  {
+    "id": "nc-005",
+    "query": "Just one really good bar for a nightcap in the East Village. Under $40. Tonight.",
+    "tags": ["manhattan", "single-stop", "tight-budget", "cocktails"],
+    "constraints": {
+      "boroughs": ["Manhattan"],
+      "budget_min": 20,
+      "budget_max": 50,
+      "time_window": "late-evening",
+      "day_of_week": "any",
+      "vibes": ["cocktails", "nightcap"],
+      "dietary": [],
+      "single_stop": true,
+      "expected_options": 2,
+      "stops_per_option": "1",
+      "travel_modes": ["WALK"],
+      "max_travel_minutes": 25
+    },
+    "edge": true
+  },
+  {
+    "id": "nc-006",
+    "query": "Vegan-friendly dinner and drinks in Brooklyn. Mid budget, Friday night, lively but not crazy.",
+    "tags": ["brooklyn", "vegan", "dietary", "friday", "mid-budget"],
+    "constraints": {
+      "boroughs": ["Brooklyn"],
+      "budget_min": 90,
+      "budget_max": 160,
+      "time_window": "evening",
+      "day_of_week": "Friday",
+      "vibes": ["foodie", "lively"],
+      "dietary": ["vegan"],
+      "single_stop": false,
+      "expected_options": 2,
+      "stops_per_option": "2-3",
+      "travel_modes": ["WALK", "TRANSIT", "BICYCLE"],
+      "max_travel_minutes": 25
+    },
+    "edge": true
+  },
+  {
+    "id": "nc-007",
+    "query": "High-end romantic evening in Manhattan. Fine dining and a nice bar. Budget up to $300. Saturday.",
+    "tags": ["manhattan", "romantic", "high-budget", "saturday", "fine-dining"],
+    "constraints": {
+      "boroughs": ["Manhattan"],
+      "budget_min": 200,
+      "budget_max": 320,
+      "time_window": "evening",
+      "day_of_week": "Saturday",
+      "vibes": ["romantic", "fine-dining", "cocktails"],
+      "dietary": [],
+      "single_stop": false,
+      "expected_options": 2,
+      "stops_per_option": "2-3",
+      "travel_modes": ["WALK", "TRANSIT"],
+      "max_travel_minutes": 25
+    },
+    "edge": false
+  },
+  {
+    "id": "nc-008",
+    "query": "Something outdoorsy or with outdoor seating in Queens. Casual, around $80. Weekend afternoon into evening.",
+    "tags": ["queens", "outdoor", "casual", "mid-budget", "weekend"],
+    "constraints": {
+      "boroughs": ["Queens"],
+      "budget_min": 50,
+      "budget_max": 100,
+      "time_window": "afternoon-evening",
+      "day_of_week": "Saturday",
+      "vibes": ["casual", "outdoor"],
+      "dietary": [],
+      "single_stop": false,
+      "expected_options": 2,
+      "stops_per_option": "2-3",
+      "travel_modes": ["WALK", "BICYCLE", "TRANSIT"],
+      "max_travel_minutes": 25
+    },
+    "edge": false
+  },
+  {
+    "id": "nc-009",
+    "query": "Jazz and cocktails in Manhattan. Chill vibe, budget $120. Thursday night.",
+    "tags": ["manhattan", "jazz", "chill", "mid-budget", "thursday"],
+    "constraints": {
+      "boroughs": ["Manhattan"],
+      "budget_min": 90,
+      "budget_max": 150,
+      "time_window": "evening",
+      "day_of_week": "Thursday",
+      "vibes": ["jazz", "cocktails", "chill"],
+      "dietary": [],
+      "single_stop": false,
+      "expected_options": 2,
+      "stops_per_option": "2-4",
+      "travel_modes": ["WALK", "TRANSIT"],
+      "max_travel_minutes": 25
+    },
+    "edge": false
+  },
+  {
+    "id": "nc-010",
+    "query": "Gluten-free options for dinner and drinks in the Bronx. Not too expensive, under $90. Friday.",
+    "tags": ["bronx", "gluten-free", "dietary", "tight-budget", "friday"],
+    "constraints": {
+      "boroughs": ["Bronx"],
+      "budget_min": 50,
+      "budget_max": 100,
+      "time_window": "evening",
+      "day_of_week": "Friday",
+      "vibes": ["foodie", "casual"],
+      "dietary": ["gluten-free"],
+      "single_stop": false,
+      "expected_options": 2,
+      "stops_per_option": "2-3",
+      "travel_modes": ["TRANSIT", "WALK"],
+      "max_travel_minutes": 25
+    },
+    "edge": true
+  },
+  {
+    "id": "nc-011",
+    "query": "Party night in Brooklyn. Clubs or high energy bars. Budget $150. Saturday late.",
+    "tags": ["brooklyn", "party", "high-energy", "mid-budget", "saturday", "late"],
+    "constraints": {
+      "boroughs": ["Brooklyn"],
+      "budget_min": 100,
+      "budget_max": 180,
+      "time_window": "late-night",
+      "day_of_week": "Saturday",
+      "vibes": ["party", "dancing", "high-energy"],
+      "dietary": [],
+      "single_stop": false,
+      "expected_options": 3,
+      "stops_per_option": "2-4",
+      "travel_modes": ["TRANSIT", "WALK"],
+      "max_travel_minutes": 25
+    },
+    "edge": false
+  },
+  {
+    "id": "nc-012",
+    "query": "Quiet coffee and a small bar after in Staten Island. Low key, under $70. Weekday.",
+    "tags": ["staten-island", "chill", "tight-budget", "weekday"],
+    "constraints": {
+      "boroughs": ["Staten Island"],
+      "budget_min": 30,
+      "budget_max": 80,
+      "time_window": "evening",
+      "day_of_week": "Wednesday",
+      "vibes": ["chill", "low-key"],
+      "dietary": [],
+      "single_stop": false,
+      "expected_options": 2,
+      "stops_per_option": "2",
+      "travel_modes": ["WALK", "TRANSIT"],
+      "max_travel_minutes": 25
+    },
+    "edge": true
+  },
+  {
+    "id": "nc-013",
+    "query": "Cultural night in Manhattan. Museum or gallery then dinner nearby. Budget $180. Friday.",
+    "tags": ["manhattan", "cultural", "mid-budget", "friday"],
+    "constraints": {
+      "boroughs": ["Manhattan"],
+      "budget_min": 120,
+      "budget_max": 220,
+      "time_window": "evening",
+      "day_of_week": "Friday",
+      "vibes": ["cultural", "foodie"],
+      "dietary": [],
+      "single_stop": false,
+      "expected_options": 2,
+      "stops_per_option": "2-3",
+      "travel_modes": ["WALK", "TRANSIT"],
+      "max_travel_minutes": 25
+    },
+    "edge": false
+  },
+  {
+    "id": "nc-014",
+    "query": "Late night food and drinks in Queens. After 10pm, open places only. Around $100.",
+    "tags": ["queens", "late-night", "foodie", "mid-budget"],
+    "constraints": {
+      "boroughs": ["Queens"],
+      "budget_min": 70,
+      "budget_max": 130,
+      "time_window": "late-night",
+      "day_of_week": "any",
+      "vibes": ["late-night", "foodie"],
+      "dietary": [],
+      "single_stop": false,
+      "expected_options": 2,
+      "stops_per_option": "2-3",
+      "travel_modes": ["TRANSIT", "WALK"],
+      "max_travel_minutes": 25
+    },
+    "edge": true
+  },
+  {
+    "id": "nc-015",
+    "query": "Romantic walkable night in Brooklyn Heights. Dinner and dessert. Budget $160. Sunday early evening.",
+    "tags": ["brooklyn", "romantic", "walkable", "mid-budget", "sunday"],
+    "constraints": {
+      "boroughs": ["Brooklyn"],
+      "budget_min": 120,
+      "budget_max": 200,
+      "time_window": "evening",
+      "day_of_week": "Sunday",
+      "vibes": ["romantic", "walkable"],
+      "dietary": [],
+      "single_stop": false,
+      "expected_options": 2,
+      "stops_per_option": "2-3",
+      "travel_modes": ["WALK"],
+      "max_travel_minutes": 25
+    },
+    "edge": false
+  },
+  {
+    "id": "nc-016",
+    "query": "Halal-friendly spots for dinner and drinks in Manhattan. Budget under $120. Friday.",
+    "tags": ["manhattan", "halal", "dietary", "mid-budget", "friday"],
+    "constraints": {
+      "boroughs": ["Manhattan"],
+      "budget_min": 70,
+      "budget_max": 140,
+      "time_window": "evening",
+      "day_of_week": "Friday",
+      "vibes": ["foodie", "casual"],
+      "dietary": ["halal"],
+      "single_stop": false,
+      "expected_options": 2,
+      "stops_per_option": "2-3",
+      "travel_modes": ["WALK", "TRANSIT"],
+      "max_travel_minutes": 25
+    },
+    "edge": true
+  },
+  {
+    "id": "nc-017",
+    "query": "Just a single great cocktail bar in SoHo. Nice vibe, around $50. Tonight.",
+    "tags": ["manhattan", "single-stop", "cocktails", "mid-budget"],
+    "constraints": {
+      "boroughs": ["Manhattan"],
+      "budget_min": 30,
+      "budget_max": 70,
+      "time_window": "evening",
+      "day_of_week": "any",
+      "vibes": ["cocktails"],
+      "dietary": [],
+      "single_stop": true,
+      "expected_options": 3,
+      "stops_per_option": "1",
+      "travel_modes": ["WALK"],
+      "max_travel_minutes": 25
+    },
+    "edge": true
+  },
+  {
+    "id": "nc-018",
+    "query": "Chill beer garden or outdoor bar in Queens. Casual, under $80. Saturday afternoon.",
+    "tags": ["queens", "outdoor", "chill", "tight-budget", "saturday"],
+    "constraints": {
+      "boroughs": ["Queens"],
+      "budget_min": 40,
+      "budget_max": 90,
+      "time_window": "afternoon",
+      "day_of_week": "Saturday",
+      "vibes": ["chill", "outdoor", "beer"],
+      "dietary": [],
+      "single_stop": false,
+      "expected_options": 2,
+      "stops_per_option": "1-2",
+      "travel_modes": ["WALK", "BICYCLE"],
+      "max_travel_minutes": 25
+    },
+    "edge": false
+  },
+  {
+    "id": "nc-019",
+    "query": "High energy night out in Manhattan. Multiple stops, dancing or loud bars. Budget $200. Saturday.",
+    "tags": ["manhattan", "party", "high-energy", "high-budget", "saturday"],
+    "constraints": {
+      "boroughs": ["Manhattan"],
+      "budget_min": 150,
+      "budget_max": 250,
+      "time_window": "late-evening",
+      "day_of_week": "Saturday",
+      "vibes": ["party", "dancing"],
+      "dietary": [],
+      "single_stop": false,
+      "expected_options": 2,
+      "stops_per_option": "3-4",
+      "travel_modes": ["WALK", "TRANSIT"],
+      "max_travel_minutes": 25
+    },
+    "edge": false
+  },
+  {
+    "id": "nc-020",
+    "query": "Late Sunday in Brooklyn. Places open past midnight. Low key drinks, under $90.",
+    "tags": ["brooklyn", "late-sunday", "chill", "tight-budget"],
+    "constraints": {
+      "boroughs": ["Brooklyn"],
+      "budget_min": 50,
+      "budget_max": 100,
+      "time_window": "late-night",
+      "day_of_week": "Sunday",
+      "vibes": ["chill", "late-night"],
+      "dietary": [],
+      "single_stop": false,
+      "expected_options": 2,
+      "stops_per_option": "2",
+      "travel_modes": ["WALK", "TRANSIT"],
+      "max_travel_minutes": 25
+    },
+    "edge": true
+  },
+  {
+    "id": "nc-021",
+    "query": "Italian dinner and wine bar in Manhattan. Romantic, budget $180. Wednesday.",
+    "tags": ["manhattan", "romantic", "italian", "mid-budget", "wednesday"],
+    "constraints": {
+      "boroughs": ["Manhattan"],
+      "budget_min": 130,
+      "budget_max": 210,
+      "time_window": "evening",
+      "day_of_week": "Wednesday",
+      "vibes": ["romantic", "wine", "italian"],
+      "dietary": [],
+      "single_stop": false,
+      "expected_options": 2,
+      "stops_per_option": "2-3",
+      "travel_modes": ["WALK"],
+      "max_travel_minutes": 25
+    },
+    "edge": false
+  },
+  {
+    "id": "nc-022",
+    "query": "Budget night under $50 total in the Bronx. Just a couple of drinks somewhere decent.",
+    "tags": ["bronx", "tight-budget", "casual"],
+    "constraints": {
+      "boroughs": ["Bronx"],
+      "budget_min": 20,
+      "budget_max": 60,
+      "time_window": "evening",
+      "day_of_week": "any",
+      "vibes": ["casual"],
+      "dietary": [],
+      "single_stop": false,
+      "expected_options": 2,
+      "stops_per_option": "1-2",
+      "travel_modes": ["TRANSIT", "WALK"],
+      "max_travel_minutes": 25
+    },
+    "edge": true
+  },
+  {
+    "id": "nc-023",
+    "query": "Speakeasy style bars in Manhattan. Mysterious vibe, cocktails. Budget $140. Friday.",
+    "tags": ["manhattan", "speakeasy", "cocktails", "mid-budget", "friday"],
+    "constraints": {
+      "boroughs": ["Manhattan"],
+      "budget_min": 100,
+      "budget_max": 170,
+      "time_window": "evening",
+      "day_of_week": "Friday",
+      "vibes": ["speakeasy", "cocktails"],
+      "dietary": [],
+      "single_stop": false,
+      "expected_options": 2,
+      "stops_per_option": "2-3",
+      "travel_modes": ["WALK", "TRANSIT"],
+      "max_travel_minutes": 25
+    },
+    "edge": false
+  },
+  {
+    "id": "nc-024",
+    "query": "Family-friendly early evening in Queens. Dinner then something light. Under $100.",
+    "tags": ["queens", "family", "casual", "tight-budget", "early"],
+    "constraints": {
+      "boroughs": ["Queens"],
+      "budget_min": 60,
+      "budget_max": 110,
+      "time_window": "early-evening",
+      "day_of_week": "any",
+      "vibes": ["family", "casual"],
+      "dietary": [],
+      "single_stop": false,
+      "expected_options": 2,
+      "stops_per_option": "2",
+      "travel_modes": ["WALK", "TRANSIT"],
+      "max_travel_minutes": 25
+    },
+    "edge": false
+  },
+  {
+    "id": "nc-025",
+    "query": "Live music and drinks in Brooklyn. Not too loud, budget $130. Thursday.",
+    "tags": ["brooklyn", "live-music", "chill", "mid-budget", "thursday"],
+    "constraints": {
+      "boroughs": ["Brooklyn"],
+      "budget_min": 90,
+      "budget_max": 160,
+      "time_window": "evening",
+      "day_of_week": "Thursday",
+      "vibes": ["live-music", "chill"],
+      "dietary": [],
+      "single_stop": false,
+      "expected_options": 2,
+      "stops_per_option": "2-3",
+      "travel_modes": ["WALK", "TRANSIT"],
+      "max_travel_minutes": 25
+    },
+    "edge": false
+  },
+  {
+    "id": "nc-026",
+    "query": "One excellent rooftop bar in Manhattan. Views, cocktails. Around $60. Weekend.",
+    "tags": ["manhattan", "single-stop", "rooftop", "cocktails", "mid-budget"],
+    "constraints": {
+      "boroughs": ["Manhattan"],
+      "budget_min": 40,
+      "budget_max": 80,
+      "time_window": "evening",
+      "day_of_week": "Saturday",
+      "vibes": ["rooftop", "cocktails", "views"],
+      "dietary": [],
+      "single_stop": true,
+      "expected_options": 2,
+      "stops_per_option": "1",
+      "travel_modes": ["WALK", "TRANSIT"],
+      "max_travel_minutes": 25
+    },
+    "edge": true
+  },
+  {
+    "id": "nc-027",
+    "query": "Vegetarian dinner and bar in Manhattan. Good food, budget $150. Friday night.",
+    "tags": ["manhattan", "vegetarian", "dietary", "mid-budget", "friday"],
+    "constraints": {
+      "boroughs": ["Manhattan"],
+      "budget_min": 100,
+      "budget_max": 180,
+      "time_window": "evening",
+      "day_of_week": "Friday",
+      "vibes": ["foodie", "vegetarian"],
+      "dietary": ["vegetarian"],
+      "single_stop": false,
+      "expected_options": 2,
+      "stops_per_option": "2-3",
+      "travel_modes": ["WALK", "TRANSIT"],
+      "max_travel_minutes": 25
+    },
+    "edge": true
+  },
+  {
+    "id": "nc-028",
+    "query": "Neighborhood crawl in the Lower East Side. Multiple bars, walkable. Budget $100. Saturday.",
+    "tags": ["manhattan", "crawl", "walkable", "mid-budget", "saturday"],
+    "constraints": {
+      "boroughs": ["Manhattan"],
+      "budget_min": 70,
+      "budget_max": 130,
+      "time_window": "evening",
+      "day_of_week": "Saturday",
+      "vibes": ["crawl", "casual", "walkable"],
+      "dietary": [],
+      "single_stop": false,
+      "expected_options": 2,
+      "stops_per_option": "3-4",
+      "travel_modes": ["WALK"],
+      "max_travel_minutes": 25
+    },
+    "edge": false
+  },
+  {
+    "id": "nc-029",
+    "query": "Late night in Staten Island. Anything still open after 11. Casual, under $70.",
+    "tags": ["staten-island", "late-night", "casual", "tight-budget"],
+    "constraints": {
+      "boroughs": ["Staten Island"],
+      "budget_min": 30,
+      "budget_max": 80,
+      "time_window": "late-night",
+      "day_of_week": "any",
+      "vibes": ["casual", "late-night"],
+      "dietary": [],
+      "single_stop": false,
+      "expected_options": 2,
+      "stops_per_option": "1-2",
+      "travel_modes": ["WALK", "TRANSIT"],
+      "max_travel_minutes": 25
+    },
+    "edge": true
+  },
+  {
+    "id": "nc-030",
+    "query": "Upscale sushi and cocktails in Manhattan. Budget $250. Date night Saturday.",
+    "tags": ["manhattan", "sushi", "romantic", "high-budget", "saturday"],
+    "constraints": {
+      "boroughs": ["Manhattan"],
+      "budget_min": 180,
+      "budget_max": 280,
+      "time_window": "evening",
+      "day_of_week": "Saturday",
+      "vibes": ["romantic", "sushi", "cocktails"],
+      "dietary": [],
+      "single_stop": false,
+      "expected_options": 2,
+      "stops_per_option": "2-3",
+      "travel_modes": ["WALK", "TRANSIT"],
+      "max_travel_minutes": 25
+    },
+    "edge": false
+  },
+  {
+    "id": "nc-031",
+    "query": "Chill wine bars in Brooklyn. Low key conversation. Budget $110. Wednesday.",
+    "tags": ["brooklyn", "wine", "chill", "mid-budget", "wednesday"],
+    "constraints": {
+      "boroughs": ["Brooklyn"],
+      "budget_min": 80,
+      "budget_max": 140,
+      "time_window": "evening",
+      "day_of_week": "Wednesday",
+      "vibes": ["wine", "chill"],
+      "dietary": [],
+      "single_stop": false,
+      "expected_options": 2,
+      "stops_per_option": "2",
+      "travel_modes": ["WALK", "TRANSIT"],
+      "max_travel_minutes": 25
+    },
+    "edge": false
+  },
+  {
+    "id": "nc-032",
+    "query": "Street food and casual bars in Queens. Very budget friendly, under $60. Friday.",
+    "tags": ["queens", "street-food", "tight-budget", "casual", "friday"],
+    "constraints": {
+      "boroughs": ["Queens"],
+      "budget_min": 30,
+      "budget_max": 70,
+      "time_window": "evening",
+      "day_of_week": "Friday",
+      "vibes": ["casual", "street-food"],
+      "dietary": [],
+      "single_stop": false,
+      "expected_options": 2,
+      "stops_per_option": "2-3",
+      "travel_modes": ["WALK", "TRANSIT"],
+      "max_travel_minutes": 25
+    },
+    "edge": true
+  },
+  {
+    "id": "nc-033",
+    "query": "Comedy club and drinks after in Manhattan. Fun night, budget $140. Saturday.",
+    "tags": ["manhattan", "comedy", "fun", "mid-budget", "saturday"],
+    "constraints": {
+      "boroughs": ["Manhattan"],
+      "budget_min": 100,
+      "budget_max": 170,
+      "time_window": "evening",
+      "day_of_week": "Saturday",
+      "vibes": ["comedy", "fun"],
+      "dietary": [],
+      "single_stop": false,
+      "expected_options": 2,
+      "stops_per_option": "2-3",
+      "travel_modes": ["WALK", "TRANSIT"],
+      "max_travel_minutes": 25
+    },
+    "edge": false
+  },
+  {
+    "id": "nc-034",
+    "query": "Single nice bar for nightcap in Williamsburg. Under $45. Late.",
+    "tags": ["brooklyn", "single-stop", "nightcap", "tight-budget"],
+    "constraints": {
+      "boroughs": ["Brooklyn"],
+      "budget_min": 25,
+      "budget_max": 55,
+      "time_window": "late-evening",
+      "day_of_week": "any",
+      "vibes": ["nightcap", "cocktails"],
+      "dietary": [],
+      "single_stop": true,
+      "expected_options": 2,
+      "stops_per_option": "1",
+      "travel_modes": ["WALK"],
+      "max_travel_minutes": 25
+    },
+    "edge": true
+  },
+  {
+    "id": "nc-035",
+    "query": "Outdoor dining and drinks in Manhattan. Nice weather assumed. Budget $170. Friday.",
+    "tags": ["manhattan", "outdoor", "mid-budget", "friday"],
+    "constraints": {
+      "boroughs": ["Manhattan"],
+      "budget_min": 120,
+      "budget_max": 200,
+      "time_window": "evening",
+      "day_of_week": "Friday",
+      "vibes": ["outdoor", "dining"],
+      "dietary": [],
+      "single_stop": false,
+      "expected_options": 2,
+      "stops_per_option": "2-3",
+      "travel_modes": ["WALK"],
+      "max_travel_minutes": 25
+    },
+    "edge": false
+  },
+  {
+    "id": "nc-036",
+    "query": "Late Sunday dinner in the Bronx. Places that stay open. Casual, under $100.",
+    "tags": ["bronx", "late-sunday", "casual", "mid-budget"],
+    "constraints": {
+      "boroughs": ["Bronx"],
+      "budget_min": 60,
+      "budget_max": 110,
+      "time_window": "evening",
+      "day_of_week": "Sunday",
+      "vibes": ["casual", "dinner"],
+      "dietary": [],
+      "single_stop": false,
+      "expected_options": 2,
+      "stops_per_option": "2",
+      "travel_modes": ["TRANSIT", "WALK"],
+      "max_travel_minutes": 25
+    },
+    "edge": true
+  },
+  {
+    "id": "nc-037",
+    "query": "Craft beer crawl in Brooklyn. Multiple spots, walkable. Budget $90. Saturday.",
+    "tags": ["brooklyn", "beer", "crawl", "mid-budget", "saturday"],
+    "constraints": {
+      "boroughs": ["Brooklyn"],
+      "budget_min": 60,
+      "budget_max": 110,
+      "time_window": "evening",
+      "day_of_week": "Saturday",
+      "vibes": ["beer", "crawl", "walkable"],
+      "dietary": [],
+      "single_stop": false,
+      "expected_options": 2,
+      "stops_per_option": "3-4",
+      "travel_modes": ["WALK", "BICYCLE"],
+      "max_travel_minutes": 25
+    },
+    "edge": false
+  },
+  {
+    "id": "nc-038",
+    "query": "High end steakhouse and bar in Manhattan. Special occasion, budget $280. Saturday.",
+    "tags": ["manhattan", "steak", "high-budget", "special", "saturday"],
+    "constraints": {
+      "boroughs": ["Manhattan"],
+      "budget_min": 200,
+      "budget_max": 320,
+      "time_window": "evening",
+      "day_of_week": "Saturday",
+      "vibes": ["fine-dining", "steak", "cocktails"],
+      "dietary": [],
+      "single_stop": false,
+      "expected_options": 2,
+      "stops_per_option": "2",
+      "travel_modes": ["WALK", "TRANSIT"],
+      "max_travel_minutes": 25
+    },
+    "edge": false
+  },
+  {
+    "id": "nc-039",
+    "query": "Quiet library-adjacent or literary vibe bars in Manhattan. Chill, under $80. Weekday.",
+    "tags": ["manhattan", "literary", "chill", "tight-budget", "weekday"],
+    "constraints": {
+      "boroughs": ["Manhattan"],
+      "budget_min": 40,
+      "budget_max": 90,
+      "time_window": "evening",
+      "day_of_week": "Tuesday",
+      "vibes": ["chill", "literary"],
+      "dietary": [],
+      "single_stop": false,
+      "expected_options": 2,
+      "stops_per_option": "1-2",
+      "travel_modes": ["WALK"],
+      "max_travel_minutes": 25
+    },
+    "edge": false
+  },
+  {
+    "id": "nc-040",
+    "query": "Multi-borough? Start in Brooklyn end in Manhattan if travel allows. But keep under 25 min. Budget $150. Friday.",
+    "tags": ["multi-borough", "brooklyn", "manhattan", "mid-budget", "friday"],
+    "constraints": {
+      "boroughs": ["Brooklyn", "Manhattan"],
+      "budget_min": 100,
+      "budget_max": 180,
+      "time_window": "evening",
+      "day_of_week": "Friday",
+      "vibes": ["mixed"],
+      "dietary": [],
+      "single_stop": false,
+      "expected_options": 2,
+      "stops_per_option": "2-3",
+      "travel_modes": ["TRANSIT", "WALK"],
+      "max_travel_minutes": 25
+    },
+    "edge": true
+  },
+  {
+    "id": "nc-041",
+    "query": "Dessert focused night in Manhattan. Cake or ice cream then a bar. Budget $100. Sunday.",
+    "tags": ["manhattan", "dessert", "mid-budget", "sunday"],
+    "constraints": {
+      "boroughs": ["Manhattan"],
+      "budget_min": 60,
+      "budget_max": 120,
+      "time_window": "evening",
+      "day_of_week": "Sunday",
+      "vibes": ["dessert", "casual"],
+      "dietary": [],
+      "single_stop": false,
+      "expected_options": 2,
+      "stops_per_option": "2",
+      "travel_modes": ["WALK"],
+      "max_travel_minutes": 25
+    },
+    "edge": false
+  },
+  {
+    "id": "nc-042",
+    "query": "Late night taco spots and drinks in Queens. After 10pm. Under $80.",
+    "tags": ["queens", "tacos", "late-night", "tight-budget"],
+    "constraints": {
+      "boroughs": ["Queens"],
+      "budget_min": 40,
+      "budget_max": 90,
+      "time_window": "late-night",
+      "day_of_week": "any",
+      "vibes": ["late-night", "tacos", "casual"],
+      "dietary": [],
+      "single_stop": false,
+      "expected_options": 2,
+      "stops_per_option": "2-3",
+      "travel_modes": ["WALK", "TRANSIT"],
+      "max_travel_minutes": 25
+    },
+    "edge": true
+  },
+  {
+    "id": "nc-043",
+    "query": "Romantic Italian in Brooklyn. Wine, pasta. Budget $170. Friday.",
+    "tags": ["brooklyn", "romantic", "italian", "mid-budget", "friday"],
+    "constraints": {
+      "boroughs": ["Brooklyn"],
+      "budget_min": 120,
+      "budget_max": 200,
+      "time_window": "evening",
+      "day_of_week": "Friday",
+      "vibes": ["romantic", "italian", "wine"],
+      "dietary": [],
+      "single_stop": false,
+      "expected_options": 2,
+      "stops_per_option": "2-3",
+      "travel_modes": ["WALK", "TRANSIT"],
+      "max_travel_minutes": 25
+    },
+    "edge": false
+  },
+  {
+    "id": "nc-044",
+    "query": "Single dive bar in the Bronx. Cheap drinks, under $40. Casual.",
+    "tags": ["bronx", "single-stop", "dive", "tight-budget"],
+    "constraints": {
+      "boroughs": ["Bronx"],
+      "budget_min": 15,
+      "budget_max": 50,
+      "time_window": "evening",
+      "day_of_week": "any",
+      "vibes": ["dive", "casual"],
+      "dietary": [],
+      "single_stop": true,
+      "expected_options": 2,
+      "stops_per_option": "1",
+      "travel_modes": ["TRANSIT", "WALK"],
+      "max_travel_minutes": 25
+    },
+    "edge": true
+  },
+  {
+    "id": "nc-045",
+    "query": "Art gallery hop and drinks in Manhattan. Cultural, budget $160. Thursday.",
+    "tags": ["manhattan", "art", "cultural", "mid-budget", "thursday"],
+    "constraints": {
+      "boroughs": ["Manhattan"],
+      "budget_min": 110,
+      "budget_max": 190,
+      "time_window": "evening",
+      "day_of_week": "Thursday",
+      "vibes": ["art", "cultural", "cocktails"],
+      "dietary": [],
+      "single_stop": false,
+      "expected_options": 2,
+      "stops_per_option": "2-4",
+      "travel_modes": ["WALK", "TRANSIT"],
+      "max_travel_minutes": 25
+    },
+    "edge": false
+  },
+  {
+    "id": "nc-046",
+    "query": "Very late Sunday in Manhattan. After midnight. Only open places. Under $100.",
+    "tags": ["manhattan", "late-sunday", "late-night", "mid-budget"],
+    "constraints": {
+      "boroughs": ["Manhattan"],
+      "budget_min": 60,
+      "budget_max": 120,
+      "time_window": "late-night",
+      "day_of_week": "Sunday",
+      "vibes": ["late-night"],
+      "dietary": [],
+      "single_stop": false,
+      "expected_options": 2,
+      "stops_per_option": "1-2",
+      "travel_modes": ["WALK", "TRANSIT"],
+      "max_travel_minutes": 25
+    },
+    "edge": true
+  },
+  {
+    "id": "nc-047",
+    "query": "Korean BBQ and karaoke in Queens. Fun group night, budget $180. Saturday.",
+    "tags": ["queens", "korean", "karaoke", "mid-budget", "saturday"],
+    "constraints": {
+      "boroughs": ["Queens"],
+      "budget_min": 120,
+      "budget_max": 220,
+      "time_window": "evening",
+      "day_of_week": "Saturday",
+      "vibes": ["korean", "karaoke", "fun"],
+      "dietary": [],
+      "single_stop": false,
+      "expected_options": 2,
+      "stops_per_option": "2-3",
+      "travel_modes": ["TRANSIT", "WALK"],
+      "max_travel_minutes": 25
+    },
+    "edge": false
+  },
+  {
+    "id": "nc-048",
+    "query": "Bike-friendly stops in Brooklyn. Parks or outdoor then a bar. Budget $90. Weekend.",
+    "tags": ["brooklyn", "bicycle", "outdoor", "mid-budget", "weekend"],
+    "constraints": {
+      "boroughs": ["Brooklyn"],
+      "budget_min": 50,
+      "budget_max": 110,
+      "time_window": "afternoon-evening",
+      "day_of_week": "Sunday",
+      "vibes": ["outdoor", "bicycle", "casual"],
+      "dietary": [],
+      "single_stop": false,
+      "expected_options": 2,
+      "stops_per_option": "2-3",
+      "travel_modes": ["BICYCLE", "WALK"],
+      "max_travel_minutes": 25
+    },
+    "edge": false
+  },
+  {
+    "id": "nc-049",
+    "query": "Tight budget $50 max in Manhattan. Just drinks somewhere decent. Tonight.",
+    "tags": ["manhattan", "tight-budget", "casual"],
+    "constraints": {
+      "boroughs": ["Manhattan"],
+      "budget_min": 20,
+      "budget_max": 60,
+      "time_window": "evening",
+      "day_of_week": "any",
+      "vibes": ["casual"],
+      "dietary": [],
+      "single_stop": false,
+      "expected_options": 2,
+      "stops_per_option": "1-2",
+      "travel_modes": ["WALK", "TRANSIT"],
+      "max_travel_minutes": 25
+    },
+    "edge": true
+  },
+  {
+    "id": "nc-050",
+    "query": "Wine tasting vibe or natural wine bars in Brooklyn. Budget $140. Friday.",
+    "tags": ["brooklyn", "wine", "natural-wine", "mid-budget", "friday"],
+    "constraints": {
+      "boroughs": ["Brooklyn"],
+      "budget_min": 100,
+      "budget_max": 170,
+      "time_window": "evening",
+      "day_of_week": "Friday",
+      "vibes": ["wine", "natural-wine"],
+      "dietary": [],
+      "single_stop": false,
+      "expected_options": 2,
+      "stops_per_option": "2-3",
+      "travel_modes": ["WALK", "TRANSIT"],
+      "max_travel_minutes": 25
+    },
+    "edge": false
+  },
+  {
+    "id": "nc-051",
+    "query": "Late night pizza and a bar in Manhattan. After 11. Under $80.",
+    "tags": ["manhattan", "pizza", "late-night", "tight-budget"],
+    "constraints": {
+      "boroughs": ["Manhattan"],
+      "budget_min": 40,
+      "budget_max": 90,
+      "time_window": "late-night",
+      "day_of_week": "any",
+      "vibes": ["late-night", "pizza", "casual"],
+      "dietary": [],
+      "single_stop": false,
+      "expected_options": 2,
+      "stops_per_option": "2",
+      "travel_modes": ["WALK"],
+      "max_travel_minutes": 25
+    },
+    "edge": true
+  },
+  {
+    "id": "nc-052",
+    "query": "Upscale cocktails and small plates in Manhattan. Budget $220. Date night.",
+    "tags": ["manhattan", "cocktails", "small-plates", "high-budget", "romantic"],
+    "constraints": {
+      "boroughs": ["Manhattan"],
+      "budget_min": 160,
+      "budget_max": 260,
+      "time_window": "evening",
+      "day_of_week": "any",
+      "vibes": ["cocktails", "small-plates", "romantic"],
+      "dietary": [],
+      "single_stop": false,
+      "expected_options": 2,
+      "stops_per_option": "2-3",
+      "travel_modes": ["WALK", "TRANSIT"],
+      "max_travel_minutes": 25
+    },
+    "edge": false
+  },
+  {
+    "id": "nc-053",
+    "query": "Chill board game cafe or bar in Queens. Low key, under $70. Weekday.",
+    "tags": ["queens", "board-games", "chill", "tight-budget", "weekday"],
+    "constraints": {
+      "boroughs": ["Queens"],
+      "budget_min": 30,
+      "budget_max": 80,
+      "time_window": "evening",
+      "day_of_week": "Thursday",
+      "vibes": ["chill", "board-games"],
+      "dietary": [],
+      "single_stop": false,
+      "expected_options": 2,
+      "stops_per_option": "1-2",
+      "travel_modes": ["TRANSIT", "WALK"],
+      "max_travel_minutes": 25
+    },
+    "edge": false
+  },
+  {
+    "id": "nc-054",
+    "query": "Single excellent cocktail bar in the Upper West Side. Around $55. Tonight.",
+    "tags": ["manhattan", "single-stop", "cocktails", "mid-budget"],
+    "constraints": {
+      "boroughs": ["Manhattan"],
+      "budget_min": 35,
+      "budget_max": 70,
+      "time_window": "evening",
+      "day_of_week": "any",
+      "vibes": ["cocktails"],
+      "dietary": [],
+      "single_stop": true,
+      "expected_options": 2,
+      "stops_per_option": "1",
+      "travel_modes": ["WALK", "TRANSIT"],
+      "max_travel_minutes": 25
+    },
+    "edge": true
+  },
+  {
+    "id": "nc-055",
+    "query": "Food hall or market then a bar in Brooklyn. Casual, budget $100. Saturday.",
+    "tags": ["brooklyn", "food-hall", "casual", "mid-budget", "saturday"],
+    "constraints": {
+      "boroughs": ["Brooklyn"],
+      "budget_min": 70,
+      "budget_max": 130,
+      "time_window": "evening",
+      "day_of_week": "Saturday",
+      "vibes": ["casual", "food-hall"],
+      "dietary": [],
+      "single_stop": false,
+      "expected_options": 2,
+      "stops_per_option": "2-3",
+      "travel_modes": ["WALK", "TRANSIT"],
+      "max_travel_minutes": 25
+    },
+    "edge": false
+  },
+  {
+    "id": "nc-056",
+    "query": "Very tight budget under $40 in Staten Island. Just somewhere for a drink.",
+    "tags": ["staten-island", "tight-budget", "casual"],
+    "constraints": {
+      "boroughs": ["Staten Island"],
+      "budget_min": 15,
+      "budget_max": 50,
+      "time_window": "evening",
+      "day_of_week": "any",
+      "vibes": ["casual"],
+      "dietary": [],
+      "single_stop": true,
+      "expected_options": 2,
+      "stops_per_option": "1",
+      "travel_modes": ["WALK", "TRANSIT"],
+      "max_travel_minutes": 25
+    },
+    "edge": true
+  },
+  {
+    "id": "nc-057",
+    "query": "Live jazz and dinner in Manhattan. Classic vibe, budget $190. Friday.",
+    "tags": ["manhattan", "jazz", "dinner", "mid-budget", "friday"],
+    "constraints": {
+      "boroughs": ["Manhattan"],
+      "budget_min": 140,
+      "budget_max": 220,
+      "time_window": "evening",
+      "day_of_week": "Friday",
+      "vibes": ["jazz", "dinner", "classic"],
+      "dietary": [],
+      "single_stop": false,
+      "expected_options": 2,
+      "stops_per_option": "2-3",
+      "travel_modes": ["WALK", "TRANSIT"],
+      "max_travel_minutes": 25
+    },
+    "edge": false
+  },
+  {
+    "id": "nc-058",
+    "query": "Late night in Brooklyn. Open after 1am. Party or chill, budget $120.",
+    "tags": ["brooklyn", "very-late", "mid-budget"],
+    "constraints": {
+      "boroughs": ["Brooklyn"],
+      "budget_min": 80,
+      "budget_max": 150,
+      "time_window": "late-night",
+      "day_of_week": "Saturday",
+      "vibes": ["late-night"],
+      "dietary": [],
+      "single_stop": false,
+      "expected_options": 2,
+      "stops_per_option": "2",
+      "travel_modes": ["WALK", "TRANSIT"],
+      "max_travel_minutes": 25
+    },
+    "edge": true
+  },
+  {
+    "id": "nc-059",
+    "query": "Seafood dinner and cocktails in Queens. Nice, budget $200. Saturday.",
+    "tags": ["queens", "seafood", "mid-budget", "saturday"],
+    "constraints": {
+      "boroughs": ["Queens"],
+      "budget_min": 140,
+      "budget_max": 230,
+      "time_window": "evening",
+      "day_of_week": "Saturday",
+      "vibes": ["seafood", "cocktails"],
+      "dietary": [],
+      "single_stop": false,
+      "expected_options": 2,
+      "stops_per_option": "2-3",
+      "travel_modes": ["TRANSIT", "WALK"],
+      "max_travel_minutes": 25
+    },
+    "edge": false
+  },
+  {
+    "id": "nc-060",
+    "query": "Casual neighborhood bars in the Bronx. Multiple stops, walkable if possible. Under $80. Weekday.",
+    "tags": ["bronx", "casual", "walkable", "tight-budget", "weekday"],
+    "constraints": {
+      "boroughs": ["Bronx"],
+      "budget_min": 40,
+      "budget_max": 90,
+      "time_window": "evening",
+      "day_of_week": "Wednesday",
+      "vibes": ["casual", "neighborhood"],
+      "dietary": [],
+      "single_stop": false,
+      "expected_options": 2,
+      "stops_per_option": "2-3",
+      "travel_modes": ["WALK", "TRANSIT"],
+      "max_travel_minutes": 25
+    },
+    "edge": false
+  }
+]
