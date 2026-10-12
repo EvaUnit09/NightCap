@@ -1,0 +1,14 @@
+node_modules
+.next
+.git
+.github
+.claude
+.cursor
+coverage
+evaluation/results
+docs
+tests
+.env*
+!.env.example
+Dockerfile
+.dockerignore
