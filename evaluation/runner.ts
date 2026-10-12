@@ -88,12 +88,21 @@ async function runOne(
   evalCase: EvalCase,
   options: RunCasesOptions,
 ): Promise<EvalCaseRecord> {
-  const timeout = AbortSignal.timeout(options.caseTimeoutMs ?? DEFAULT_CASE_TIMEOUT_MS);
-  const signal = options.signal === undefined ? timeout : AbortSignal.any([options.signal, timeout]);
+  // Not AbortSignal.timeout: its timer is unref'd, so a case awaiting only the
+  // signal lets the event loop drain and the process exits mid-run.
+  const timeoutMs = options.caseTimeoutMs ?? DEFAULT_CASE_TIMEOUT_MS;
+  const timeout = new AbortController();
+  const timer = setTimeout(
+    () => timeout.abort(new DOMException(`The operation timed out after ${timeoutMs}ms`, "TimeoutError")),
+    timeoutMs,
+  );
+  const signal = options.signal === undefined ? timeout.signal : AbortSignal.any([options.signal, timeout.signal]);
   try {
     return await runCase(evalCase, signal);
   } catch (error) {
     return recordFromError(evalCase.id, messageOf(error), { pool: [], poolOracle: null });
+  } finally {
+    clearTimeout(timer);
   }
 }
 
