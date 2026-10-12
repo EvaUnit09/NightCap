@@ -539,4 +539,26 @@ describe("eval CLI with baselines", () => {
     };
     assert.equal(progressLine("pipeline", record), "[pipeline] nc-001 failed plan/model_error (timeout)");
   });
+
+  it("names no error code when the case failed at a later stage than the call that got no reply", () => {
+    const record: EvalCaseRecord = {
+      caseId: "nc-002",
+      outcome: { kind: "failed", failure: { stage: "validate", code: "no_valid_options" } },
+      intent: null,
+      options: [],
+      dropped: [],
+      retrievalGaps: [],
+      pool: [],
+      poolOracle: null,
+      audit: {
+        modelCalls: [{ kind: "errored", stage: "repair_itinerary", model: "m", promptVersion: "v1", errorCode: "timeout" }],
+        candidateCount: 0,
+        plannedOptionCount: 1,
+        inventedPlaceIds: [],
+        repairRoundsRun: 1,
+        totalCostUsd: 0,
+      },
+    };
+    assert.equal(progressLine("pipeline", record), "[pipeline] nc-002 failed validate/no_valid_options");
+  });
 });
