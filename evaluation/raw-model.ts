@@ -1,5 +1,5 @@
 import { costUsdFor } from "../src/models/pricing";
-import { parsePlan, readResponse, type PipelineDeps } from "../src/pipeline";
+import { modelErrorCodeOf, parsePlan, readResponse, type PipelineDeps } from "../src/pipeline";
 import {
   callCostUsd,
   type InventedPlaceId,
@@ -107,16 +107,16 @@ function inventedIn(plan: Itinerary, resolved: readonly Candidate[]): InventedPl
 }
 
 function audit(
-  call: ModelCallRecord | null,
+  call: ModelCallRecord,
   parts: { readonly candidateCount: number; readonly plannedOptionCount: number; readonly invented: readonly InventedPlaceId[] },
 ): PipelineAudit {
   return {
-    modelCalls: call === null ? [] : [call],
+    modelCalls: [call],
     candidateCount: parts.candidateCount,
     plannedOptionCount: parts.plannedOptionCount,
     inventedPlaceIds: parts.invented,
     repairRoundsRun: 0,
-    totalCostUsd: call === null ? 0 : callCostUsd(call),
+    totalCostUsd: callCostUsd(call),
   };
 }
 
@@ -141,6 +141,7 @@ function failed(
 export function rawModelCaseRunner(deps: RawModelDeps): CaseRunner {
   return async (evalCase, signal) => {
     const intent = intentFromCase(evalCase);
+    const target = { stage: "plan_itineraries", model: deps.model, promptVersion: RAW_MODEL_PROMPT_VERSION } as const;
     let response;
     try {
       response = await deps.models.complete({
@@ -155,15 +156,14 @@ export function rawModelCaseRunner(deps: RawModelDeps): CaseRunner {
       if (signal.aborted) {
         throw error;
       }
-      const none = { audit: audit(null, { candidateCount: 0, plannedOptionCount: 0, invented: [] }), dropped: [] };
+      const call: ModelCallRecord = { kind: "errored", ...target, errorCode: modelErrorCodeOf(error) };
+      const none = { audit: audit(call, { candidateCount: 0, plannedOptionCount: 0, invented: [] }), dropped: [] };
       return failed(evalCase, intent, { stage: "plan", code: "model_error" }, none);
     }
     const read = readResponse(response, (json) => parsePlan(json, intent, deps.maxLegs));
     const call: ModelCallRecord = {
       kind: "replied",
-      stage: "plan_itineraries",
-      model: deps.model,
-      promptVersion: RAW_MODEL_PROMPT_VERSION,
+      ...target,
       inputTokens: response.inputTokens,
       outputTokens: response.outputTokens,
       costUsd: costUsdFor(deps.model, response),
