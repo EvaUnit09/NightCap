@@ -46,3 +46,6 @@ next-env.d.ts
 # verification runs (proof artifacts and the live server pid)
 .cursor/skills/verify-nightcap/.run/
 .cursor/skills/verify-nightcap/artifacts/
+
+# eval reports (npm run eval)
+/evaluation/results/
