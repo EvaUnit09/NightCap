@@ -94,7 +94,7 @@ Anonymous by default. A magic link saves and shares plans. The old "names and ot
 
 ### Success Metrics
 
-**Test set v1 (frozen,** `evaluation/`**):** 60 hand-written synthetic requests covering boroughs, budgets ($50–$300), times, vibes and edge cases (late Sunday, dietary needs, tight budgets), plus 20 real beta requests. v1 stays frozen for comparison. New failure cases go into v2.
+**Test set v1 (frozen,** `evaluation/`**):** 60 hand-written synthetic requests covering boroughs, budgets ($15–$320), times, vibes and edge cases (late Sunday, dietary needs, tight budgets), plus 20 real beta requests. v1 stays frozen for comparison. New failure cases go into v2.
 
 - **Technical metrics**
   - **Validity rate (primary), ≥ 90%.** An itinerary is valid only if **all** of these hold: every venue exists in Places and is `OPERATIONAL`; every venue is open for its scheduled slot; the total estimated cost is within budget; travel between consecutive stops is ≤ 25 min.
