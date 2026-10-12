@@ -23,6 +23,16 @@ describe("v1 party budgets", () => {
     }
   });
 
+  it("keeps per-person wording in PER_PERSON and out of PARTY_TOTAL", () => {
+    const perPersonWording = /per (person|head)/i;
+    for (const [id, entry] of Object.entries(PER_PERSON)) {
+      assert.match(entry.wording, perPersonWording, `${id}: PER_PERSON wording`);
+    }
+    for (const c of CASES.filter((entry) => entry.id in PARTY_TOTAL)) {
+      assert.doesNotMatch(c.query, perPersonWording, `${c.id}: a per-person query is filed as a party total`);
+    }
+  });
+
   it("scales a per-person budget by the stated party size", () => {
     for (const [id, entry] of Object.entries(PER_PERSON)) {
       const labelled = CASES.find((c) => c.id === id)?.constraints;
