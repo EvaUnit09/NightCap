@@ -37,16 +37,16 @@ Do this before prompt iteration. Later phases call these modules; they do not re
 |---|---|---|---|---|
 | 6 | Build the deterministic validator: operational, open for the slot, within budget, travel ≤ 25 min. | `src/validation/` | The same function is callable from the pipeline, the repair loop, the agent tool, and the eval runner. | partial |
 | 7 | Choose how travel minutes are computed. | `src/validation/`, decision log | One method feeds the ≤ 25 min check. | yes |
-| 8 | Add versioned prompt files and a loader. Git stays the source of truth. | `prompts/*/v1.md`, loader in `src/pipeline/` | `parse_intent`, `plan_itineraries`, `repair_itinerary`, and `refine_agent` load from files. Each trace is tagged with prompt name and version. | partial |
-| 9 | Wire static routing: Haiku 4.5 for parse; Sonnet 5 for plan, repair, and the agent. | `src/models/` | Stage code asks the router for a model id. There is no dynamic router. | partial |
-| 10 | Open one Datadog LLM Observability trace per request, with a span per stage. | `src/monitoring/` | Spans cover parse, each Places call (cache hit or miss), re-rank, plan, validate, repair, and later agent turns. Metadata includes tokens, cost, latency, and validation errors by type. | partial |
+| 8 | Add versioned prompt files and a loader. Git stays the source of truth. | `prompts/*/v1.md`, loader in `src/pipeline/` | `parse_intent`, `plan_itineraries`, `repair_itinerary`, and `refine_agent` load from files. Each trace is tagged with prompt name and version. | yes |
+| 9 | Wire static routing: Haiku 4.5 for parse; Sonnet 5 for plan, repair, and the agent. | `src/models/` | Stage code asks the router for a model id. There is no dynamic router. | yes |
+| 10 | Open one Datadog LLM Observability trace per request, with a span per stage. | `src/monitoring/` | Spans cover parse, each Places call (cache hit or miss), re-rank, plan, validate, repair, and later agent turns. Metadata includes tokens, cost, latency, and validation errors by type. | yes |
 
 ### 3. Retrieval — target 2026-10-11
 
 | # | Action | Lands in | Done when | Is done |
 |---|---|---|---|---|
 | 11 | Call Places Text Search, Nearby Search, and Place Details. Venues come only from these responses. Phase 3 ships Text Search only: one combined search plus at most one refill (decision #33). Nearby Search and Details wait for a caller that needs them (#29 hydration). | `src/retrieval/` | A query returns Place IDs plus hours, price, coords, rating, review count, and business status. | yes |
-| 12 | Cache `place_id` indefinitely and lat/lng for ≤ 30 days. Hours, price, rating, and names are fetched live. Saved stops store `placeId` only; the app hydrates names and details on view/share (decision #29). The previous query-keyed 24h details cache is dropped. Extra Places calls on view/share are covered by #30 (new beta target, lands in PR #7). Phase 3 ships the coords-cache port, TTL policy, and an in-memory adapter; the Supabase adapter lands with the first DB client (step 24, decision #34). | `places_cache` | Expired coordinates are not served. A repeat details query still calls Places. | partial |
+| 12 | Cache `place_id` indefinitely and lat/lng for ≤ 30 days. Hours, price, rating, and names are fetched live. Saved stops store `placeId` only; the app hydrates names and details on view/share (decision #29). The previous query-keyed 24h details cache is dropped. Extra Places calls on view/share are covered by #30 (new beta target, lands in PR #7). Phase 3 ships the coords-cache port, TTL policy, and an in-memory adapter; the Supabase adapter lands with the first DB client (step 24, decision #34). | `places_cache` | Expired coordinates are not served. A repeat details query still calls Places. | yes |
 | 13 | Filter to `OPERATIONAL` venues that are open for the slot and inside the price band, then re-rank. | `src/retrieval/` | Top-K per stop type prefers vibe-tag fit and penalizes very high review counts. Closed venues never reach the planner. | yes |
 | 14 | Retry a Places 429 or timeout once, then surface a partial result with a clear error. | `src/retrieval/` | The failure is a span with status error. The user is not shown an invented stop. | yes |
 
@@ -54,7 +54,7 @@ Do this before prompt iteration. Later phases call these modules; they do not re
 
 | # | Action | Lands in | Done when | Is done |
 |---|---|---|---|---|
-| 15 | Orchestrate redact → parse → retrieve → plan → validate → repair. | `src/pipeline/` | Repair fixes only the failing stops, at most twice, then that option is dropped. | no |
+| 15 | Orchestrate redact → parse → retrieve → plan → validate → repair. | `src/pipeline/` | Repair fixes only the failing stops, at most twice, then that option is dropped. | yes |
 | 16 | Hard-gate invented venues. Any Place ID absent from retrieval fails the case. | `src/pipeline/`, `src/validation/` | The pipeline cannot emit an unknown id, and the eval can compute invented-venue rate. | partial |
 | 17 | Stream with SSE: parsed intent first, then each itinerary only after it passes validation. | `app/` route handler | The client never receives an unvalidated stop. | no |
 | 18 | Check in the frozen 60-case synthetic set. | `evaluation/` | Cases cover borough, budget ($15–$320), time, vibe, and edges (late Sunday, dietary, tight budget). v1 stays frozen; new failures go to v2. | yes |
