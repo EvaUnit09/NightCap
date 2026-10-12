@@ -16,6 +16,13 @@ async function main(): Promise<number> {
   });
 }
 
-void main().then((code) => {
-  process.exitCode = code;
-});
+/** A config error (or any other) is one line on stderr, not a stack, so `--help` still reads cleanly. */
+void main().then(
+  (code) => {
+    process.exitCode = code;
+  },
+  (error: unknown) => {
+    process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+    process.exitCode = 1;
+  },
+);
