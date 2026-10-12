@@ -64,7 +64,7 @@ export function createPipelineDeps(overrides: Partial<PipelineDeps> = {}): Pipel
   return {
     models: createAnthropicModelClient(),
     retrieve: (intent, signal) => retrieveForIntent(intent, signal),
-    validate: async (input) => await validateItineraryServer(input),
+    validate: (input) => validateItineraryServer(input),
     repairMaxRounds: getRepairMaxRounds(),
     maxLegs: getMaxTravelLegsPerRequest(),
     promptVersions: PROMPT_VERSIONS,
