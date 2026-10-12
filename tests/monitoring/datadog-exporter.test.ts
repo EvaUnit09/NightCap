@@ -5,6 +5,7 @@ import { resetConfig } from "../../src/models";
 import {
   createDatadogExporter,
   ENABLED_INTEGRATIONS,
+  PRELOADED_TRACER_WARNING,
   registerDatadogTracing,
   resetDatadogTracingForTests,
   safeErrorCode,
@@ -194,6 +195,31 @@ describe("registerDatadogTracing", () => {
     for (const banned of ["http", "https", "fetch", "undici", "net", "dns"]) {
       assert.equal(used.includes(banned), false, `${banned} plugin enabled`);
     }
+  });
+
+  it("refuses to trace, with a warning, when a preload already initialized dd-trace with its default plugins", async (t) => {
+    const warn = t.mock.method(console, "warn", () => undefined);
+    const calls: string[] = [];
+    const llmobs = {
+      trace: () => assert.fail("traced through a preloaded tracer"),
+      annotate: () => undefined,
+      annotationContext: () => undefined,
+    };
+    const load = async () => ({
+      default: {
+        _initialized: true,
+        init: () => calls.push("init"),
+        use: () => calls.push("use"),
+        llmobs,
+      },
+    });
+
+    await registerDatadogTracing(load);
+    const result = await createDatadogExporter().wrap(ROOT_SPAN, () => 7);
+
+    assert.equal(result, 7, "the work still runs, untraced");
+    assert.deepEqual(calls, [], "neither init nor use runs on a tracer someone else configured");
+    assert.deepEqual(warn.mock.calls.map((call) => call.arguments[0]), [PRELOADED_TRACER_WARNING]);
   });
 
   for (const [label, load] of Object.entries(failingLoaders)) {

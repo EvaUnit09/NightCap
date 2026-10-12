@@ -208,6 +208,11 @@ describe("dd-trace wiring with the Anthropic plugin only", () => {
     }
   });
 
+  it("the installed dd-trace sets the _initialized flag the preload guard reads", async () => {
+    const { default: tracer } = (await import("dd-trace")) as unknown as { default: { _initialized?: unknown } };
+    assert.equal(tracer._initialized, true);
+  });
+
   it("no API key value or the request hash secret appears in anything dd-trace sent", () => {
     const bodies = received.filter((request) => !request.path.startsWith("/places") && !request.path.startsWith("/routes"));
     assert.ok(bodies.length >= 2);

@@ -42,8 +42,14 @@ interface DdTraceModule {
     init(options: object): unknown;
     use(integration: (typeof ENABLED_INTEGRATIONS)[number], enabled: true): unknown;
     readonly llmobs: unknown;
+    /** dd-trace 5.x's proxy flag. Its `init` returns early once set, ignoring our options. */
+    readonly _initialized?: boolean;
   };
 }
+
+export const PRELOADED_TRACER_WARNING =
+  "[monitoring] Datadog tracing disabled: dd-trace was already initialized (NODE_OPTIONS or --require/--import of dd-trace/init), " +
+  "so its default plugins, http and fetch included, are on and plugins:false cannot apply. Preload only dd-trace/register.js.";
 
 type LoadDdTrace = () => Promise<DdTraceModule>;
 
@@ -157,8 +163,13 @@ export async function traceWithClient<T>(
   }
 }
 
-async function initLlmobs(load: LoadDdTrace): Promise<LlmobsClient> {
+/** Null when another init got there first: its plugins would trace Places and Routes. */
+async function initLlmobs(load: LoadDdTrace): Promise<LlmobsClient | null> {
   const tracer = (await load()).default;
+  if (tracer._initialized === true) {
+    console.warn(PRELOADED_TRACER_WARNING);
+    return null;
+  }
   tracer.init({
     llmobs: {
       mlApp: process.env.DD_LLMOBS_ML_APP ?? "nightcap",
