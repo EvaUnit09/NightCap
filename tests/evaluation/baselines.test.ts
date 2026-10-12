@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, beforeEach, describe, it } from "node:test";
 
+import Anthropic from "@anthropic-ai/sdk";
+
 import type { EvalCase } from "../../evaluation/cases";
 import { EXIT_MISSING_ENV, EXIT_OK, EXIT_USAGE, missingLiveEnv, parseEvalArgs, progressLine, runEvalCli } from "../../evaluation/cli";
 import { filterOnlyCaseRunner, filterOnlyPoolOracle, type FilterOnlyDeps } from "../../evaluation/filter-only";
@@ -13,7 +15,7 @@ import { runCases, type CaseRunner } from "../../evaluation/runner";
 import { isValidCase } from "../../evaluation/score";
 import { createMemoryExporter } from "../../src/monitoring";
 import { resetConfig } from "../../src/models";
-import { createPipelineDeps, type ModelClient, type ModelResponse, type PipelineDeps } from "../../src/pipeline";
+import { createAnthropicModelClient, createPipelineDeps, type ModelClient, type ModelResponse, type PipelineDeps } from "../../src/pipeline";
 import { allCandidates, queryFromIntent, retrieveVenues, type Retrieval } from "../../src/retrieval";
 import { parseSearchBody, type PlacesClient } from "../../src/retrieval/places-client";
 import { DEFAULT_PRICE_RANGES } from "../../src/validation/defaults";
@@ -321,11 +323,27 @@ describe("rawModelCaseRunner", () => {
     assert.equal(places.searches().length, 0, "nothing is looked up for a plan that did not parse");
   });
 
-  it("records a model transport failure as a plan failure with no call", async () => {
-    const record = await runOne(runner(rawModels(() => new Error("503")), fixturePlaces().client));
+  it("records a call that got no reply, with its error code, through the real SDK", async () => {
+    const sent: unknown[] = [];
+    const rejectAll = async (_url: unknown, init: RequestInit) => {
+      sent.push(JSON.parse(String(init.body)));
+      return new Response(JSON.stringify({ type: "error", error: { type: "billing_error", message: "sk-ant-SECRET" } }), {
+        status: 402,
+        headers: { "content-type": "application/json" },
+      });
+    };
+    const sdk = new Anthropic({ apiKey: "test-key", fetch: rejectAll as typeof fetch, maxRetries: 0, timeout: 5_000 });
 
+    const record = await runOne(runner(createAnthropicModelClient({ client: sdk }), fixturePlaces().client));
+
+    assert.equal(sent.length, 1, "the request reached the API");
     assert.deepEqual(record.outcome, { kind: "failed", failure: { stage: "plan", code: "model_error" } });
-    assert.deepEqual(record.audit?.modelCalls, []);
+    assert.deepEqual(record.audit?.modelCalls, [
+      { kind: "errored", stage: "plan_itineraries", model: "claude-sonnet-5", promptVersion: "raw-v1", errorCode: "billing" },
+    ]);
+    assert.equal(record.audit?.totalCostUsd, 0);
+    assert.equal(progressLine("raw-model", record), "[raw-model] nc-901 failed plan/model_error (billing)");
+    assert.doesNotMatch(JSON.stringify(record), /SECRET/);
   });
 
   it("turns a Places outage during the lookup into an error record instead of guessing", async () => {
