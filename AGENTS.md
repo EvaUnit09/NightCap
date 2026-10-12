@@ -41,3 +41,10 @@ for the same reason and must not be imported from `app/` client files.
 Plain-node scripts and the eval runner must load
 `tests/setup.mjs` (or an equivalent shim) or run with
 `--conditions=react-server`. `npm test` already imports the shim.
+
+## Cursor Cloud specific instructions
+
+- Node 22 (`package.json` `engines` and `.nvmrc`). Install with `npm ci`. The home page, `npm test`, `npm run lint`, `npm run typecheck`, and `npm run build` need no API keys. Live Places tests stay off unless `RUN_LIVE_PLACES=1` and `GOOGLE_PLACES_API_KEY` are set.
+- This checkout can run one Next server; `next dev` processes share `.next`. Launch with `.cursor/skills/verify-nightcap/scripts/verify-nightcap launch` (127.0.0.1:4173). The launcher refuses when port 3000 is already serving Nightcap.
+- Readiness is HTTP 200 from `GET /` with `<title>Nightcap</title>` and `<h1>Nightcap</h1>`. `GET /does-not-exist` is 404, with heading `404` and the text `This page could not be found.`
+- `lsof` skips the `next-server` process because its title contains parentheses, so `verify-nightcap doctor` and `verify-nightcap drive` can exit before they record proof while the page is already healthy. Use the HTTP checks above.
