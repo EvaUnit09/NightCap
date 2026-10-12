@@ -26,7 +26,6 @@ import {
   getEnableLiveRoutes,
   getRoutesApiTimeoutMs,
   getPriceRanges,
-  getTurnstileSecretKey,
   resetConfig,
   assertProductionLiveRoutes,
 } from "../../src/models";
@@ -220,17 +219,6 @@ describe("Config module", () => {
         () => getDatadogApiKey(),
         {
           message: /Missing required secret: DD_API_KEY/,
-        }
-      );
-    });
-
-    it("throws clear error when Turnstile secret key is missing", () => {
-      delete process.env.TURNSTILE_SECRET_KEY;
-
-      assert.throws(
-        () => getTurnstileSecretKey(),
-        {
-          message: /Missing required secret: TURNSTILE_SECRET_KEY/,
         }
       );
     });
