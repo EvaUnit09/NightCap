@@ -3,7 +3,7 @@ import "server-only";
 import { getMaxTravelLegsPerRequest, getRepairMaxRounds } from "../models/config";
 import { redact } from "../monitoring/redact";
 import { withRequestTrace } from "../monitoring/tracing";
-import type { RequestRecorder, TraceExporter } from "../monitoring/trace-types";
+import type { RequestOutput, RequestRecorder, TraceExporter } from "../monitoring/trace-types";
 import { allCandidates, retrieveForIntent, type Retrieval } from "../retrieval";
 import type { Candidate } from "../validation/candidate";
 import { normalizeModelTravelModes } from "../validation/common";
@@ -53,7 +53,7 @@ export interface PipelineDeps {
 }
 
 export interface PipelineRequest {
-  /** The user's free text, before redaction. Only its HMAC reaches a span. */
+  /** The user's free text, before redaction. Spans get its HMAC; only the redacted form is trace input (#42). */
   readonly text: string;
   readonly testCaseId?: string;
   readonly signal?: AbortSignal;
@@ -160,6 +160,7 @@ async function parseStage(deps: PipelineDeps, request: PipelineRequest, trace: R
   if (!redacted.ok) {
     return { kind: "ended", result: failed({ stage: "redact", code: redacted.error }, progress) } as const;
   }
+  trace.recordInput(redacted);
   const parsed = await callModelStage(deps.models, {
     stage: "parse_intent",
     promptVersion: deps.promptVersions.parse_intent,
@@ -258,6 +259,23 @@ async function runStages(deps: PipelineDeps, request: PipelineRequest, trace: Re
 export async function runPipeline(request: PipelineRequest, deps: PipelineDeps): Promise<PipelineResult> {
   return withRequestTrace(
     { requestText: request.text, testCaseId: request.testCaseId, exporter: deps.exporter },
-    (trace) => runStages(deps, request, trace),
+    async (trace) => {
+      const result = await runStages(deps, request, trace);
+      trace.recordOutput(requestOutput(result));
+      return result;
+    },
   );
+}
+
+/** The workflow span's output: each emitted option's place ids and names, or where the request stopped. */
+export function requestOutput(result: PipelineResult): RequestOutput {
+  if (result.kind === "failed") {
+    return { status: "failed", stage: result.failure.stage, code: result.failure.code };
+  }
+  return {
+    status: "completed",
+    options: result.options.map(({ option }) => ({
+      stops: option.stops.map(({ placeId, name }) => ({ placeId, name })),
+    })),
+  };
 }

@@ -3,8 +3,9 @@
  *
  * Server-only: the given-name list and the tracing SDK must not reach a
  * client bundle. Callers must check `result.ok` and must never forward
- * `{ ok: false }` text to a model. Datadog spans get an allowlisted parsed_intent
- * summary plus a hash, not this free text. `prepareStoredRequest` is the only
+ * `{ ok: false }` text to a model. Datadog span attributes get an allowlisted
+ * parsed_intent summary plus a hash; the redacted text is only the workflow
+ * span's LLM Obs input (#42). `prepareStoredRequest` is the only
  * boundary that may produce a row for `insertStoredRequest`.
  */
 import "server-only";
@@ -34,8 +35,11 @@ export type {
   CapturedSpan,
   CapturedTrace,
   ExporterKind,
+  LlmPrompt,
   MemoryExporter,
+  RedactedRequest,
   RequestHash,
+  RequestOutput,
   RequestRecorder,
   RequestTraceInput,
   StageAttrs,

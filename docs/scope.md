@@ -76,7 +76,7 @@ By **2026-10-25** (4 weeks), ship a deployed v1 that:
 - `places_cache`: `place_id` indefinitely, lat/lng for 30 days; hours, price, rating, and names fetched live
 - `itineraries.stops`: `placeId` plus planning fields only (times, stopType, estimatedCostUsd, travelToNext, why). Names and Places details are hydrated live on view/share (decision #29)
 
-Anonymous by default. A magic link saves and shares plans. The old "names and other PII are redacted from the free text before storage and logging" / no-PII-in-DB rule is **superseded by decision #27 for the database**: `requests.redacted_text` stores heuristic-redacted request text (users who put full names in a request accept that risk). Logs and Datadog get no free text (spans get only `parsed_intent` plus a hash of the request, never the free text). The redactor's bar is good, not perfect.
+Anonymous by default. A magic link saves and shares plans. The old "names and other PII are redacted from the free text before storage and logging" / no-PII-in-DB rule is **superseded by decision #27 for the database**: `requests.redacted_text` stores heuristic-redacted request text (users who put full names in a request accept that risk). Logs get no free text. Datadog span tags get only `parsed_intent` plus a hash of the request; since decision #42, prompts, model replies, and the redacted request go to Datadog as LLM Obs input and output. The redactor's bar is good, not perfect.
 
 ### Constraints
 
@@ -86,7 +86,7 @@ Anonymous by default. A magic link saves and shares plans. The old "names and ot
 | Latency (p50 / p99)   | < 8s / < 20s end to end            | First itinerary is streamed as soon as it passes validation                                  |
 | Cost per request      | < $0.10 avg                        | Beta target (#30). Places Enterprise fields stay (novelty re-rank needs rating and review count). Plan stage ≈ $0.03; #36 model comparison is the lever to bring cost down. |
 | Quality bar           | ≥ 90% validity, 0% invented venues | Validity defined under Success Metrics                                                       |
-| Privacy / compliance  | Logs and Datadog get no free text; DB stores heuristic-redacted text | **Superseded by decision #27 for the DB** (old target: "No PII in logs or DB"). Logs/Datadog get no free text (`parsed_intent` + request hash only; `parsed_intent` is not redacted yet). Google Places terms respected. |
+| Privacy / compliance  | Logs get no free text; Datadog gets redacted prompts and replies as LLM Obs input/output only; DB stores heuristic-redacted text | **Superseded by decision #27 for the DB** (old target: "No PII in logs or DB") and by #42 for Datadog. Logs get no free text. Datadog span tags get `parsed_intent` + request hash only; LLM Obs input/output carry the redacted request, prompts, and replies. No API key or `REQUEST_HASH_SECRET` reaches Datadog. Google Places terms respected. |
 | Availability / uptime | Best-effort                        | Portfolio demo; daily spend cap may pause service                                            |
 
 
@@ -418,7 +418,7 @@ Flow: user message + current itinerary → agent calls tools → must call `vali
 | Logging Approach | Tool/Method                                                                                                                                                                                                                                                                             |
 | ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Basic            | Supabase tables (requests, itineraries, feedback)                                                                                                                                                                                                                                       |
-| Advanced         | Datadog LLM Observability: one trace per request; spans for parse, each Places call (cache hit/miss), re-rank, plan, validate, repair, agent turns. Tags: prompt version, model, test-case ID. Metadata: tokens, cost, latency, validation errors by type. The old "PII redacted before logging" / no-PII-in-DB line is **superseded by decision #27 for the DB**. Logs and Datadog get no free text: spans carry `parsed_intent` plus a request hash, never the free-text request. |
+| Advanced         | Datadog LLM Observability: one trace per request; spans for parse, each Places call (cache hit/miss), re-rank, plan, validate, repair, agent turns. Tags: prompt version, model, test-case ID. Metadata: tokens, cost, latency, validation errors by type. The old "PII redacted before logging" / no-PII-in-DB line is **superseded by decision #27 for the DB**. Logs get no free text. Datadog span tags carry `parsed_intent` plus a request hash; prompts, replies, and the redacted request go only to LLM Obs input and output (#42). |
 
 
 

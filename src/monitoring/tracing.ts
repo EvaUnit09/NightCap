@@ -7,12 +7,14 @@ import { createDatadogExporter } from "./datadog-exporter";
 import { createMemoryExporter } from "./memory-exporter";
 import { createNoopExporter } from "./noop-exporter";
 import { hashRequest } from "./request-hash";
-import { rootAttributes, stageAttributes } from "./span-sanitize";
+import { rootAttributes, stageAttributes, stagePrompt } from "./span-sanitize";
 import { isTraceStage, spanKindFor } from "./stages";
 import type {
   MemoryExporter,
+  RequestOutput,
   RequestRecorder,
   RequestTraceInput,
+  SpanIO,
   StageAttrs,
   StageMeasures,
   StageRecorder,
@@ -41,7 +43,9 @@ export { createMemoryExporter };
 
 /**
  * One trace per request. `fn` may record the parsed intent once parse
- * runs; the root span then carries the allowlisted summary, never free text.
+ * runs; the root span then carries the allowlisted summary as metadata.
+ * The redacted request and the emitted venues it records are the span's
+ * LLM Obs input and output, the only place free text goes (#42).
  */
 export async function withRequestTrace<T>(
   input: RequestTraceInput,
@@ -50,9 +54,16 @@ export async function withRequestTrace<T>(
   const exporter = input.exporter ?? createExporter();
   const requestHash = hashRequest(input.requestText);
   let parsedIntent = input.parsedIntent;
+  let io: SpanIO = {};
   const recorder: RequestRecorder = {
     recordParsedIntent: (intent) => {
       parsedIntent = intent;
+    },
+    recordInput: (redacted) => {
+      io = { ...io, input: redacted.text };
+    },
+    recordOutput: (output) => {
+      io = { ...io, output };
     },
   };
   const ctx: TraceContext = {
@@ -68,6 +79,7 @@ export async function withRequestTrace<T>(
         kind: spanKindFor("request"),
         attributes: rootAttributes(input, requestHash),
         resolveAttributes: () => rootAttributes({ ...input, parsedIntent }, requestHash),
+        resolveIO: () => io,
       },
       () => fn(recorder),
     ),
@@ -95,11 +107,13 @@ export async function withStage<T>(
     },
   };
   const sanitize = (value: StageAttrs) => stageAttributes(value, ctx.requestHash, ctx.requestText);
+  const attributes = sanitize(opened);
   return ctx.exporter.wrap(
     {
       name: attrs.stage,
       kind: spanKindFor(attrs.stage),
-      attributes: sanitize(opened),
+      attributes,
+      prompt: stagePrompt(attributes),
       resolveAttributes: () => sanitize({ ...opened, ...measured }),
     },
     () => fn(recorder),
@@ -108,6 +122,7 @@ export async function withStage<T>(
 
 export type {
   MemoryExporter,
+  RequestOutput,
   RequestRecorder,
   RequestTraceInput,
   StageAttrs,

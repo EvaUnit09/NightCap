@@ -92,7 +92,6 @@ const configSchema = z.object({
   googlePlacesApiKey: z.string().min(1).optional(),
   /** Datadog key. `DD_API_KEY` is the only name dd-trace reads. */
   ddApiKey: z.string().min(1).optional(),
-  turnstileSecretKey: z.string().min(1).optional(),
   /**
    * HMAC-SHA256 key for the request hash attached to Datadog spans.
    * Required in production. Dev/test fall back to DEV_TEST_REQUEST_HASH_SECRET.
@@ -215,7 +214,6 @@ function loadConfig(): Config {
     anthropicApiKey: preprocessEnvVar(process.env.ANTHROPIC_API_KEY),
     googlePlacesApiKey: preprocessEnvVar(process.env.GOOGLE_PLACES_API_KEY),
     ddApiKey: readDdApiKey(),
-    turnstileSecretKey: preprocessEnvVar(process.env.TURNSTILE_SECRET_KEY),
     requestHashSecret: preprocessEnvVar(process.env.REQUEST_HASH_SECRET),
 
     // Model IDs
@@ -330,12 +328,6 @@ export function getRequestHashSecret(): string {
     );
   }
   return DEV_TEST_REQUEST_HASH_SECRET;
-}
-
-/** Get Turnstile secret key, failing if not configured. */
-export function getTurnstileSecretKey(): string {
-  const cfg = getConfig();
-  return requireSecret("TURNSTILE_SECRET_KEY", cfg.turnstileSecretKey);
 }
 
 /** Get parse model ID (Haiku 4-5 by default). */

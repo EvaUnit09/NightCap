@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, it } from "node:test";
 import { resetConfig } from "../../src/models";
 import {
   createDatadogExporter,
+  ENABLED_INTEGRATIONS,
   registerDatadogTracing,
   resetDatadogTracingForTests,
   safeErrorCode,
@@ -12,7 +13,7 @@ import {
   type LlmobsClient,
 } from "../../src/monitoring/datadog-exporter";
 import { hashRequest } from "../../src/monitoring";
-import type { TraceSpan } from "../../src/monitoring/trace-types";
+import type { LlmPrompt, TraceSpan } from "../../src/monitoring/trace-types";
 
 const LEAKY_MESSAGE = 'Unexpected token in JSON: "dinner with Sarah at 8"';
 
@@ -28,7 +29,18 @@ const ROOT_SPAN: TraceSpan = {
 function fakeClient() {
   const annotations: LlmobsAnnotation[] = [];
   const errorsSeenByTracer: unknown[] = [];
+  const prompts: LlmPrompt[] = [];
+  let insidePrompt = false;
   const client: LlmobsClient = {
+    annotationContext<T>(options: { prompt: LlmPrompt }, fn: () => T): T {
+      prompts.push(options.prompt);
+      insidePrompt = true;
+      try {
+        return fn();
+      } finally {
+        insidePrompt = false;
+      }
+    },
     annotate(_span, options) {
       annotations.push(options);
     },
@@ -41,7 +53,7 @@ function fakeClient() {
         });
     },
   };
-  return { client, annotations, errorsSeenByTracer };
+  return { client, annotations, errorsSeenByTracer, prompts, isInsidePrompt: () => insidePrompt };
 }
 
 describe("traceWithClient", () => {
@@ -85,6 +97,34 @@ describe("traceWithClient", () => {
   });
 });
 
+describe("traceWithClient input, output, and prompt", () => {
+  it("sends the recorded request and venues only as LLM Obs input and output", async () => {
+    const { client, annotations } = fakeClient();
+    const output = { status: "completed", options: [{ stops: [{ placeId: "ChIJbar0", name: "Little Branch" }] }] } as const;
+
+    await traceWithClient(client, { ...ROOT_SPAN, resolveIO: () => ({ input: "dinner with [NAME] at 8", output }) }, () => 1);
+
+    assert.equal(annotations[0].inputData, "dinner with [NAME] at 8");
+    assert.deepEqual(annotations[0].outputData, output);
+    const rest = JSON.stringify([annotations[0].tags, annotations[0].metadata, annotations[0].metrics]);
+    assert.equal(rest.includes("Little Branch"), false);
+    assert.equal(rest.includes("[NAME]"), false);
+  });
+
+  it("runs a stage's work inside its prompt's annotation context, and spans without one outside any", async () => {
+    const { client, prompts, isInsidePrompt } = fakeClient();
+    const prompt = { id: "plan_itineraries", version: "v1", tags: { prompt_hash: "abc" } };
+    const stage: TraceSpan = { name: "plan", kind: "task", attributes: { stage: "plan", request_hash: ROOT_SPAN.attributes.request_hash }, prompt };
+
+    const inside = await traceWithClient(client, stage, () => isInsidePrompt());
+    const outside = await traceWithClient(client, ROOT_SPAN, () => isInsidePrompt());
+
+    assert.equal(inside, true);
+    assert.equal(outside, false);
+    assert.deepEqual(prompts, [prompt]);
+  });
+});
+
 describe("safeErrorCode", () => {
   it("prefers a safe string code, then a safe name, then a fixed fallback", () => {
     const withCode = Object.assign(new Error(LEAKY_MESSAGE), { code: "ECONNRESET" });
@@ -120,6 +160,7 @@ describe("registerDatadogTracing", () => {
         init(): never {
           throw new RangeError(LEAKY_MESSAGE);
         },
+        use: () => undefined,
         llmobs: {},
       },
     }),
@@ -127,6 +168,33 @@ describe("registerDatadogTracing", () => {
       throw new RangeError(LEAKY_MESSAGE);
     },
   };
+
+  it("turns every dd-trace plugin off and then on only the Anthropic integration", async () => {
+    const inits: Record<string, unknown>[] = [];
+    const used: string[] = [];
+    const load = async () => ({
+      default: {
+        init(options: Record<string, unknown>) {
+          inits.push(options);
+        },
+        use(integration: string, enabled: true) {
+          assert.equal(enabled, true);
+          used.push(integration);
+        },
+        llmobs: {},
+      },
+    });
+
+    await registerDatadogTracing(load);
+
+    assert.deepEqual(ENABLED_INTEGRATIONS, ["anthropic"]);
+    assert.equal(inits.length, 1);
+    assert.equal(inits[0].plugins, false);
+    assert.deepEqual(used, ["anthropic"]);
+    for (const banned of ["http", "https", "fetch", "undici", "net", "dns"]) {
+      assert.equal(used.includes(banned), false, `${banned} plugin enabled`);
+    }
+  });
 
   for (const [label, load] of Object.entries(failingLoaders)) {
     it(`continues untraced with one name-only warning when ${label}`, async (t) => {

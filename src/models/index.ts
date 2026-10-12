@@ -28,7 +28,6 @@ export {
   getPriceRanges,
   getPriceRangesByLevel,
   getRetrievalSettings,
-  getTurnstileSecretKey,
   resetConfig,
 } from "./config";
 export type { RetrievalConfig } from "./config";

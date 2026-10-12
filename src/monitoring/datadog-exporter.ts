@@ -1,9 +1,19 @@
 import "server-only";
 
 import { getOptionalDdApiKey } from "../models/config";
-import type { SpanAttributes, SpanKind, TraceExporter, TraceSpan } from "./trace-types";
+import type {
+  LlmPrompt,
+  RequestOutput,
+  SpanAttributes,
+  SpanIO,
+  SpanKind,
+  TraceExporter,
+  TraceSpan,
+} from "./trace-types";
 
 export interface LlmobsAnnotation {
+  readonly inputData?: string;
+  readonly outputData?: RequestOutput;
   readonly tags?: Record<string, string>;
   readonly metadata?: Record<string, unknown>;
   readonly metrics?: Record<string, number>;
@@ -16,11 +26,21 @@ export interface LlmobsClient {
     options: { name: string; kind: SpanKind },
     fn: (span: unknown) => T | Promise<T>,
   ): T | Promise<T>;
+  annotationContext<T>(options: { prompt: LlmPrompt }, fn: () => T): T;
 }
+
+/**
+ * The only dd-trace integrations turned on (#42). `anthropic` makes each
+ * Messages call an `llm` span with its prompt, reply, tokens, and cost.
+ * `http`, `fetch`, and every other plugin stay off, so Places and Routes
+ * requests and their key headers are never traced.
+ */
+export const ENABLED_INTEGRATIONS = ["anthropic"] as const;
 
 interface DdTraceModule {
   readonly default: {
     init(options: object): unknown;
+    use(integration: (typeof ENABLED_INTEGRATIONS)[number], enabled: true): unknown;
     readonly llmobs: unknown;
   };
 }
@@ -55,17 +75,6 @@ function flattenTags(attributes: Record<string, unknown>): Record<string, string
   return tags;
 }
 
-function metricsFrom(attributes: Record<string, unknown>): Record<string, number> {
-  const metrics: Record<string, number> = {};
-  for (const key of ["latency_ms", "input_tokens", "output_tokens", "cost_usd"] as const) {
-    const value = attributes[key];
-    if (typeof value === "number" && Number.isFinite(value)) {
-      metrics[key] = value;
-    }
-  }
-  return metrics;
-}
-
 function safeField(error: unknown, field: "code" | "name"): string | undefined {
   if (typeof error !== "object" || error === null) {
     return undefined;
@@ -90,24 +99,35 @@ function redactedError(original: unknown, code: string): Error {
   return error;
 }
 
+/**
+ * Tokens and cost stay tags here: the nested `llm` span carries them as
+ * metrics, and a second copy on the stage would count them twice.
+ */
 function annotateSpan(
   client: LlmobsClient,
   ddSpan: unknown,
-  attributes: SpanAttributes,
+  span: TraceSpan,
   latencyMs: number,
   outcome: SpanOutcome,
 ): void {
-  const { parsed_intent: parsedIntent, ...rest } = attributes as Record<string, unknown>;
-  const measured = { ...rest, latency_ms: latencyMs };
+  const { parsed_intent: parsedIntent, ...rest } = finalAttributes(span) as Record<string, unknown>;
+  const io: SpanIO = span.resolveIO?.() ?? {};
   client.annotate(ddSpan, {
-    tags: flattenTags({ ...measured, ...outcome }),
+    inputData: io.input,
+    outputData: io.output,
+    tags: flattenTags({ ...rest, latency_ms: latencyMs, ...outcome }),
     metadata: parsedIntent === undefined ? undefined : { parsed_intent: parsedIntent },
-    metrics: metricsFrom(measured),
+    metrics: { latency_ms: latencyMs },
   });
 }
 
 function finalAttributes(span: TraceSpan): SpanAttributes {
   return span.resolveAttributes?.() ?? span.attributes;
+}
+
+function withPrompt<T>(client: LlmobsClient, span: TraceSpan, fn: () => Promise<T> | T): Promise<T> | T {
+  const { prompt } = span;
+  return prompt ? client.annotationContext({ prompt }, fn) : fn();
 }
 
 /** Trace `fn` through `client`; the caller always gets `fn`'s own result or error. */
@@ -120,12 +140,12 @@ export async function traceWithClient<T>(
   try {
     return await client.trace({ name: span.name, kind: span.kind }, async (ddSpan) => {
       try {
-        const result = await fn();
-        annotateSpan(client, ddSpan, finalAttributes(span), Date.now() - started, { status: "ok" });
+        const result = await withPrompt(client, span, fn);
+        annotateSpan(client, ddSpan, span, Date.now() - started, { status: "ok" });
         return result;
       } catch (error) {
         const code = safeErrorCode(error);
-        annotateSpan(client, ddSpan, finalAttributes(span), Date.now() - started, {
+        annotateSpan(client, ddSpan, span, Date.now() - started, {
           status: "error",
           error_code: code,
         });
@@ -149,18 +169,31 @@ async function initLlmobs(load: LoadDdTrace): Promise<LlmobsClient> {
     runtimeMetrics: false,
     logInjection: false,
   });
+  for (const integration of ENABLED_INTEGRATIONS) {
+    tracer.use(integration, true);
+  }
   return tracer.llmobs as LlmobsClient;
 }
 
 /**
- * Init dd-trace LLM Observability only when a key is present and this is
- * a running server, never during `next build`. Plugins stay off so APM
- * auto-instrumentation cannot capture request bodies (#27). A failed init
- * leaves requests untraced rather than failing them.
+ * Next and tsx load `@anthropic-ai/sdk` as ESM, which only dd-trace's
+ * loader hook can patch. `register.js` installs that hook and nothing
+ * else; it must run before the SDK is first imported.
  */
-export async function registerDatadogTracing(
-  load: LoadDdTrace = () => import("dd-trace"),
-): Promise<void> {
+async function loadDdTraceWithEsmHook(): Promise<DdTraceModule> {
+  await import("dd-trace/register.js");
+  return import("dd-trace");
+}
+
+/**
+ * Init dd-trace LLM Observability only when a key is present and this is
+ * a running server, never during `next build`. Every plugin but
+ * `ENABLED_INTEGRATIONS` stays off (#42). The Anthropic hook patches the
+ * SDK as it loads, so this must run before `@anthropic-ai/sdk` is first
+ * imported: `instrumentation.ts` on the server, `evaluation/run.ts` in
+ * eval. A failed init leaves requests untraced rather than failing them.
+ */
+export async function registerDatadogTracing(load: LoadDdTrace = loadDdTraceWithEsmHook): Promise<void> {
   if (initAttempted || llmobs) {
     return;
   }

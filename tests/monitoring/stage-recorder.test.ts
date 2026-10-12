@@ -67,16 +67,30 @@ describe("withStage recorder", () => {
     const client: LlmobsClient = {
       annotate: (_span, options) => annotations.push(options),
       trace: (_options, fn) => fn({}),
+      annotationContext: (_options, fn) => fn(),
     };
     const opened = { stage: "repair", request_hash: hashRequest("r") } as const;
 
     await traceWithClient(
       client,
-      { name: "repair", kind: "llm", attributes: opened, resolveAttributes: () => ({ ...opened, input_tokens: 7 }) },
+      { name: "repair", kind: "task", attributes: opened, resolveAttributes: () => ({ ...opened, input_tokens: 7 }) },
       () => undefined,
     );
 
-    assert.equal(annotations[0].metrics?.input_tokens, 7);
     assert.equal(annotations[0].tags?.input_tokens, "7");
+  });
+
+  it("stage tokens are tags, not metrics, so the nested llm span's token metrics are not counted twice", async () => {
+    const annotations: LlmobsAnnotation[] = [];
+    const client: LlmobsClient = {
+      annotate: (_span, options) => annotations.push(options),
+      trace: (_options, fn) => fn({}),
+      annotationContext: (_options, fn) => fn(),
+    };
+    const opened = { stage: "plan", request_hash: hashRequest("r"), input_tokens: 7, output_tokens: 3, cost_usd: 0.1 } as const;
+
+    await traceWithClient(client, { name: "plan", kind: "task", attributes: opened }, () => undefined);
+
+    assert.deepEqual(Object.keys(annotations[0].metrics ?? {}), ["latency_ms"]);
   });
 });
