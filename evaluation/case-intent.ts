@@ -1,6 +1,7 @@
 import type { StopType } from "../src/retrieval";
 import { intentSchema, type Intent } from "../src/validation/intent";
 import type { EvalCase } from "./cases";
+import { partyBudgetFor } from "./party-budget";
 
 /**
  * The baselines' deterministic stand-in for `parse_intent` (build step 20).
@@ -15,9 +16,9 @@ import type { EvalCase } from "./cases";
  *   - date: the weekday names a day in one fixed reference week (all in
  *     EDT, so the offset never changes); "any" is Friday.
  *   - time_window: a fixed clock range per label.
- *   - budget: `budget_max`. The v1 budgets mix per-person and per-party
- *     readings (see score.ts), so the top of the range is the one reading
- *     that never makes a baseline fail for being cheaper than the label.
+ *   - budget: the top of the case's whole-party budget (`party-budget.ts`,
+ *     decision #41), so a baseline is never failed for being cheaper than
+ *     the label.
  *   - stop types: keyword rules over the query, tags, and vibes, ordered
  *     as a night flows, padded from a default order up to the lower bound
  *     of `stops_per_option` (at least 2 unless `single_stop`).
@@ -114,7 +115,7 @@ export function intentFromCase(evalCase: EvalCase): Intent {
   return intentSchema.parse({
     area: `${constraints.boroughs.join(" and ")}, New York`,
     window: windowFor(evalCase),
-    budgetUsd: Math.round(constraints.budget_max),
+    budgetUsd: Math.round(partyBudgetFor(evalCase).max),
     dietary: constraints.dietary.slice(0, INTENT_TAGS_MAX),
     vibeTags: constraints.vibes.slice(0, INTENT_TAGS_MAX),
     stopTypes: stopTypesFor(evalCase),

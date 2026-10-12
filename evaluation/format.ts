@@ -37,6 +37,7 @@ export function formatMetricsTable(metrics: EvalMetrics): string {
         `hit ${recall.hit}, miss ${recall.miss}, unknown ${recall.unknown}, n/a ${recall.notApplicable}`,
     ],
     ["Plan validity | good pool", percent(metrics.planValidityGivenPool)],
+    ["Budget fit (party)", percent(metrics.budgetFit)],
   ];
   const outcomes = Object.entries(metrics.outcomes)
     .sort(([a], [b]) => a.localeCompare(b))

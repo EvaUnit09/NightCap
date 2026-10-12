@@ -1,4 +1,5 @@
 import type { ModelStage } from "../src/pipeline/model-client";
+import type { PartyBudget } from "./party-budget";
 import type { EvalCaseRecord } from "./record";
 
 /**
@@ -10,12 +11,10 @@ import type { EvalCaseRecord } from "./record";
  * come from docs/scope.md "Success Metrics" and §4; where scope is silent
  * the choice is marked CHOICE.
  *
- * Budget caveat: the v1 cases' `budget_min`/`budget_max` mix per-person
- * ("Max $60 per person" → 40–80) and per-party ("$150 total for two" →
- * 80–150) readings. Nothing here compares against them. The budget check
- * inside validity is the validator's: the sum of stop totals against the
- * parsed intent's `budgetUsd`, a party total (decision #25). A parse that
- * misreads the budget is therefore not caught by validity.
+ * Budget: the validator's budget check is the sum of stop totals against
+ * the parsed intent's `budgetUsd`, a party total (decision #25). Whether
+ * the parse read the right budget is the separate budget-fit metric, scored
+ * against the case's whole-party budget (decision #41, `party-budget.ts`).
  */
 
 export interface Ratio {
@@ -58,6 +57,7 @@ export interface EvalMetrics {
   };
   readonly candidateRecall: CandidateRecall;
   readonly planValidityGivenPool: Ratio;
+  readonly budgetFit: Ratio;
   readonly gates: {
     readonly validity: { readonly target: number; readonly pass: boolean };
     readonly inventedVenue: { readonly target: 0; readonly pass: boolean };
@@ -288,8 +288,28 @@ function scorePlanGivenPool(records: readonly EvalCaseRecord[], verdicts: readon
   return ratio(countWhere(eligible, isValidCase), eligible.length);
 }
 
+/**
+ * Budget fit: did the parse read the party budget right?
+ * - numerator: cases whose parsed `intent.budgetUsd` lies in the case's
+ *   whole-party range, inclusive: `min <= budgetUsd <= max`.
+ * - denominator: cases whose intent parsed (`intent !== null`) and whose id
+ *   has an entry in `partyBudgets`. A case that never parsed is charged by
+ *   validity, not here; a case with no known budget cannot be judged.
+ * The range is the frozen label's own tolerance band, so "under $150"
+ * accepts any parse from the band's floor up to $150.
+ */
+function scoreBudgetFit(records: readonly EvalCaseRecord[], partyBudgets: ReadonlyMap<string, PartyBudget>): Ratio {
+  const judged = records.flatMap((record) => {
+    const budget = partyBudgets.get(record.caseId);
+    return record.intent === null || budget === undefined ? [] : [{ parsed: record.intent.budgetUsd, budget }];
+  });
+  return ratio(countWhere(judged, ({ parsed, budget }) => parsed >= budget.min && parsed <= budget.max), judged.length);
+}
+
 export interface ScoreOptions {
   readonly topN?: number;
+  /** Whole-party budget per case id (`partyBudgetsById`). Omitted: budget fit has an empty denominator. */
+  readonly partyBudgets?: ReadonlyMap<string, PartyBudget>;
 }
 
 export function scoreRecords(records: readonly EvalCaseRecord[], options: ScoreOptions = {}): EvalMetrics {
@@ -305,6 +325,7 @@ export function scoreRecords(records: readonly EvalCaseRecord[], options: ScoreO
     diversity: scoreDiversity(records, options.topN ?? NOVELTY_TOP_N),
     candidateRecall: scoreRecall(verdicts),
     planValidityGivenPool: scorePlanGivenPool(records, verdicts),
+    budgetFit: scoreBudgetFit(records, options.partyBudgets ?? new Map()),
     gates: {
       validity: { target: VALIDITY_TARGET, pass: (validity.cases.rate ?? 0) >= VALIDITY_TARGET },
       inventedVenue: { target: 0, pass: inventedVenue.cases.numerator === 0 },

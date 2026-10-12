@@ -45,9 +45,8 @@ export type EvalOutcome =
   | { readonly kind: "error"; readonly message: string };
 
 /**
- * The parsed intent fields eval needs. `budgetUsd` is kept so a later pass
- * can compare it with the case's budget once the per-person vs per-party
- * question in the v1 set is settled (see `score.ts`).
+ * The parsed intent fields eval needs. `budgetUsd` is compared with the
+ * case's whole-party budget by the budget-fit metric (see `score.ts`).
  */
 export interface RecordedIntent {
   readonly budgetUsd: number;
