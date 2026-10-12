@@ -36,7 +36,10 @@ export type {
   ExporterKind,
   MemoryExporter,
   RequestHash,
+  RequestRecorder,
   RequestTraceInput,
   StageAttrs,
+  StageMeasures,
+  StageRecorder,
   TraceExporter,
 } from "./trace-types";

@@ -67,6 +67,22 @@ export interface StageAttrs {
   readonly testCaseId?: string;
 }
 
+/** Measurements known only after a stage's work finishes (#10: tokens, cost, errors by type). */
+export type StageMeasures = Pick<
+  StageAttrs,
+  "model" | "promptTags" | "inputTokens" | "outputTokens" | "costUsd" | "outcomeCodes"
+>;
+
+/** Handed to a `withStage` callback. Each call merges over earlier ones and passes the same allowlist. */
+export interface StageRecorder {
+  record(measures: StageMeasures): void;
+}
+
+/** Handed to a `withRequestTrace` callback so the root span carries the parsed intent once parse runs. */
+export interface RequestRecorder {
+  recordParsedIntent(intent: unknown): void;
+}
+
 export interface RequestTraceInput {
   readonly requestText: string;
   readonly parsedIntent?: unknown;
@@ -89,7 +105,10 @@ export interface CapturedTrace {
 export interface TraceSpan {
   readonly name: string;
   readonly kind: SpanKind;
+  /** Attributes known when the span opens. */
   readonly attributes: SpanAttributes;
+  /** Attributes after the work ran, read once as the span closes. Already sanitized. */
+  readonly resolveAttributes?: () => SpanAttributes;
 }
 
 export interface TraceExporter {
