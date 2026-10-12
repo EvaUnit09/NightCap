@@ -29,7 +29,7 @@ import {
 export async function validateItineraryServer(
   input: ValidatorInput,
   optionOverrides: Partial<ValidatorOptions> = {}
-): Promise<ReturnType<typeof validateItinerary>> {
+): ReturnType<typeof validateItinerary> {
   const options: ValidatorOptions = {
     travelCapMinutes: getTravelCapMinutes(),
     travelToleranceMinutes: getTravelClaimToleranceMinutes(),

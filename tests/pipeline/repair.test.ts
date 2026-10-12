@@ -3,8 +3,9 @@ import { describe, it } from "node:test";
 
 import type Anthropic from "@anthropic-ai/sdk";
 
-import { costUsdFor } from "../../src/models";
+import { costUsdFor, resetConfig } from "../../src/models";
 import { createAnthropicModelClient, extractJson } from "../../src/pipeline";
+import { createAnthropicSdkClient } from "../../src/pipeline/anthropic-model-client";
 import { errorsByOption, isRepairable, mergeRepair } from "../../src/pipeline/repair";
 import type { ValidationError } from "../../src/validation/validation-error";
 import { OPTION_A, stop } from "./orchestrator-harness";
@@ -102,6 +103,51 @@ describe("createAnthropicModelClient", () => {
     assert.deepEqual(bodies, [
       { model: "claude-sonnet-5", max_tokens: 100, system: "sys", messages: [{ role: "user", content: "u" }] },
     ]);
+  });
+});
+
+describe("createAnthropicModelClient temperature", () => {
+  function recordingClient(bodies: Array<Record<string, unknown>>): Anthropic {
+    return {
+      messages: {
+        create: async (body: Record<string, unknown>) => {
+          bodies.push(body);
+          return { content: [], stop_reason: "end_turn", usage: { input_tokens: 1, output_tokens: 1 } };
+        },
+      },
+    } as unknown as Anthropic;
+  }
+
+  it("sends temperature 0 on parse (Haiku 4.5) and none on plan or repair (Sonnet 5)", async () => {
+    const bodies: Array<Record<string, unknown>> = [];
+    const models = createAnthropicModelClient({ client: recordingClient(bodies) });
+    const base = { system: "s", user: "u", maxTokens: 10 };
+
+    await models.complete({ ...base, stage: "parse_intent", model: "claude-haiku-4-5" });
+    await models.complete({ ...base, stage: "plan_itineraries", model: "claude-sonnet-5" });
+    await models.complete({ ...base, stage: "repair_itinerary", model: "claude-sonnet-5" });
+
+    assert.equal(bodies[0].temperature, 0);
+    assert.equal("temperature" in bodies[1], false);
+    assert.equal("temperature" in bodies[2], false);
+  });
+});
+
+describe("createAnthropicSdkClient", () => {
+  it("passes the configured timeout and retries to the SDK client", () => {
+    const saved = { ...process.env };
+    try {
+      process.env.ANTHROPIC_API_KEY = "test-key";
+      process.env.ANTHROPIC_TIMEOUT_MS = "12345";
+      process.env.ANTHROPIC_MAX_RETRIES = "0";
+      resetConfig();
+      const sdk = createAnthropicSdkClient();
+      assert.equal(sdk.timeout, 12345);
+      assert.equal(sdk.maxRetries, 0);
+    } finally {
+      process.env = saved;
+      resetConfig();
+    }
   });
 });
 

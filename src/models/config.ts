@@ -105,6 +105,11 @@ const configSchema = z.object({
   repairModelId: z.string().min(1).default("claude-sonnet-5"),
   agentModelId: z.string().min(1).default("claude-sonnet-5"),
 
+  // Anthropic SDK client. Defaults fit a serverless function limit: a 45s
+  // attempt with one retry stays near 90s worst case, not the SDK's 10 minutes x 3.
+  anthropicTimeoutMs: z.coerce.number().int().min(1000).max(300_000).default(45_000),
+  anthropicMaxRetries: z.coerce.number().int().min(0).max(5).default(1),
+
   // Coord cache TTL — Google allows lat/lng for at most 30 days; details are live
   placesCoordsCacheTtlDays: z.coerce.number().int().positive().max(30).default(30),
 
@@ -219,6 +224,9 @@ function loadConfig(): Config {
     repairModelId: preprocessEnvVar(process.env.REPAIR_MODEL_ID),
     agentModelId: preprocessEnvVar(process.env.AGENT_MODEL_ID),
 
+    anthropicTimeoutMs: preprocessEnvVar(process.env.ANTHROPIC_TIMEOUT_MS),
+    anthropicMaxRetries: preprocessEnvVar(process.env.ANTHROPIC_MAX_RETRIES),
+
     // Coord cache TTL
     placesCoordsCacheTtlDays: preprocessPlainInt(process.env.PLACES_COORDS_CACHE_TTL_DAYS),
 
@@ -282,6 +290,12 @@ export function getConfig(): Config {
 export function getAnthropicApiKey(): string {
   const cfg = getConfig();
   return requireSecret("ANTHROPIC_API_KEY", cfg.anthropicApiKey);
+}
+
+/** Per-attempt request timeout and retry count for the Anthropic SDK client. */
+export function getAnthropicClientSettings(): { readonly timeoutMs: number; readonly maxRetries: number } {
+  const cfg = getConfig();
+  return { timeoutMs: cfg.anthropicTimeoutMs, maxRetries: cfg.anthropicMaxRetries };
 }
 
 /** Get Google Places API key, failing if not configured. */
