@@ -4,8 +4,8 @@
  * Server-only: the given-name list and the tracing SDK must not reach a
  * client bundle. Callers must check `result.ok` and must never forward
  * `{ ok: false }` text to a model. Datadog spans get an allowlisted parsed_intent
- * summary plus a hash, not this free text — use `redact` / `redactForStorage` before a
- * database write.
+ * summary plus a hash, not this free text. `prepareStoredRequest` is the only
+ * boundary that may produce a row for `insertStoredRequest`.
  */
 import "server-only";
 
@@ -19,6 +19,8 @@ export {
 export type { RedactionCounts, RedactionErrorCode, RedactionResult } from "./redact";
 
 export { hashRequest } from "./request-hash";
+export { insertStoredRequest, prepareStoredRequest } from "./store-request";
+export type { PrepareStoredRequestResult, Queryable, StoredRequest } from "./store-request";
 export { TRACE_STAGES, isTraceStage, spanKindFor } from "./stages";
 export type { TraceStage } from "./stages";
 export { registerDatadogTracing } from "./datadog-exporter";
