@@ -1,7 +1,13 @@
 import { parseArgs } from "node:util";
 
 import { getModelFor } from "../src/models/router";
-import { createPipelineDeps, type ModelClient, type PipelineDeps } from "../src/pipeline";
+import {
+  createPipelineDeps,
+  type ModelClient,
+  type ModelStage,
+  type PipelineDeps,
+  type PipelineFailure,
+} from "../src/pipeline";
 import { createRetrievalDeps } from "../src/retrieval";
 import type { PlacesClient } from "../src/retrieval";
 import type { TravelCalculator } from "../src/validation/travel";
@@ -140,17 +146,23 @@ export function parseEvalArgs(argv: readonly string[]): EvalArgs {
   };
 }
 
-/** ` (timeout)` and the like when the case ended on a call that got no reply. */
-function errorCodeSuffix(record: EvalCaseRecord): string {
+/** The model call whose lack of a reply can end a case at each failure stage. */
+const FAILING_CALL_STAGE: Partial<Record<PipelineFailure["stage"], ModelStage>> = {
+  parse: "parse_intent",
+  plan: "plan_itineraries",
+};
+
+/** ` (timeout)` and the like when the failed stage's own call got no reply. */
+function errorCodeSuffix(failure: PipelineFailure, record: EvalCaseRecord): string {
   const last = record.audit?.modelCalls.at(-1);
-  return last?.kind === "errored" ? ` (${last.errorCode})` : "";
+  return last?.kind === "errored" && last.stage === FAILING_CALL_STAGE[failure.stage] ? ` (${last.errorCode})` : "";
 }
 
 export function progressLine(system: RunnableSystem, record: EvalCaseRecord): string {
   const { outcome } = record;
   const status =
     outcome.kind === "failed"
-      ? `failed ${outcome.failure.stage}/${outcome.failure.code}${errorCodeSuffix(record)}`
+      ? `failed ${outcome.failure.stage}/${outcome.failure.code}${errorCodeSuffix(outcome.failure, record)}`
       : outcome.kind;
   return `[${system}] ${record.caseId} ${status}`;
 }
