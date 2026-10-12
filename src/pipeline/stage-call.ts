@@ -5,7 +5,13 @@ import { getModelFor } from "../models/router";
 import { withStage } from "../monitoring/tracing";
 import type { ValidationErrorCode } from "../validation/validation-error";
 import type { ModelCallOutcome, ModelCallRecord, ModelFailureCode } from "./lifecycle";
-import type { ModelClient, ModelResponse, ModelStage } from "./model-client";
+import {
+  modelErrorCodeOf,
+  type ModelClient,
+  type ModelErrorCode,
+  type ModelResponse,
+  type ModelStage,
+} from "./model-client";
 import { getPromptTraceTags, loadPrompt } from "./prompt-loader";
 
 /** The span each model stage opens. */
@@ -30,9 +36,17 @@ export interface ModelStageCall<T> {
   readonly signal?: AbortSignal;
 }
 
-/** Thrown inside the span so it closes as an error with this code, then returned as a value. */
+/**
+ * Thrown inside the span so it closes as an error with `code` (the reply's
+ * failure, or the `ModelErrorCode` when there was no reply), then returned
+ * as a value.
+ */
 class StageFailure extends Error {
-  constructor(readonly code: ModelFailureCode) {
+  constructor(
+    readonly failure: ModelFailureCode,
+    readonly code: string,
+    readonly record: ModelCallRecord,
+  ) {
     super(code);
     this.name = "StageFailure";
   }
@@ -72,8 +86,8 @@ export function readResponse<T>(
 
 /**
  * One model call in its own span, tagged with prompt name and version,
- * model, tokens, and list-price cost. Every failure comes back as a value;
- * only an abort of `call.signal` throws.
+ * model, tokens, and list-price cost. Every failure comes back as a value
+ * with its call recorded; only an abort of `call.signal` throws.
  */
 export async function callModelStage<T>(
   models: ModelClient,
@@ -81,7 +95,8 @@ export async function callModelStage<T>(
 ): Promise<ModelCallOutcome<T>> {
   const prompt = loadPrompt(call.stage, call.promptVersion);
   const model = getModelFor(call.stage);
-  const holder: { record: ModelCallRecord | null } = { record: null };
+  const target = { stage: call.stage, model, promptVersion: prompt.version };
+  const errored = (errorCode: ModelErrorCode): ModelCallRecord => ({ kind: "errored", ...target, errorCode });
   try {
     const result = await withStage(
       {
@@ -91,29 +106,36 @@ export async function callModelStage<T>(
         outcomeCodes: call.outcomeCodes,
       },
       async (span) => {
-        const response = await models.complete({
-          stage: call.stage,
-          model,
-          system: prompt.body,
-          user: call.user,
-          maxTokens: call.maxTokens,
-          signal: call.signal,
-        });
+        let response: ModelResponse;
+        try {
+          response = await models.complete({
+            stage: call.stage,
+            model,
+            system: prompt.body,
+            user: call.user,
+            maxTokens: call.maxTokens,
+            signal: call.signal,
+          });
+        } catch (error) {
+          if (call.signal?.aborted) {
+            throw error;
+          }
+          const errorCode = modelErrorCodeOf(error);
+          throw new StageFailure("model_error", errorCode, errored(errorCode));
+        }
         const costUsd = costUsdFor(model, response);
         span.record({ inputTokens: response.inputTokens, outputTokens: response.outputTokens, costUsd });
         const read = readResponse(response, call.parse);
         const record: ModelCallRecord = {
-          stage: call.stage,
-          model,
-          promptVersion: prompt.version,
+          kind: "replied",
+          ...target,
           inputTokens: response.inputTokens,
           outputTokens: response.outputTokens,
           costUsd,
           formatValid: read.ok,
         };
         if (!read.ok) {
-          holder.record = record;
-          throw new StageFailure(read.code);
+          throw new StageFailure(read.code, read.code, record);
         }
         return { value: read.value, record };
       },
@@ -123,7 +145,9 @@ export async function callModelStage<T>(
     if (call.signal?.aborted) {
       throw error;
     }
-    const code = error instanceof StageFailure ? error.code : "model_error";
-    return { kind: "failed", code, call: holder.record };
+    if (error instanceof StageFailure) {
+      return { kind: "failed", code: error.failure, call: error.record };
+    }
+    return { kind: "failed", code: "model_error", call: errored("client_error") };
   }
 }

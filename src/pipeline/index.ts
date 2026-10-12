@@ -27,7 +27,17 @@ export type {
   WorkingOption,
 } from "./lifecycle";
 export { admitOption, unknownPlaceIds, type AdmitResult, type EmittedOption } from "./emit-gate";
-export type { ModelClient, ModelRequest, ModelResponse, ModelStage, ModelStopReason } from "./model-client";
+export {
+  ModelCallError,
+  modelErrorCodeOf,
+  type ModelClient,
+  type ModelErrorCode,
+  type ModelRequest,
+  type ModelResponse,
+  type ModelStage,
+  type ModelStopReason,
+} from "./model-client";
+export { callCostUsd } from "./lifecycle";
 export { createAnthropicModelClient } from "./anthropic-model-client";
 export { REPAIR_MAX_TOKENS } from "./repair-loop";
 export { extractJson, readResponse } from "./stage-call";

@@ -4,7 +4,7 @@ import type { Intent } from "../validation/intent";
 import type { ItineraryOption } from "../validation/itinerary";
 import type { ValidationErrorCode } from "../validation/validation-error";
 import type { EmittedOption } from "./emit-gate";
-import type { ModelStage } from "./model-client";
+import type { ModelErrorCode, ModelStage } from "./model-client";
 
 /**
  * The request lifecycle as data. Each stage either hands the next stage a
@@ -15,7 +15,7 @@ import type { ModelStage } from "./model-client";
 
 /** Why a model call produced nothing usable. */
 export type ModelFailureCode =
-  /** The client threw: network, HTTP status, missing key. */
+  /** No reply. The call's `errorCode` says why; the route's `error` event does not. */
   | "model_error"
   | "refusal"
   /** Stopped before `end_turn`, so the JSON may be cut off. */
@@ -26,19 +26,33 @@ export type ModelFailureCode =
 
 export type ModelCallOutcome<T> =
   | { readonly kind: "parsed"; readonly value: T; readonly call: ModelCallRecord }
-  | { readonly kind: "failed"; readonly code: ModelFailureCode; readonly call: ModelCallRecord | null };
+  | { readonly kind: "failed"; readonly code: ModelFailureCode; readonly call: ModelCallRecord };
 
-/** One model call, for cost accounting and format compliance in eval. */
-export interface ModelCallRecord {
+interface ModelCallTarget {
   readonly stage: ModelStage;
   readonly model: string;
   readonly promptVersion: string;
-  readonly inputTokens: number;
-  readonly outputTokens: number;
-  /** Undefined when the model has no list price in `src/models/pricing.ts`. */
-  readonly costUsd: number | undefined;
-  /** Parsed against the stage's Zod contract on this first try. */
-  readonly formatValid: boolean;
+}
+
+/**
+ * One model call, for cost accounting, format compliance, and failure
+ * diagnosis in eval. `replied` got a reply, usable or not; `errored` got
+ * none, so it has no tokens and no format outcome.
+ */
+export type ModelCallRecord =
+  | (ModelCallTarget & {
+      readonly kind: "replied";
+      readonly inputTokens: number;
+      readonly outputTokens: number;
+      /** Undefined when the model has no list price in `src/models/pricing.ts`. */
+      readonly costUsd: number | undefined;
+      /** Parsed against the stage's Zod contract on this first try. */
+      readonly formatValid: boolean;
+    })
+  | (ModelCallTarget & { readonly kind: "errored"; readonly errorCode: ModelErrorCode });
+
+export function callCostUsd(call: ModelCallRecord): number {
+  return call.kind === "replied" ? (call.costUsd ?? 0) : 0;
 }
 
 export type RetrievalFailureCode = "no_candidates" | "retrieval_error";

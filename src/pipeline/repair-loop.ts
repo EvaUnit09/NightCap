@@ -45,7 +45,7 @@ type OptionState =
 
 interface RepairOutcome {
   readonly working: WorkingOption;
-  readonly call: ModelCallRecord | null;
+  readonly call: ModelCallRecord;
   readonly invented: readonly InventedPlaceId[];
 }
 
@@ -169,7 +169,7 @@ export async function validateAndRepair(deps: RepairLoopDeps, input: RepairLoopI
     round += 1;
     const targets = repairable(states);
     const repairs = await Promise.all(targets.map((state) => repairOption(deps, input, state, round)));
-    modelCalls.push(...repairs.flatMap((repair) => (repair.call === null ? [] : [repair.call])));
+    modelCalls.push(...repairs.map((repair) => repair.call));
     inventedPlaceIds.push(...repairs.flatMap((repair) => repair.invented));
     states = withRepairs(states, repairs);
     const errors = await validatePass(deps, input, states.map((state) => state.working));

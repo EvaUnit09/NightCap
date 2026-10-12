@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { after, before, beforeEach, describe, it } from "node:test";
 
 import type { EvalCase } from "../../evaluation/cases";
-import { EXIT_MISSING_ENV, EXIT_OK, EXIT_USAGE, missingLiveEnv, parseEvalArgs, runEvalCli } from "../../evaluation/cli";
+import { EXIT_MISSING_ENV, EXIT_OK, EXIT_USAGE, missingLiveEnv, parseEvalArgs, progressLine, runEvalCli } from "../../evaluation/cli";
 import { filterOnlyCaseRunner, filterOnlyPoolOracle, type FilterOnlyDeps } from "../../evaluation/filter-only";
 import { RAW_MODEL_PROMPT, rawModelCaseRunner } from "../../evaluation/raw-model";
 import type { EvalCaseRecord } from "../../evaluation/record";
@@ -276,7 +276,7 @@ describe("rawModelCaseRunner", () => {
     assert.equal(isValidCase(record), false, "an invented id fails the case even when another option is clean");
     assert.deepEqual(record.pool, []);
     assert.equal(record.audit?.modelCalls.length, 1);
-    assert.equal(record.audit?.modelCalls[0].formatValid, true);
+    assert.deepEqual(record.audit?.modelCalls.map((call) => call.kind === "replied" && call.formatValid), [true]);
     assert.ok((record.audit?.totalCostUsd ?? 0) > 0);
     assert.ok(prompts[0].includes("Cozy drinks then dinner"), "the request reaches the model");
     assert.ok(prompts[0].includes("$200"), "the budget reaches the model");
@@ -304,7 +304,7 @@ describe("rawModelCaseRunner", () => {
       runner(rawModels(() => ({ text: "Try Via Carota!", ...RAW_RESPONSE })), places.client),
     );
     assert.deepEqual(noJson.outcome, { kind: "failed", failure: { stage: "plan", code: "no_json" } });
-    assert.equal(noJson.audit?.modelCalls[0].formatValid, false);
+    assert.deepEqual(noJson.audit?.modelCalls.map((call) => [call.kind, call.kind === "replied" && call.formatValid]), [["replied", false]]);
 
     const refused = await runOne(
       runner(rawModels(() => ({ text: "", ...RAW_RESPONSE, stopReason: "refusal" })), places.client),
@@ -498,5 +498,27 @@ describe("eval CLI with baselines", () => {
     assert.equal(parseEvalArgs(["--compare"]).compare, true);
     assert.throws(() => parseEvalArgs(["--system", "gpt"]), /--system must be one of/);
     assert.throws(() => parseEvalArgs(["--compare", "--system", "all"]), /drop --system/);
+  });
+
+  it("names the error code in the progress line when a case ends on a call with no reply", () => {
+    const record: EvalCaseRecord = {
+      caseId: "nc-001",
+      outcome: { kind: "failed", failure: { stage: "plan", code: "model_error" } },
+      intent: null,
+      options: [],
+      dropped: [],
+      retrievalGaps: [],
+      pool: [],
+      poolOracle: null,
+      audit: {
+        modelCalls: [{ kind: "errored", stage: "plan_itineraries", model: "m", promptVersion: "v1", errorCode: "timeout" }],
+        candidateCount: 0,
+        plannedOptionCount: 0,
+        inventedPlaceIds: [],
+        repairRoundsRun: 0,
+        totalCostUsd: 0,
+      },
+    };
+    assert.equal(progressLine("pipeline", record), "[pipeline] nc-001 failed plan/model_error (timeout)");
   });
 });

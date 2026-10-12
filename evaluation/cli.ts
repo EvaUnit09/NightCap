@@ -140,10 +140,18 @@ export function parseEvalArgs(argv: readonly string[]): EvalArgs {
   };
 }
 
-function progressLine(system: RunnableSystem, record: EvalCaseRecord): string {
+/** ` (timeout)` and the like when the case ended on a call that got no reply. */
+function errorCodeSuffix(record: EvalCaseRecord): string {
+  const last = record.audit?.modelCalls.at(-1);
+  return last?.kind === "errored" ? ` (${last.errorCode})` : "";
+}
+
+export function progressLine(system: RunnableSystem, record: EvalCaseRecord): string {
   const { outcome } = record;
   const status =
-    outcome.kind === "failed" ? `failed ${outcome.failure.stage}/${outcome.failure.code}` : outcome.kind;
+    outcome.kind === "failed"
+      ? `failed ${outcome.failure.stage}/${outcome.failure.code}${errorCodeSuffix(record)}`
+      : outcome.kind;
   return `[${system}] ${record.caseId} ${status}`;
 }
 

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { beforeEach, describe, it } from "node:test";
 
 import { resetConfig } from "../../src/models";
-import { runPipeline, type PipelineResult } from "../../src/pipeline";
+import { ModelCallError, runPipeline, type PipelineResult } from "../../src/pipeline";
 import { loadPlacesFixture } from "../retrieval/places-fixtures";
 import {
   INTENT,
@@ -52,7 +52,7 @@ describe("runPipeline", () => {
     assert.equal(result.audit.plannedOptionCount, 2);
     assert.deepEqual(result.audit.inventedPlaceIds, []);
     assert.equal(result.audit.candidateCount, 8);
-    assert.deepEqual(result.audit.modelCalls.map((call) => [call.stage, call.model, call.formatValid]), [
+    assert.deepEqual(result.audit.modelCalls.map((call) => [call.stage, call.model, call.kind === "replied" && call.formatValid]), [
       ["parse_intent", "claude-haiku-4-5", true],
       ["plan_itineraries", "claude-sonnet-5", true],
     ]);
@@ -206,7 +206,7 @@ describe("runPipeline", () => {
 
     assert.equal(result.intent, null);
     assert.equal(h.places.fetches(), 0);
-    assert.deepEqual(result.audit.modelCalls.map((call) => call.formatValid), [false]);
+    assert.deepEqual(result.audit.modelCalls.map((call) => call.kind === "replied" && call.formatValid), [false]);
     assert.deepEqual(spanNames(h.exporter), ["parse"]);
     assert.equal(h.exporter.traces[0].spans[0].attributes.error_code, "no_json");
   });
@@ -216,16 +216,42 @@ describe("runPipeline", () => {
     failedAt(await runPipeline({ text: REQUEST_TEXT }, harness({ models }).deps), "parse", "schema_invalid");
   });
 
-  it("a thrown model call is model_error with an error span and no tokens", async () => {
-    const models = fakeModels({ parse_intent: [{ error: Object.assign(new Error("boom"), { name: "APIConnectionError" }) }] });
+  it("a plan call with no reply is model_error, with its error code on the call record and the span", async () => {
+    const models = fakeModels({ parse_intent: [{ json: INTENT }], plan_itineraries: [{ error: new ModelCallError("timeout") }] });
+    const h = harness({ models });
+
+    const result = failedAt(await runPipeline({ text: REQUEST_TEXT }, h.deps), "plan", "model_error");
+
+    assert.deepEqual(
+      result.audit.modelCalls.map((call) => [call.stage, call.kind]),
+      [["parse_intent", "replied"], ["plan_itineraries", "errored"]],
+    );
+    assert.deepEqual(result.audit.modelCalls[1], {
+      kind: "errored",
+      stage: "plan_itineraries",
+      model: "claude-sonnet-5",
+      promptVersion: "v1",
+      errorCode: "timeout",
+    });
+    assert.ok(Math.abs(result.audit.totalCostUsd - 0.002) < 1e-12, "only the parse reply costs anything");
+    const [planSpan] = spansNamed(h.exporter, "plan");
+    assert.equal(planSpan.attributes.status, "error");
+    assert.equal(planSpan.attributes.error_code, "timeout");
+  });
+
+  it("an untyped throw is client_error and none of its text reaches the audit or the spans", async () => {
+    const models = fakeModels({ parse_intent: [{ error: new Error("sk-ant-SECRET West Village exploded") }] });
     const h = harness({ models });
 
     const result = failedAt(await runPipeline({ text: REQUEST_TEXT }, h.deps), "parse", "model_error");
 
-    assert.deepEqual(result.audit.modelCalls, []);
-    const [span] = h.exporter.traces[0].spans;
-    assert.equal(span.attributes.status, "error");
-    assert.equal(span.attributes.error_code, "APIConnectionError");
+    assert.deepEqual(
+      result.audit.modelCalls.map((call) => (call.kind === "errored" ? call.errorCode : call.kind)),
+      ["client_error"],
+    );
+    assert.equal(h.exporter.traces[0].spans[0].attributes.error_code, "client_error");
+    assert.doesNotMatch(JSON.stringify(result.audit), /SECRET|exploded/);
+    assert.doesNotMatch(JSON.stringify(h.exporter.traces), /SECRET|exploded/);
   });
 
   it("a truncated plan is a plan failure, not a partial itinerary", async () => {

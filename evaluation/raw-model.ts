@@ -1,6 +1,12 @@
 import { costUsdFor } from "../src/models/pricing";
 import { parsePlan, readResponse, type PipelineDeps } from "../src/pipeline";
-import type { InventedPlaceId, ModelCallRecord, PipelineAudit, PipelineFailure } from "../src/pipeline/lifecycle";
+import {
+  callCostUsd,
+  type InventedPlaceId,
+  type ModelCallRecord,
+  type PipelineAudit,
+  type PipelineFailure,
+} from "../src/pipeline/lifecycle";
 import { wrapUserText } from "../src/pipeline/wrap-user-text";
 import type { PlacesClient } from "../src/retrieval";
 import type { Candidate } from "../src/validation/candidate";
@@ -110,7 +116,7 @@ function audit(
     plannedOptionCount: parts.plannedOptionCount,
     inventedPlaceIds: parts.invented,
     repairRoundsRun: 0,
-    totalCostUsd: call?.costUsd ?? 0,
+    totalCostUsd: call === null ? 0 : callCostUsd(call),
   };
 }
 
@@ -154,6 +160,7 @@ export function rawModelCaseRunner(deps: RawModelDeps): CaseRunner {
     }
     const read = readResponse(response, (json) => parsePlan(json, intent, deps.maxLegs));
     const call: ModelCallRecord = {
+      kind: "replied",
       stage: "plan_itineraries",
       model: deps.model,
       promptVersion: RAW_MODEL_PROMPT_VERSION,
