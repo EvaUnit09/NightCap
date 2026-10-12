@@ -297,8 +297,9 @@ function scorePlanGivenPool(records: readonly EvalCaseRecord[], verdicts: readon
  *   parsed is charged by validity, not here; a case with no known budget
  *   cannot be judged. Baselines record the case label's own budget, so they
  *   have an empty denominator and report n/a.
- * The range is the frozen label's own tolerance band, so "under $150"
- * accepts any parse from the band's floor up to $150.
+ * The range is the frozen label's own tolerance band, not the stated cap.
+ * Most bands run above the cap (nc-005 "Under $40" has band 20-50; nc-010
+ * "under $90" has 50-100), so a parse slightly over the cap still counts.
  */
 function scoreBudgetFit(records: readonly EvalCaseRecord[], partyBudgets: ReadonlyMap<string, PartyBudget>): Ratio {
   const judged = records.flatMap((record) => {

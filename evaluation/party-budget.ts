@@ -37,8 +37,8 @@ export interface PartyTotalEntry {
 /**
  * nc-002 is the only v1 query that states a per-person budget. It does not
  * state a party size. Two is assumed, the same default as decision #25's
- * couple. The frozen 40-80 band scaled by two is 80-160, which holds the
- * 2 x $60 = $120 a correct parse yields.
+ * couple. 80-160 is the frozen 40-80 label band scaled by two. It runs above
+ * the $120 stated cap (2 x $60) and holds the $120 a correct parse yields.
  */
 export const PER_PERSON: Readonly<Record<string, PerPersonEntry>> = {
   "nc-002": {
