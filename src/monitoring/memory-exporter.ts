@@ -30,6 +30,7 @@ export function createMemoryExporter(): MemoryExporter {
         try {
           return await fn();
         } finally {
+          Object.assign(trace.attributes, span.resolveAttributes?.());
           trace.attributes.latency_ms = Date.now() - started;
           stack.pop();
         }
@@ -50,6 +51,7 @@ export function createMemoryExporter(): MemoryExporter {
         child.attributes.error_code = safeErrorCode(error);
         throw error;
       } finally {
+        Object.assign(child.attributes, span.resolveAttributes?.());
         child.attributes.latency_ms = Date.now() - started;
       }
     },

@@ -106,6 +106,10 @@ function annotateSpan(
   });
 }
 
+function finalAttributes(span: TraceSpan): SpanAttributes {
+  return span.resolveAttributes?.() ?? span.attributes;
+}
+
 /** Trace `fn` through `client`; the caller always gets `fn`'s own result or error. */
 export async function traceWithClient<T>(
   client: LlmobsClient,
@@ -117,11 +121,11 @@ export async function traceWithClient<T>(
     return await client.trace({ name: span.name, kind: span.kind }, async (ddSpan) => {
       try {
         const result = await fn();
-        annotateSpan(client, ddSpan, span.attributes, Date.now() - started, { status: "ok" });
+        annotateSpan(client, ddSpan, finalAttributes(span), Date.now() - started, { status: "ok" });
         return result;
       } catch (error) {
         const code = safeErrorCode(error);
-        annotateSpan(client, ddSpan, span.attributes, Date.now() - started, {
+        annotateSpan(client, ddSpan, finalAttributes(span), Date.now() - started, {
           status: "error",
           error_code: code,
         });
