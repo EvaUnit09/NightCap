@@ -5,7 +5,7 @@ description: "Drive the Nightcap Next.js web app the way a user does and save pr
 
 # Verify Nightcap
 
-Nightcap is a Next.js App Router app. The user-facing surface that exists today is the web page at `/` and the built-in unknown-route page. There is no auth, no env file, and no database. Itinerary planning is not in the app yet, so it is not in the feature map.
+Nightcap is a Next.js App Router app. The user-facing surface that exists today is the web page at `/` and the built-in unknown-route page. Neither page reads env vars, auth, or the database, so launch needs no `.env.local` and no Supabase. Itinerary planning is not in the app yet, so it is not in the feature map.
 
 Read [features/README.md](features/README.md) before driving. Drive only the instance this skill started.
 
@@ -56,7 +56,7 @@ Unknown route:
 .cursor/skills/verify-nightcap/scripts/verify-nightcap drive not-found
 ```
 
-Then open `<url>/does-not-exist`. The accessibility tree shows heading `404` and text `This page could not be found.` The document title visible to the user is `404: This page could not be found.` Save the snapshot and screenshot to the printed `ARIA_PATH` and `SCREENSHOT_PATH`.
+Then open `<url>/does-not-exist`. The accessibility tree shows a level-1 heading `404` and a level-2 heading `This page could not be found.` The document title visible to the user is `404: This page could not be found.` Save the snapshot and screenshot to the printed `ARIA_PATH` and `SCREENSHOT_PATH`.
 
 `verify-nightcap url` prints the base URL.
 

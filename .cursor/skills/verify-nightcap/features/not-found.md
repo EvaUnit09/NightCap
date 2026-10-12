@@ -19,7 +19,7 @@ Preconditions:
 - The path `/does-not-exist` is not a real page. There is no link to it from home.
 
 - **Open an unknown path.** Visit `/does-not-exist`. Run `.cursor/skills/verify-nightcap/scripts/verify-nightcap drive not-found`. The command exits 0, `not-found.proof.txt` says `result: pass` and `status: 404`, and `not-found.html` contains `>404<` and `This page could not be found.`
-- **Read the page.** Open `http://127.0.0.1:4173/does-not-exist` in a browser. The accessibility tree shows a heading named `404` and the text `This page could not be found.` Save the snapshot to the printed `ARIA_PATH` (`not-found.aria.txt`) and a screenshot to the printed `SCREENSHOT_PATH` (`not-found.png`).
+- **Read the page.** Open `http://127.0.0.1:4173/does-not-exist` in a browser. The accessibility tree shows a level-1 heading named `404` and a level-2 heading named `This page could not be found.` Save the snapshot to the printed `ARIA_PATH` (`not-found.aria.txt`) and a screenshot to the printed `SCREENSHOT_PATH` (`not-found.png`).
 
 ## Gotchas
 
