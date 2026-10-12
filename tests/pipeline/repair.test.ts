@@ -3,8 +3,9 @@ import { describe, it } from "node:test";
 
 import type Anthropic from "@anthropic-ai/sdk";
 
-import { costUsdFor } from "../../src/models";
+import { costUsdFor, resetConfig } from "../../src/models";
 import { createAnthropicModelClient, extractJson } from "../../src/pipeline";
+import { createAnthropicSdkClient } from "../../src/pipeline/anthropic-model-client";
 import { errorsByOption, isRepairable, mergeRepair } from "../../src/pipeline/repair";
 import type { ValidationError } from "../../src/validation/validation-error";
 import { OPTION_A, stop } from "./orchestrator-harness";
@@ -102,6 +103,24 @@ describe("createAnthropicModelClient", () => {
     assert.deepEqual(bodies, [
       { model: "claude-sonnet-5", max_tokens: 100, system: "sys", messages: [{ role: "user", content: "u" }] },
     ]);
+  });
+});
+
+describe("createAnthropicSdkClient", () => {
+  it("passes the configured timeout and retries to the SDK client", () => {
+    const saved = { ...process.env };
+    try {
+      process.env.ANTHROPIC_API_KEY = "test-key";
+      process.env.ANTHROPIC_TIMEOUT_MS = "12345";
+      process.env.ANTHROPIC_MAX_RETRIES = "0";
+      resetConfig();
+      const sdk = createAnthropicSdkClient();
+      assert.equal(sdk.timeout, 12345);
+      assert.equal(sdk.maxRetries, 0);
+    } finally {
+      process.env = saved;
+      resetConfig();
+    }
   });
 });
 

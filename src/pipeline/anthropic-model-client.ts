@@ -2,7 +2,7 @@ import "server-only";
 
 import Anthropic from "@anthropic-ai/sdk";
 
-import { getAnthropicApiKey } from "../models/config";
+import { getAnthropicApiKey, getAnthropicClientSettings } from "../models/config";
 import type { ModelClient, ModelResponse, ModelStopReason } from "./model-client";
 
 function stopReasonOf(reason: Anthropic.Message["stop_reason"]): ModelStopReason {
@@ -28,6 +28,12 @@ function toResponse(message: Anthropic.Message): ModelResponse {
   };
 }
 
+/** SDK client with the configured timeout and retries, not the SDK defaults (10 min, 2 retries). */
+export function createAnthropicSdkClient(): Anthropic {
+  const { timeoutMs, maxRetries } = getAnthropicClientSettings();
+  return new Anthropic({ apiKey: getAnthropicApiKey(), timeout: timeoutMs, maxRetries });
+}
+
 /**
  * The real `ModelClient`: one Messages API call per request. The key is
  * read lazily, so building the client never throws; a missing key throws
@@ -40,7 +46,7 @@ export function createAnthropicModelClient(
   let client = options.client;
   return {
     async complete(request) {
-      client ??= new Anthropic({ apiKey: getAnthropicApiKey() });
+      client ??= createAnthropicSdkClient();
       const message = await client.messages.create(
         {
           model: request.model,

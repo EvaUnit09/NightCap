@@ -6,6 +6,7 @@ export {
   getAgentMaxToolCalls,
   getAgentModelId,
   getAnthropicApiKey,
+  getAnthropicClientSettings,
   getConfig,
   getDatadogApiKey,
   getOptionalDdApiKey,
