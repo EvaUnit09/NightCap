@@ -3,6 +3,7 @@ import { beforeEach, describe, it } from "node:test";
 
 import { createPlanHandler } from "../../src/api/plan-stream";
 import { resetConfig } from "../../src/models";
+import { ModelCallError } from "../../src/pipeline";
 import { INTENT, OPTION_A, OPTION_B, REQUEST_TEXT, fakeModels, harness, option } from "../pipeline/orchestrator-harness";
 
 interface SseEvent {
@@ -100,6 +101,16 @@ describe("POST /api/plan", () => {
 
     assert.deepEqual(parseEvents(wire), [{ event: "error", data: { stage: "parse", code: "model_error" } }]);
     assert.doesNotMatch(wire, /SECRET|exploded/);
+  });
+
+  it("keeps the model error code out of the event: the client sees model_error only", async () => {
+    const models = fakeModels({ parse_intent: [{ error: new ModelCallError("rate_limited") }] });
+    const handler = createPlanHandler(() => harness({ models }).deps);
+
+    const wire = await (await handler(post({ text: REQUEST_TEXT }))).text();
+
+    assert.deepEqual(parseEvents(wire), [{ event: "error", data: { stage: "parse", code: "model_error" } }]);
+    assert.doesNotMatch(wire, /rate_limited/);
   });
 
   it("sends a fixed internal error when deps cannot be built", async () => {

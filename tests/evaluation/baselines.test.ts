@@ -4,8 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, beforeEach, describe, it } from "node:test";
 
+import Anthropic from "@anthropic-ai/sdk";
+
 import type { EvalCase } from "../../evaluation/cases";
-import { EXIT_MISSING_ENV, EXIT_OK, EXIT_USAGE, missingLiveEnv, parseEvalArgs, runEvalCli } from "../../evaluation/cli";
+import { EXIT_MISSING_ENV, EXIT_OK, EXIT_USAGE, missingLiveEnv, parseEvalArgs, progressLine, runEvalCli } from "../../evaluation/cli";
 import { filterOnlyCaseRunner, filterOnlyPoolOracle, type FilterOnlyDeps } from "../../evaluation/filter-only";
 import { RAW_MODEL_PROMPT, rawModelCaseRunner } from "../../evaluation/raw-model";
 import type { EvalCaseRecord } from "../../evaluation/record";
@@ -13,7 +15,7 @@ import { runCases, type CaseRunner } from "../../evaluation/runner";
 import { isValidCase } from "../../evaluation/score";
 import { createMemoryExporter } from "../../src/monitoring";
 import { resetConfig } from "../../src/models";
-import { createPipelineDeps, type ModelClient, type ModelResponse, type PipelineDeps } from "../../src/pipeline";
+import { createAnthropicModelClient, createPipelineDeps, type ModelClient, type ModelResponse, type PipelineDeps } from "../../src/pipeline";
 import { allCandidates, queryFromIntent, retrieveVenues, type Retrieval } from "../../src/retrieval";
 import { parseSearchBody, type PlacesClient } from "../../src/retrieval/places-client";
 import { DEFAULT_PRICE_RANGES } from "../../src/validation/defaults";
@@ -276,7 +278,7 @@ describe("rawModelCaseRunner", () => {
     assert.equal(isValidCase(record), false, "an invented id fails the case even when another option is clean");
     assert.deepEqual(record.pool, []);
     assert.equal(record.audit?.modelCalls.length, 1);
-    assert.equal(record.audit?.modelCalls[0].formatValid, true);
+    assert.deepEqual(record.audit?.modelCalls.map((call) => call.kind === "replied" && call.formatValid), [true]);
     assert.ok((record.audit?.totalCostUsd ?? 0) > 0);
     assert.ok(prompts[0].includes("Cozy drinks then dinner"), "the request reaches the model");
     assert.ok(prompts[0].includes("$200"), "the budget reaches the model");
@@ -304,7 +306,7 @@ describe("rawModelCaseRunner", () => {
       runner(rawModels(() => ({ text: "Try Via Carota!", ...RAW_RESPONSE })), places.client),
     );
     assert.deepEqual(noJson.outcome, { kind: "failed", failure: { stage: "plan", code: "no_json" } });
-    assert.equal(noJson.audit?.modelCalls[0].formatValid, false);
+    assert.deepEqual(noJson.audit?.modelCalls.map((call) => [call.kind, call.kind === "replied" && call.formatValid]), [["replied", false]]);
 
     const refused = await runOne(
       runner(rawModels(() => ({ text: "", ...RAW_RESPONSE, stopReason: "refusal" })), places.client),
@@ -321,11 +323,27 @@ describe("rawModelCaseRunner", () => {
     assert.equal(places.searches().length, 0, "nothing is looked up for a plan that did not parse");
   });
 
-  it("records a model transport failure as a plan failure with no call", async () => {
-    const record = await runOne(runner(rawModels(() => new Error("503")), fixturePlaces().client));
+  it("records a call that got no reply, with its error code, through the real SDK", async () => {
+    const sent: unknown[] = [];
+    const rejectAll = async (_url: unknown, init: RequestInit) => {
+      sent.push(JSON.parse(String(init.body)));
+      return new Response(JSON.stringify({ type: "error", error: { type: "billing_error", message: "sk-ant-SECRET" } }), {
+        status: 402,
+        headers: { "content-type": "application/json" },
+      });
+    };
+    const sdk = new Anthropic({ apiKey: "test-key", fetch: rejectAll as typeof fetch, maxRetries: 0, timeout: 5_000 });
 
+    const record = await runOne(runner(createAnthropicModelClient({ client: sdk }), fixturePlaces().client));
+
+    assert.equal(sent.length, 1, "the request reached the API");
     assert.deepEqual(record.outcome, { kind: "failed", failure: { stage: "plan", code: "model_error" } });
-    assert.deepEqual(record.audit?.modelCalls, []);
+    assert.deepEqual(record.audit?.modelCalls, [
+      { kind: "errored", stage: "plan_itineraries", model: "claude-sonnet-5", promptVersion: "raw-v1", errorCode: "billing" },
+    ]);
+    assert.equal(record.audit?.totalCostUsd, 0);
+    assert.equal(progressLine("raw-model", record), "[raw-model] nc-901 failed plan/model_error (billing)");
+    assert.doesNotMatch(JSON.stringify(record), /SECRET/);
   });
 
   it("turns a Places outage during the lookup into an error record instead of guessing", async () => {
@@ -498,5 +516,49 @@ describe("eval CLI with baselines", () => {
     assert.equal(parseEvalArgs(["--compare"]).compare, true);
     assert.throws(() => parseEvalArgs(["--system", "gpt"]), /--system must be one of/);
     assert.throws(() => parseEvalArgs(["--compare", "--system", "all"]), /drop --system/);
+  });
+
+  it("names the error code in the progress line when a case ends on a call with no reply", () => {
+    const record: EvalCaseRecord = {
+      caseId: "nc-001",
+      outcome: { kind: "failed", failure: { stage: "plan", code: "model_error" } },
+      intent: null,
+      options: [],
+      dropped: [],
+      retrievalGaps: [],
+      pool: [],
+      poolOracle: null,
+      audit: {
+        modelCalls: [{ kind: "errored", stage: "plan_itineraries", model: "m", promptVersion: "v1", errorCode: "timeout" }],
+        candidateCount: 0,
+        plannedOptionCount: 0,
+        inventedPlaceIds: [],
+        repairRoundsRun: 0,
+        totalCostUsd: 0,
+      },
+    };
+    assert.equal(progressLine("pipeline", record), "[pipeline] nc-001 failed plan/model_error (timeout)");
+  });
+
+  it("names no error code when the case failed at a later stage than the call that got no reply", () => {
+    const record: EvalCaseRecord = {
+      caseId: "nc-002",
+      outcome: { kind: "failed", failure: { stage: "validate", code: "no_valid_options" } },
+      intent: null,
+      options: [],
+      dropped: [],
+      retrievalGaps: [],
+      pool: [],
+      poolOracle: null,
+      audit: {
+        modelCalls: [{ kind: "errored", stage: "repair_itinerary", model: "m", promptVersion: "v1", errorCode: "timeout" }],
+        candidateCount: 0,
+        plannedOptionCount: 1,
+        inventedPlaceIds: [],
+        repairRoundsRun: 1,
+        totalCostUsd: 0,
+      },
+    };
+    assert.equal(progressLine("pipeline", record), "[pipeline] nc-002 failed validate/no_valid_options");
   });
 });

@@ -25,8 +25,39 @@ export interface ModelResponse {
 }
 
 /**
+ * Why a call got no reply, derived from the SDK error class and HTTP status,
+ * never from message text. `client_error` means it failed in this process
+ * without an API response or a connection error: a missing key, an SDK-side
+ * check, or a client that throws something other than `ModelCallError`.
+ */
+export type ModelErrorCode =
+  | "timeout"
+  | "network"
+  | "bad_request"
+  | "auth"
+  | "billing"
+  | "not_found"
+  | "rate_limited"
+  | "overloaded"
+  | "server_error"
+  | "client_error";
+
+/** What a `ModelClient` throws when a call gets no reply. Its message is the code, nothing else. */
+export class ModelCallError extends Error {
+  constructor(readonly code: ModelErrorCode) {
+    super(code);
+    this.name = "ModelCallError";
+  }
+}
+
+export function modelErrorCodeOf(error: unknown): ModelErrorCode {
+  return error instanceof ModelCallError ? error.code : "client_error";
+}
+
+/**
  * The port every pipeline model call goes through. Tests pass a fake; the
- * server passes `createAnthropicModelClient()`. Transport failures throw.
+ * server passes `createAnthropicModelClient()`. A call with no reply throws
+ * a `ModelCallError`; anything else thrown counts as `client_error`.
  */
 export interface ModelClient {
   complete(request: ModelRequest): Promise<ModelResponse>;

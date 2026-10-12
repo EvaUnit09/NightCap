@@ -186,13 +186,14 @@ const MODEL_STAGES: readonly ModelStage[] = ["parse_intent", "plan_itineraries",
 /**
  * Format compliance: model calls whose output parsed against the stage's
  * Zod contract on that call (`ModelCallRecord.formatValid`) / model calls
- * recorded in the audit. Each call is one first try; there are no
- * retries. A call that threw before returning (network, HTTP status) has
- * no record and is not counted: it is not a format outcome. A refusal or a
- * truncated reply counts as not compliant.
+ * that got a reply. Each call is one first try; there are no retries. An
+ * `errored` call (timeout, HTTP status, network) is not counted: it is not
+ * a format outcome. A refusal or a truncated reply counts as not compliant.
  */
 function scoreFormat(records: readonly EvalCaseRecord[]) {
-  const calls = records.flatMap((record) => record.audit?.modelCalls ?? []);
+  const calls = records
+    .flatMap((record) => record.audit?.modelCalls ?? [])
+    .flatMap((call) => (call.kind === "replied" ? [call] : []));
   const stageRatio = (stage: ModelStage) => {
     const ofStage = calls.filter((call) => call.stage === stage);
     return ratio(countWhere(ofStage, (call) => call.formatValid), ofStage.length);

@@ -7,7 +7,7 @@ import type { InventedPlaceId, ModelCallRecord, PipelineAudit } from "../../src/
 import type { ModelStage } from "../../src/pipeline/model-client";
 
 function call(stage: ModelStage, formatValid: boolean): ModelCallRecord {
-  return { stage, model: "m", promptVersion: "v1", inputTokens: 1, outputTokens: 1, costUsd: 0, formatValid };
+  return { kind: "replied", stage, model: "m", promptVersion: "v1", inputTokens: 1, outputTokens: 1, costUsd: 0, formatValid };
 }
 
 function audit(overrides: Partial<PipelineAudit> = {}): PipelineAudit {
@@ -176,6 +176,21 @@ describe("scoreRecords", () => {
     assert.deepEqual(metrics.formatCompliance.byStage.plan_itineraries, ratio(3, 4));
     assert.deepEqual(metrics.formatCompliance.byStage.repair_itinerary, ratio(0, 1));
     assert.deepEqual(metrics.formatCompliance.overall, ratio(8, 10));
+  });
+
+  it("leaves a call that got no reply out of format compliance", () => {
+    const noReply: ModelCallRecord = {
+      kind: "errored",
+      stage: "plan_itineraries",
+      model: "m",
+      promptVersion: "v1",
+      errorCode: "timeout",
+    };
+    const scored = scoreRecords([
+      failed("nc-006", { stage: "plan", code: "model_error" }, { audit: audit({ modelCalls: [call("parse_intent", true), noReply] }) }),
+    ]);
+    assert.deepEqual(scored.formatCompliance.byStage.plan_itineraries, ratio(0, 0));
+    assert.deepEqual(scored.formatCompliance.overall, ratio(1, 1));
   });
 
   it("scores diversity over emitted stops", () => {

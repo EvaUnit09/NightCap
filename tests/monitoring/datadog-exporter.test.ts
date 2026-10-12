@@ -5,6 +5,7 @@ import { resetConfig } from "../../src/models";
 import {
   createDatadogExporter,
   ENABLED_INTEGRATIONS,
+  PRELOADED_TRACER_WARNING,
   registerDatadogTracing,
   resetDatadogTracingForTests,
   safeErrorCode,
@@ -194,6 +195,90 @@ describe("registerDatadogTracing", () => {
     for (const banned of ["http", "https", "fetch", "undici", "net", "dns"]) {
       assert.equal(used.includes(banned), false, `${banned} plugin enabled`);
     }
+  });
+
+  it("refuses to trace, with a warning, when a preload already initialized dd-trace with its default plugins", async (t) => {
+    const warn = t.mock.method(console, "warn", () => undefined);
+    const calls: string[] = [];
+    const llmobs = {
+      trace: () => assert.fail("traced through a preloaded tracer"),
+      annotate: () => undefined,
+      annotationContext: () => undefined,
+    };
+    const load = async () => ({
+      default: {
+        _initialized: true,
+        init: () => calls.push("init"),
+        use: () => calls.push("use"),
+        llmobs,
+      },
+    });
+
+    await registerDatadogTracing(load);
+    const result = await createDatadogExporter().wrap(ROOT_SPAN, () => 7);
+
+    assert.equal(result, 7, "the work still runs, untraced");
+    assert.deepEqual(calls, [], "neither init nor use runs on a tracer someone else configured");
+    assert.deepEqual(warn.mock.calls.map((call) => call.arguments[0]), [PRELOADED_TRACER_WARNING]);
+  });
+
+  it("traces through a second bundled copy of this module once the first copy initialized dd-trace", async (t) => {
+    const warn = t.mock.method(console, "warn", () => undefined);
+    const { client, annotations } = fakeClient();
+    const calls: string[] = [];
+    const tracer = {
+      _initialized: false,
+      init() {
+        calls.push("init");
+        tracer._initialized = true;
+      },
+      use: (integration: string) => calls.push(`use:${integration}`),
+      llmobs: client,
+    };
+    const load = async () => ({ default: tracer });
+    const secondCopy = (await import(
+      `../../src/monitoring/datadog-exporter.ts?copy=${Date.now()}`
+    )) as typeof import("../../src/monitoring/datadog-exporter");
+    t.after(() => secondCopy.resetDatadogTracingForTests());
+
+    await registerDatadogTracing(load);
+    await secondCopy.registerDatadogTracing(load);
+    const result = await secondCopy.createDatadogExporter().wrap(ROOT_SPAN, () => 7);
+
+    assert.equal(result, 7);
+    assert.equal(annotations.length, 1, "the second copy traced the request");
+    assert.deepEqual(calls, ["init", "use:anthropic"], "dd-trace is configured once, by the first copy");
+    assert.equal(warn.mock.callCount(), 0);
+  });
+
+  it("keeps a second bundled copy untraced, with no second warning, when the first copy's init threw", async (t) => {
+    const warn = t.mock.method(console, "warn", () => undefined);
+    const tracer = {
+      _initialized: false,
+      init() {
+        tracer._initialized = true;
+        throw new RangeError(LEAKY_MESSAGE);
+      },
+      use: () => undefined,
+      llmobs: {
+        trace: () => assert.fail("traced through a tracer whose init threw"),
+        annotate: () => undefined,
+        annotationContext: () => undefined,
+      },
+    };
+    const load = async () => ({ default: tracer });
+    const secondCopy = (await import(
+      `../../src/monitoring/datadog-exporter.ts?copy=${Date.now()}`
+    )) as typeof import("../../src/monitoring/datadog-exporter");
+    t.after(() => secondCopy.resetDatadogTracingForTests());
+
+    await registerDatadogTracing(load);
+    await secondCopy.registerDatadogTracing(load);
+    const result = await secondCopy.createDatadogExporter().wrap(ROOT_SPAN, () => 7);
+
+    assert.equal(result, 7);
+    assert.equal(warn.mock.callCount(), 1);
+    assert.match(warn.mock.calls[0].arguments.join(" "), /RangeError/);
   });
 
   for (const [label, load] of Object.entries(failingLoaders)) {

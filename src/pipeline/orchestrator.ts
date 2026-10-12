@@ -15,14 +15,15 @@ import { validateItineraryServer } from "../validation/validator-server";
 import type { ValidationError } from "../validation/validation-error";
 import { createAnthropicModelClient } from "./anthropic-model-client";
 import { unknownPlaceIds } from "./emit-gate";
-import type {
-  DroppedOption,
-  InventedPlaceId,
-  ModelCallRecord,
-  PipelineAudit,
-  PipelineFailure,
-  PipelineResult,
-  RetrievalGap,
+import {
+  callCostUsd,
+  type DroppedOption,
+  type InventedPlaceId,
+  type ModelCallRecord,
+  type PipelineAudit,
+  type PipelineFailure,
+  type PipelineResult,
+  type RetrievalGap,
 } from "./lifecycle";
 import type { ModelClient, ModelStage } from "./model-client";
 import { validateAndRepair } from "./repair-loop";
@@ -102,7 +103,7 @@ function audit(progress: Progress): PipelineAudit {
     plannedOptionCount: progress.plannedOptionCount,
     inventedPlaceIds: progress.inventedPlaceIds,
     repairRoundsRun: progress.repairRoundsRun,
-    totalCostUsd: progress.modelCalls.reduce((total, call) => total + (call.costUsd ?? 0), 0),
+    totalCostUsd: progress.modelCalls.reduce((total, call) => total + callCostUsd(call), 0),
   };
 }
 
@@ -117,8 +118,8 @@ function failed(failure: PipelineFailure, progress: Progress): PipelineResult {
   };
 }
 
-function withCall(progress: Progress, call: ModelCallRecord | null): Progress {
-  return call === null ? progress : { ...progress, modelCalls: [...progress.modelCalls, call] };
+function withCall(progress: Progress, call: ModelCallRecord): Progress {
+  return { ...progress, modelCalls: [...progress.modelCalls, call] };
 }
 
 function gapsOf(retrieval: Retrieval): RetrievalGap[] {
