@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="base.css">
+<style>
+:root {
+  --color-bg: #150b0f; --color-surface: #23161c; --color-text: #f3ecef; --color-accent: #d6778a;
+  --color-divider: color-mix(in srgb, #f3ecef 16%, transparent);
+  --color-neutral-100: #ffeef8; --color-neutral-200: #f7e1ea; --color-neutral-300: #e3ced7; --color-neutral-400: #c9b4bd; --color-neutral-500: #ac98a1;
+  --color-neutral-600: #8d7a82; --color-neutral-700: #705d65; --color-neutral-800: #53424a; --color-neutral-900: #36262d;
+  --color-accent-100: #ffedf1; --color-accent-200: #ffd8e0; --color-accent-300: #ffb9c8; --color-accent-400: #f69dad; --color-accent-500: #dd7d90;
+  --color-accent-600: #b66374; --color-accent-700: #8e4c59; --color-accent-800: #633a41; --color-accent-900: #3b2428;
+  --shadow-sm: 0 0 0 1px #4d4549; --shadow-md: 0 0 0 1px #696164, 0 6px 18px rgba(0,0,0,0.55);
+}
+html, body { margin: 0; min-height: 100%; background: var(--color-bg); }
+.btn { white-space: nowrap; }
+a { color: var(--color-accent); } a:hover { color: var(--color-accent-400); }
+</style>
+</helmet>
+<div style="min-height: 100vh; background: radial-gradient(50% 45% at 8% 0%, var(--color-accent-900), var(--color-bg) 70%); display: flex; flex-direction: column;">
+  <nav class="nav" style="padding: 28px 72px;">
+    <span class="nav-brand">Nightcap</span>
+    <a href="#">Saved plans</a>
+  </nav>
+  <div style="padding: 104px 72px 56px; display: flex; flex-direction: column; gap: var(--space-4);">
+    <span style="font-size: 12px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--color-accent-300);">New York · Date planner · {{ clock }}</span>
+    <h1 style="margin: 0; font-size: 88px; line-height: 1; letter-spacing: -0.035em;">Plan a date night<br><span class="text-muted">in one sentence.</span></h1>
+  </div>
+  <div style="padding: 40px 72px; display: flex; flex-direction: column; gap: var(--space-4); background: linear-gradient(to right, transparent, var(--color-divider) 48px, var(--color-divider) calc(100% - 48px), transparent) no-repeat top / 100% 1px, linear-gradient(to right, transparent, var(--color-divider) 48px, var(--color-divider) calc(100% - 48px), transparent) no-repeat bottom / 100% 1px;">
+    <div style="display: flex; flex-direction: column; border-radius: var(--radius-lg); background: var(--color-surface); box-shadow: 0 0 0 1px var(--color-accent-700), 0 0 48px var(--color-accent-900);">
+      <textarea style="font: inherit; font-size: 30px; line-height: 1.35; letter-spacing: -0.015em; color: var(--color-text); caret-color: var(--color-accent); background: transparent; border: 0; outline: none; resize: none; min-height: 132px; padding: 28px 32px 8px;" value="{{ text }}" onChange="{{ onText }}" placeholder="Drinks then dinner in the West Village, something low-key, around $150"></textarea>
+      <div style="display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); padding: 16px 20px 20px 32px;">
+        <button class="btn btn-secondary" style="font-size: 14px;">Tonight</button>
+        <button class="btn btn-secondary" style="font-size: 14px;">$150 for two</button>
+        <button class="btn btn-secondary" style="font-size: 14px;">Walking</button>
+        <button class="btn btn-ghost" style="font-size: 14px; color: var(--color-text); opacity: .7;">
+          <svg width="16" height="16" viewBox="0 0 256 256" fill="currentColor"><path d="M229.66,218.34l-50.07-50.06a88.11,88.11,0,1,0-11.31,11.31l50.06,50.07a8,8,0,0,0,11.32-11.32ZM40,112a72,72,0,1,1,72,72A72.08,72.08,0,0,1,40,112Z"></path></svg>Use my location
+        </button>
+        <span style="flex: 1;"></span>
+        <button class="btn btn-primary" style="font-size: 17px; padding: 14px 28px; background: color-mix(in srgb, var(--color-accent) 10%, transparent);" disabled="{{ empty }}">Plan our night
+          <svg width="18" height="18" viewBox="0 0 256 256" fill="currentColor"><path d="M221.66,133.66l-72,72a8,8,0,0,1-11.32-11.32L196.69,136H40a8,8,0,0,1,0-16H196.69L138.34,61.66a8,8,0,0,1,11.32-11.32l72,72A8,8,0,0,1,221.66,133.66Z"></path></svg>
+        </button>
+      </div>
+    </div>
+    <div style="display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2);">
+      <span class="text-muted" style="font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; margin-right: var(--space-2);">Try</span>
+      <sc-for list="{{ examples }}" as="ex" hint-placeholder-count="4">
+        <button class="btn btn-secondary" style="font-size: 13px;" onClick="{{ ex.pick }}">{{ ex.label }}</button>
+      </sc-for>
+    </div>
+  </div>
+  <div style="padding: 64px 72px 72px; display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 32px;">
+    <sc-for list="{{ ghosts }}" as="g" hint-placeholder-count="3">
+      <div style="display: flex; flex-direction: column; gap: var(--space-3); padding: 28px; border-radius: var(--radius-lg); box-shadow: inset 0 0 0 1px var(--color-neutral-900);">
+        <span class="text-muted" style="font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase;">{{ g.label }}</span>
+        <div style="height: 12px; width: 60%; border-radius: var(--radius-sm); background: var(--color-neutral-900);"></div>
+        <div style="height: 12px; width: 42%; border-radius: var(--radius-sm); background: var(--color-neutral-900);"></div>
+        <span class="text-muted" style="font-size: 13px; padding-top: var(--space-2);">{{ g.hint }}</span>
+      </div>
+    </sc-for>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  state = { text: '', now: new Date() };
+  componentDidMount() { this.tick = setInterval(() => this.setState({ now: new Date() }), 30000); }
+  componentWillUnmount() { clearInterval(this.tick); }
+  renderVals() {
+    const clock = this.state.now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' });
+    const examples = ['Cocktails then ramen in the East Village', 'Just dinner, one spot, West Village', 'First date somewhere we can talk', 'Something outdoors in Williamsburg']
+      .map(label => ({ label, pick: () => this.setState({ text: label }) }));
+    return {
+      clock, text: this.state.text, empty: !this.state.text.trim(),
+      onText: e => this.setState({ text: e.target.value }), examples,
+      ghosts: [{ label: 'Option 1', hint: 'Usually drinks, then dinner.' }, { label: 'Option 2', hint: 'A different neighborhood or order.' }, { label: 'Option 3', hint: 'Every stop checked open for your time.' }]
+    };
+  }
+}
+</script>
+</body>
+</html>
