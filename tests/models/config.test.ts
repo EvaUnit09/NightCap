@@ -50,10 +50,10 @@ describe("Config module", () => {
       delete process.env.REPAIR_MODEL_ID;
       delete process.env.AGENT_MODEL_ID;
 
-      assert.equal(getParseModelId(), "claude-haiku-4-5");
-      assert.equal(getPlanModelId(), "claude-sonnet-5");
-      assert.equal(getRepairModelId(), "claude-sonnet-5");
-      assert.equal(getAgentModelId(), "claude-sonnet-5");
+      assert.equal(getParseModelId(), "claude-haiku-5-5");
+      assert.equal(getPlanModelId(), "claude-haiku-5-5");
+      assert.equal(getRepairModelId(), "claude-haiku-5-5");
+      assert.equal(getAgentModelId(), "claude-haiku-5-5");
     });
 
     it("applies default coord cache TTL", () => {
@@ -179,7 +179,7 @@ describe("Config module", () => {
 
     it("applies default when model ID is empty string", () => {
       process.env.PARSE_MODEL_ID = "";
-      assert.equal(getParseModelId(), "claude-haiku-4-5");
+      assert.equal(getParseModelId(), "claude-haiku-5-5");
     });
   });
 
@@ -362,7 +362,7 @@ describe("Config module", () => {
       process.env.PARSE_MODEL_ID = "   ";
       
       // After preprocessing, this becomes undefined and uses the default
-      assert.equal(getParseModelId(), "claude-haiku-4-5");
+      assert.equal(getParseModelId(), "claude-haiku-5-5");
     });
 
     it("rejects non-numeric coord cache TTL", () => {

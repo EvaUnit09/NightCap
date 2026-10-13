@@ -12,11 +12,9 @@ import {
  * Static model router: maps pipeline stages to model IDs.
  * No dynamic routing in v1 (architecture §2.9).
  *
- * Routing:
- * - parse_intent: Haiku 4.5 (fast, cheap)
- * - plan_itineraries: Sonnet 5 (quality)
- * - repair_itinerary: Sonnet 5 (quality)
- * - refine_agent: Sonnet 5 (quality)
+ * Routing (decision #43). Every stage is Haiku 5.5. It is the cheapest
+ * model that still answers these prompts, at $0.10 / $0.50 per million
+ * tokens under 100k input tokens.
  *
  * Model IDs come from config, not hardcoded.
  */
@@ -27,7 +25,7 @@ import {
  * Exhaustive switch with never default ensures all stages are handled.
  *
  * @param stage - Pipeline stage name
- * @returns Model ID to use for that stage (e.g., "claude-haiku-4-5")
+ * @returns Model ID to use for that stage (e.g., "claude-haiku-5-5")
  */
 export function getModelFor(stage: PipelineStage): string {
   switch (stage) {

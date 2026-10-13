@@ -84,7 +84,7 @@ Anonymous by default. A magic link saves and shares plans. The old "names and ot
 | Constraint            | Target                             | Notes                                                                                        |
 | --------------------- | ---------------------------------- | -------------------------------------------------------------------------------------------- |
 | Latency (p50 / p99)   | < 8s / < 20s end to end            | First itinerary is streamed as soon as it passes validation                                  |
-| Cost per request      | < $0.10 avg                        | Beta target (#30). Places Enterprise fields stay (novelty re-rank needs rating and review count). Plan stage ≈ $0.03; #36 model comparison is the lever to bring cost down. |
+| Cost per request      | < $0.10 avg                        | Beta target (#30). Places Enterprise fields stay (novelty re-rank needs rating and review count). All four stages are Haiku 5.5. The 2026-10-12 60-case eval measured the plan call at about $0.002 and all model calls at about $0.006 per case. |
 | Quality bar           | ≥ 90% validity, 0% invented venues | Validity defined under Success Metrics                                                       |
 | Privacy / compliance  | Logs get no free text; Datadog gets redacted prompts and replies as LLM Obs input/output only; DB stores heuristic-redacted text | **Superseded by decision #27 for the DB** (old target: "No PII in logs or DB") and by #42 for Datadog. Logs get no free text. Datadog span tags get `parsed_intent` + request hash only; LLM Obs input/output carry the redacted request, prompts, and replies. No API key or `REQUEST_HASH_SECRET` reaches Datadog. Google Places terms respected. |
 | Availability / uptime | Best-effort                        | Portfolio demo; daily spend cap may pause service                                            |
@@ -130,9 +130,9 @@ A code-controlled pipeline of three prompts. All outputs are structured and vali
 
 | Prompt             | Model     | Input                                                                      | Output                                                              |
 | ------------------ | --------- | -------------------------------------------------------------------------- | ------------------------------------------------------------------- |
-| `parse_intent`     | Haiku 4.5 | Redacted free text + optional fields                                       | JSON: area, datetime window, budget, dietary, vibe_tags, stop_types |
-| `plan_itineraries` | Sonnet 5  | Parsed intent + re-ranked candidate list (Place IDs, hours, price, coords) | 2–3 itineraries referencing **only** candidate IDs                  |
-| `repair_itinerary` | Sonnet 5  | Itinerary + specific validator errors + candidates                         | Fixes only the failing stops (max 2 rounds, then drop the option)   |
+| `parse_intent`     | Haiku 5.5 | Redacted free text + optional fields                                       | JSON: area, datetime window, budget, dietary, vibe_tags, stop_types |
+| `plan_itineraries` | Haiku 5.5 | Parsed intent + re-ranked candidate list (Place IDs, hours, price, coords) | 2–3 itineraries referencing **only** candidate IDs                  |
+| `repair_itinerary` | Haiku 5.5 | Itinerary + specific validator errors + candidates                         | Fixes only the failing stops (max 2 rounds, then drop the option)   |
 
 
 The refinement agent (§5) has its own system prompt.
@@ -186,13 +186,14 @@ Baselines run on the same set: filter-only (no LLM) and raw ChatGPT/Claude (no r
 
 | Model                     | Provider        | Cost (input/output per 1M) | Latency (est.) | Quality Notes                                                         | License              |
 | ------------------------- | --------------- | -------------------------- | -------------- | --------------------------------------------------------------------- | -------------------- |
-| `claude-haiku-4-5`        | Anthropic       | $1 / $5                    | Fastest        | Candidate for parse; test on plan                                     | Commercial API terms |
-| `claude-sonnet-5`         | Anthropic       | $2 / $10                   | Mid            | Default for plan, repair and agent; plan stage ≈ $0.03/request        | Commercial API terms |
+| `claude-haiku-5-5`        | Anthropic       | $0.10 / $0.50 under 100k input tokens; $0.50 / $2.50 above | Fastest | Default for parse, plan, repair, and the refinement agent | Commercial API terms |
+| `claude-haiku-4-5`        | Anthropic       | $1 / $5                    | Fastest        | Previous parse default                                                 | Commercial API terms |
+| `claude-sonnet-5`         | Anthropic       | $2 / $10                   | Mid            | Previous default for plan, repair and agent                           | Commercial API terms |
 | `claude-opus-5`           | Anthropic       | $5 / $25                   | Slowest        | Quality ceiling; ≈ $0.08/request on plan (over budget); offline judge | Commercial API terms |
 | GPT or Gemini class (TBD) | OpenAI / Google | TBD at eval time           | TBD            | Cross-provider comparison                                             | Commercial API terms |
 
 
-Prices are Anthropic's list prices as of 2026-06. Cost estimates assume the plan stage uses about 6K input and 2K output tokens and will be replaced with measured values.
+Haiku 5.5 prices are Anthropic's list prices as of 2026-10-07, for prompts under 100k input tokens. The other rows were checked 2026-06. A 6k-input / 2k-output plan at that rate is about $0.0016. The 2026-10-12 eval measured the plan call at about $0.0023 (7471 input tokens and 3132 output tokens, averaged over 60 cases).
 
 ### Evaluation Approach
 
@@ -200,7 +201,7 @@ Every candidate runs on test set v1 for each stage it's eligible for. Report val
 
 ### Model Routing (if applicable)
 
-Static routing per stage: parse → Haiku 4.5; plan → Sonnet 5; repair → Sonnet 5; refinement agent → Sonnet 5. No dynamic router in v1. The eval decides whether each stage moves to a cheaper or stronger model. Model IDs live in config, not code.
+Static routing per stage: parse, plan, repair, and the refinement agent all use Haiku 5.5 (`claude-haiku-5-5`). No dynamic router in v1. The eval decides whether a stage moves to a stronger model. Model IDs live in config, not code.
 
 ### Checklist
 
@@ -285,7 +286,7 @@ N/A: structured records, no chunking.
 
 ### Agent Architecture
 
-The main pipeline is a code-controlled workflow, **not** an agent. The agent is scoped to **refinement**: after results appear, the user chats edits ("cheaper dinner", "start an hour later", "swap the bar for dessert") and a tool-calling agent modifies the chosen itinerary. It's built with the Anthropic TypeScript SDK tool runner on Sonnet 5. **Core v1 feature.**
+The main pipeline is a code-controlled workflow, **not** an agent. The agent is scoped to **refinement**: after results appear, the user chats edits ("cheaper dinner", "start an hour later", "swap the bar for dessert") and a tool-calling agent modifies the chosen itinerary. It's built with the Anthropic TypeScript SDK tool runner on Haiku 5.5. **Core v1 feature.**
 
 Flow: user message + current itinerary → agent calls tools → must call `validate_itinerary` → returns an updated itinerary, or reverts with an explanation.
 

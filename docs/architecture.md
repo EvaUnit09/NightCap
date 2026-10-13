@@ -9,15 +9,15 @@ Status: design (pre-implementation). Build order: [build-sequence.md](build-sequ
 flowchart TD
     U[User: free-text request + optional filters] --> API[Next.js route handler<br/>rate limit + spend cap]
     API --> RED[PII redaction]
-    RED --> P1[parse_intent<br/>Haiku 4.5 → Zod intent]
+    RED --> P1[parse_intent<br/>Haiku 5.5 → Zod intent]
     P1 -->|SSE: parsed intent| U
     P1 --> R[Retrieval<br/>Places Text Search:<br/>1 combined + ≤ 1 refill]
     R -.->|coords port; DB adapter at step 24| C[(places_cache<br/>place_id + coords ≤ 30d)]
     R --> F[Filter: OPERATIONAL, open at slot, price band]
     F --> RR[Re-rank: vibe fit + novelty penalty]
-    RR --> P2[plan_itineraries<br/>Sonnet 5, candidate IDs only]
+    RR --> P2[plan_itineraries<br/>Haiku 5.5, candidate IDs only]
     P2 --> V{Validator<br/>exists · open · budget · travel ≤ 25 min}
-    V -->|fail, ≤ 2 rounds| P3[repair_itinerary<br/>Sonnet 5, failing stops only]
+    V -->|fail, ≤ 2 rounds| P3[repair_itinerary<br/>Haiku 5.5, failing stops only]
     P3 --> V
     V -->|pass| S[SSE: stream itinerary]
     S --> U
@@ -28,7 +28,7 @@ flowchart TD
 
 ```mermaid
 flowchart LR
-    M[User edit message + current itinerary] --> A[Refine agent<br/>Sonnet 5, tool runner<br/>≤ 6 tool calls, ≤ $0.03/turn]
+    M[User edit message + current itinerary] --> A[Refine agent<br/>Haiku 5.5, tool runner<br/>≤ 6 tool calls, ≤ $0.03/turn]
     A --> T1[search_venues]
     A --> T2[replace_stop / reorder_stops]
     A --> T3[validate_itinerary]

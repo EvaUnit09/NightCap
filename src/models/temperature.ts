@@ -40,9 +40,9 @@ export function getTemperatureFor(stage: PipelineStage): number {
 }
 
 /**
- * Model id prefixes known to accept `temperature`. Sonnet 5 rejects
- * temperature/top_p/top_k with a 400, so the allowlist is closed: a model
- * not listed gets no temperature, which every model accepts.
+ * Model id prefixes known to accept `temperature`. Haiku 5.5 and Sonnet 5
+ * reject temperature, top_p, and top_k with a 400, so the allowlist is
+ * closed. A model not listed gets no temperature, which every model accepts.
  */
 const TEMPERATURE_ACCEPTING_MODEL_PREFIXES: readonly string[] = ["claude-haiku-4-5"];
 

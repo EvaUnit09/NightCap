@@ -118,13 +118,13 @@ describe("createAnthropicModelClient temperature", () => {
     } as unknown as Anthropic;
   }
 
-  it("sends temperature 0 on parse (Haiku 4.5) and none on plan or repair (Sonnet 5)", async () => {
+  it("sends temperature 0 on Haiku 4.5 and none on Haiku 5.5 or Sonnet 5", async () => {
     const bodies: Array<Record<string, unknown>> = [];
     const models = createAnthropicModelClient({ client: recordingClient(bodies) });
     const base = { system: "s", user: "u", maxTokens: 10 };
 
     await models.complete({ ...base, stage: "parse_intent", model: "claude-haiku-4-5" });
-    await models.complete({ ...base, stage: "plan_itineraries", model: "claude-sonnet-5" });
+    await models.complete({ ...base, stage: "plan_itineraries", model: "claude-haiku-5-5" });
     await models.complete({ ...base, stage: "repair_itinerary", model: "claude-sonnet-5" });
 
     assert.equal(bodies[0].temperature, 0);
@@ -154,6 +154,7 @@ describe("createAnthropicSdkClient", () => {
 describe("costUsdFor", () => {
   it("prices listed models and leaves unknown ones unpriced", () => {
     assert.equal(costUsdFor("claude-sonnet-5", { inputTokens: 1_000_000, outputTokens: 1_000_000 }), 12);
+    assert.equal(costUsdFor("claude-haiku-5-5", { inputTokens: 1_000_000, outputTokens: 1_000_000 }), 0.6);
     assert.equal(costUsdFor("claude-unknown", { inputTokens: 1, outputTokens: 1 }), undefined);
     assert.equal(costUsdFor("constructor", { inputTokens: 1, outputTokens: 1 }), undefined);
   });

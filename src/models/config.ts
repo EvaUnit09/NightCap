@@ -98,11 +98,11 @@ const configSchema = z.object({
    */
   requestHashSecret: z.string().min(1).optional(),
 
-  // Model IDs - defaults from architecture (Haiku 4-5 for parse, Sonnet 5 for others)
-  parseModelId: z.string().min(1).default("claude-haiku-4-5"),
-  planModelId: z.string().min(1).default("claude-sonnet-5"),
-  repairModelId: z.string().min(1).default("claude-sonnet-5"),
-  agentModelId: z.string().min(1).default("claude-sonnet-5"),
+  // Model IDs. All four stages default to Haiku 5.5 (decision #43).
+  parseModelId: z.string().min(1).default("claude-haiku-5-5"),
+  planModelId: z.string().min(1).default("claude-haiku-5-5"),
+  repairModelId: z.string().min(1).default("claude-haiku-5-5"),
+  agentModelId: z.string().min(1).default("claude-haiku-5-5"),
 
   // Anthropic SDK client. Defaults fit a serverless function limit: a 45s
   // attempt with one retry stays near 90s worst case, not the SDK's 10 minutes x 3.
@@ -330,22 +330,22 @@ export function getRequestHashSecret(): string {
   return DEV_TEST_REQUEST_HASH_SECRET;
 }
 
-/** Get parse model ID (Haiku 4-5 by default). */
+/** Get parse model ID (Haiku 5.5 by default). */
 export function getParseModelId(): string {
   return getConfig().parseModelId;
 }
 
-/** Get plan model ID (Sonnet 5 by default). */
+/** Get plan model ID (Haiku 5.5 by default). */
 export function getPlanModelId(): string {
   return getConfig().planModelId;
 }
 
-/** Get repair model ID (Sonnet 5 by default). */
+/** Get repair model ID (Haiku 5.5 by default). */
 export function getRepairModelId(): string {
   return getConfig().repairModelId;
 }
 
-/** Get agent model ID (Sonnet 5 by default). */
+/** Get agent model ID (Haiku 5.5 by default). */
 export function getAgentModelId(): string {
   return getConfig().agentModelId;
 }

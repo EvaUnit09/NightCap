@@ -72,8 +72,8 @@ export function createAnthropicSdkClient(): Anthropic {
  * Every other failure throws its `classifyAnthropicError` code, except an
  * abort of `request.signal`, which rethrows as is.
  * Temperature comes from `getTemperatureParamFor` and is sent only to
- * models that accept it: the Claude API docs say Sonnet 5 rejects
- * temperature, top_p and top_k with a 400, while Haiku 4.5 accepts them.
+ * models that accept it. Haiku 5.5 and Sonnet 5 reject temperature,
+ * top_p, and top_k with a 400. Haiku 4.5 accepts temperature.
  */
 export function createAnthropicModelClient(
   options: { readonly client?: Anthropic } = {},

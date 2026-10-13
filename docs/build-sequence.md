@@ -38,7 +38,7 @@ Do this before prompt iteration. Later phases call these modules; they do not re
 | 6 | Build the deterministic validator: operational, open for the slot, within budget, travel ≤ 25 min. | `src/validation/` | The same function is callable from the pipeline, the repair loop, the agent tool, and the eval runner. | partial |
 | 7 | Choose how travel minutes are computed. | `src/validation/`, decision log | One method feeds the ≤ 25 min check. | yes |
 | 8 | Add versioned prompt files and a loader. Git stays the source of truth. | `prompts/*/v1.md`, loader in `src/pipeline/` | `parse_intent`, `plan_itineraries`, `repair_itinerary`, and `refine_agent` load from files. Each trace is tagged with prompt name and version. | yes |
-| 9 | Wire static routing: Haiku 4.5 for parse; Sonnet 5 for plan, repair, and the agent. | `src/models/` | Stage code asks the router for a model id. There is no dynamic router. | yes |
+| 9 | Wire static routing: Haiku 5.5 for parse, plan, repair, and the agent. | `src/models/` | Stage code asks the router for a model id. There is no dynamic router. | yes |
 | 10 | Open one Datadog LLM Observability trace per request, with a span per stage. | `src/monitoring/` | Spans cover parse, each Places call (cache hit or miss), re-rank, plan, validate, repair, and later agent turns. Metadata includes tokens, cost, latency, and validation errors by type. | yes |
 
 ### 3. Retrieval — target 2026-10-11
@@ -81,7 +81,7 @@ Core v1. Do not cut this to make the date.
 | # | Action | Lands in | Done when | Is done |
 |---|---|---|---|---|
 | 29 | Implement `search_venues`, `replace_stop`, `reorder_stops`, and `validate_itinerary`. | `src/agent/` | Each tool has a Zod contract and about four unit tests, including unknown-id rejection. Places errors return `is_error`. | partial |
-| 30 | Run the agent on Sonnet 5 with a hard stop at 6 tool calls and $0.03 per turn. | `src/agent/`, cost ledger | User text is treated as data. Venue ids must come from a tool result in this turn. Off-topic requests are refused. | partial |
+| 30 | Run the agent on Haiku 5.5 with a hard stop at 6 tool calls and $0.03 per turn. | `src/agent/`, cost ledger | User text is treated as data. Venue ids must come from a tool result in this turn. Off-topic requests are refused. | partial |
 | 31 | Require `validate_itinerary` before the final answer. On failure, revert to the last valid itinerary and explain. | `src/agent/` | A turn cannot end on an invalid plan. The revert is counted in agent metrics. | no |
 | 32 | Add the agent suite: 5 workflow tests, 5 adversarial tests, and 20 scripted edits. | `evaluation/` | The report includes completion rate, post-edit validity, average steps, and cost per turn. | no |
 

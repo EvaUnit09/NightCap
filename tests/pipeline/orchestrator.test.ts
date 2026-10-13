@@ -53,11 +53,11 @@ describe("runPipeline", () => {
     assert.deepEqual(result.audit.inventedPlaceIds, []);
     assert.equal(result.audit.candidateCount, 8);
     assert.deepEqual(result.audit.modelCalls.map((call) => [call.stage, call.model, call.kind === "replied" && call.formatValid]), [
-      ["parse_intent", "claude-haiku-4-5", true],
-      ["plan_itineraries", "claude-sonnet-5", true],
+      ["parse_intent", "claude-haiku-5-5", true],
+      ["plan_itineraries", "claude-haiku-5-5", true],
     ]);
-    // Haiku 4.5 at $1/$5 and Sonnet 5 at $2/$10 per MTok, 1000 in / 200 out each.
-    assert.ok(Math.abs(result.audit.totalCostUsd - (0.002 + 0.004)) < 1e-12);
+    // Haiku 5.5 short-prompt rate $0.10/$0.50 per MTok, 1000 in / 200 out each = $0.0002.
+    assert.ok(Math.abs(result.audit.totalCostUsd - (0.0002 + 0.0002)) < 1e-12);
   });
 
   it("the parse call gets the redacted request inside <user_text>, and the planner sees only candidates", async () => {
@@ -229,11 +229,11 @@ describe("runPipeline", () => {
     assert.deepEqual(result.audit.modelCalls[1], {
       kind: "errored",
       stage: "plan_itineraries",
-      model: "claude-sonnet-5",
+      model: "claude-haiku-5-5",
       promptVersion: "v1",
       errorCode: "timeout",
     });
-    assert.ok(Math.abs(result.audit.totalCostUsd - 0.002) < 1e-12, "only the parse reply costs anything");
+    assert.ok(Math.abs(result.audit.totalCostUsd - 0.0002) < 1e-12, "only the parse reply costs anything");
     const [planSpan] = spansNamed(h.exporter, "plan");
     assert.equal(planSpan.attributes.status, "error");
     assert.equal(planSpan.attributes.error_code, "timeout");

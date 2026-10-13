@@ -43,10 +43,11 @@ describe("temperature configuration", () => {
 });
 
 describe("temperature capability", () => {
-  it("accepts temperature on Haiku 4.5, including dated ids, and rejects Sonnet 5 and unknown models", () => {
+  it("accepts temperature on Haiku 4.5, including dated ids, and rejects Haiku 5.5, Sonnet 5, and unknown models", () => {
     assert.equal(acceptsTemperature("claude-haiku-4-5"), true);
     assert.equal(acceptsTemperature("claude-haiku-4-5-20251001"), true);
     assert.equal(acceptsTemperature("claude-sonnet-5"), false);
+    assert.equal(acceptsTemperature("claude-haiku-5-5"), false);
     assert.equal(acceptsTemperature("claude-unknown"), false);
   });
 
@@ -54,5 +55,8 @@ describe("temperature capability", () => {
     assert.equal(getTemperatureParamFor("parse_intent", "claude-haiku-4-5"), 0);
     assert.equal(getTemperatureParamFor("parse_intent", "claude-sonnet-5"), undefined);
     assert.equal(getTemperatureParamFor("plan_itineraries", "claude-sonnet-5"), undefined);
+    assert.equal(getTemperatureParamFor("plan_itineraries", "claude-haiku-5-5"), undefined);
+    assert.equal(getTemperatureParamFor("repair_itinerary", "claude-haiku-5-5"), undefined);
+    assert.equal(getTemperatureParamFor("refine_agent", "claude-haiku-5-5"), undefined);
   });
 });

@@ -10,24 +10,24 @@ describe("model router", () => {
   });
 
   describe("getModelFor", () => {
-    it("should return Haiku 4.5 for parse_intent by default", () => {
+    it("should return Haiku 5.5 for parse_intent by default", () => {
       const modelId = getModelFor("parse_intent");
-      assert.equal(modelId, "claude-haiku-4-5");
+      assert.equal(modelId, "claude-haiku-5-5");
     });
 
-    it("should return Sonnet 5 for plan_itineraries by default", () => {
+    it("should return Haiku 5.5 for plan_itineraries by default", () => {
       const modelId = getModelFor("plan_itineraries");
-      assert.equal(modelId, "claude-sonnet-5");
+      assert.equal(modelId, "claude-haiku-5-5");
     });
 
-    it("should return Sonnet 5 for repair_itinerary by default", () => {
+    it("should return Haiku 5.5 for repair_itinerary by default", () => {
       const modelId = getModelFor("repair_itinerary");
-      assert.equal(modelId, "claude-sonnet-5");
+      assert.equal(modelId, "claude-haiku-5-5");
     });
 
-    it("should return Sonnet 5 for refine_agent by default", () => {
+    it("should return Haiku 5.5 for refine_agent by default", () => {
       const modelId = getModelFor("refine_agent");
-      assert.equal(modelId, "claude-sonnet-5");
+      assert.equal(modelId, "claude-haiku-5-5");
     });
 
     it("should respect PARSE_MODEL_ID env override", () => {

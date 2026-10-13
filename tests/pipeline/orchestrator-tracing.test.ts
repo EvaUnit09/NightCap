@@ -34,9 +34,9 @@ describe("runPipeline tracing", () => {
   it("model spans carry prompt name and version, model, tokens, cost, and latency", async () => {
     const exporter = await tracedRun();
     const expected = {
-      parse: ["parse_intent", "claude-haiku-4-5", 0.002],
-      plan: ["plan_itineraries", "claude-sonnet-5", 0.004],
-      repair: ["repair_itinerary", "claude-sonnet-5", 0.004],
+      parse: ["parse_intent", "claude-haiku-5-5", 0.0002],
+      plan: ["plan_itineraries", "claude-haiku-5-5", 0.0002],
+      repair: ["repair_itinerary", "claude-haiku-5-5", 0.0002],
     } as const;
 
     for (const [name, [promptName, model, cost]] of Object.entries(expected)) {
