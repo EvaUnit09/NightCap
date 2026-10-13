@@ -60,7 +60,7 @@ Do this before prompt iteration. Later phases call these modules; they do not re
 | 18 | Check in the frozen 60-case synthetic set. | `evaluation/` | Cases cover borough, budget ($15–$320), time, vibe, and edges (late Sunday, dietary, tight budget). v1 stays frozen; new failures go to v2. | yes |
 | 19 | Score validity, invented-venue rate, diversity/novelty, and format compliance. | `evaluation/` runner | One command prints the four metrics. Candidate recall is scored separately so a retrieval miss is not blamed on the planner. | yes |
 | 20 | Run both baselines on the same set: filter-only (no LLM) and raw ChatGPT/Claude (no retrieval). | `evaluation/` | The comparison table exists before a prompt version is called done. | yes |
-| 21 | CI on every PR: typecheck, lint, unit tests, and a small eval smoke subset. | `.github/workflows`, Dockerfile | A prompt change cannot merge without the smoke subset. Target 80% line coverage on `src/`. The workflow and the Dockerfile `eval` target are in the tree (decision #45). Noah still adds repo secrets `ANTHROPIC_API_KEY` and `GOOGLE_PLACES_API_KEY`, and marks required checks `Typecheck, lint, test, build` and `Eval smoke (5 cases)`. | partial |
+| 21 | CI on every PR: typecheck, lint, unit tests, and a small eval smoke subset. | `.github/workflows`, Dockerfile | A prompt change cannot merge without the smoke subset. Target 80% line coverage on `src/`. Workflow, Dockerfile `eval` target, repo secrets `ANTHROPIC_API_KEY` and `GOOGLE_PLACES_API_KEY`, and active rulesets requiring `Typecheck, lint, test, build` and `Eval smoke (5 cases)` are in place (decision #45). | yes |
 
 ### 5. API and UI — target 2026-10-18
 
