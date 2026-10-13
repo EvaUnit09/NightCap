@@ -2,8 +2,10 @@ import "server-only";
 
 import { z } from "zod";
 
-import { getEnableLiveRoutes, getRateLimitDailySpendUsd, getRateLimitRequestsPerHour } from "../models/config";
+import { createQueryableFromEnv } from "../db/postgres";
+import { getEnableLiveRoutes, getRateLimitDailySpendUsd, getRateLimitRequestsPerHour, getRequestHashSecret } from "../models/config";
 import { costUsdFor } from "../models/pricing";
+import { createPlanPersistence, modelsFromCalls, type PlanPersistence } from "../monitoring/persist-plan";
 import { billableRoutesHops, clientIp, usdToMicros, utcDay, vendorMicros } from "../monitoring/spend-cap";
 import { createSpendStoreFromEnv, type SpendStore } from "../monitoring/spend-store";
 import { createPipelineDeps, runPipeline, WRAP_USER_TEXT_MAX_CHARS, type PipelineDeps, type PipelineFailure } from "../pipeline";
@@ -35,6 +37,7 @@ export type PlanDepsFactory = () => PipelineDeps;
 export interface PlanHandlerOptions {
   readonly store?: SpendStore;
   readonly now?: () => number;
+  readonly persist?: PlanPersistence;
 }
 
 const JSON_HEADERS = { "Cache-Control": "no-store" } as const;
@@ -125,9 +128,30 @@ async function* planEvents(
   deps: PipelineDeps,
   signal: AbortSignal,
   spend: RequestSpend | null,
+  persist: PlanPersistence | undefined,
 ): AsyncGenerator<PlanEvent> {
+  const started = Date.now();
   const result = await runPipeline({ text, signal }, deps);
   if (spend) spend.auditModelUsd = result.audit.totalCostUsd;
+  if (persist && result.intent !== null) {
+    const latencyMs = Math.max(0, Date.now() - started);
+    try {
+      await persist.save({
+        rawText: text,
+        intent: JSON.parse(JSON.stringify(result.intent)) as Record<string, unknown>,
+        options:
+          result.kind === "completed"
+            ? result.options.map((emitted) => ({ optionIndex: emitted.optionIndex, option: emitted.option }))
+            : [],
+        promptVersions: deps.promptVersions,
+        models: modelsFromCalls(result.audit.modelCalls),
+        costUsd: result.audit.totalCostUsd,
+        latencyMs,
+      });
+    } catch {
+      // The plan already exists for this response. A database miss must not replace it with an error event.
+    }
+  }
   if (result.intent !== null) {
     yield { event: "intent", data: result.intent };
   }
@@ -146,6 +170,7 @@ function streamPlan(
   makeDeps: PlanDepsFactory,
   request: Request,
   onSpend?: (micros: number) => Promise<void>,
+  persist?: PlanPersistence,
 ): Response {
   const cancelled = new AbortController();
   const signal = AbortSignal.any([request.signal, cancelled.signal]);
@@ -156,7 +181,7 @@ function streamPlan(
     async start(controller) {
       try {
         const deps = spend ? observeDeps(makeDeps(), spend) : makeDeps();
-        for await (const event of planEvents(text, deps, signal, spend)) {
+        for await (const event of planEvents(text, deps, signal, spend, persist)) {
           controller.enqueue(frame(event));
         }
       } catch {
@@ -213,7 +238,7 @@ export function createPlanHandler(
 
     const store = options.store;
     if (!store) {
-      return streamPlan(parsed.data.text, makeDeps, request);
+      return streamPlan(parsed.data.text, makeDeps, request, undefined, options.persist);
     }
 
     const at = now();
@@ -238,13 +263,23 @@ export function createPlanHandler(
       return limitResponse("hourly_plan_limit");
     }
 
-    return streamPlan(parsed.data.text, makeDeps, request, async (micros) => {
-      if (micros > 0) await store.addDailyMicros(day, micros);
-    });
+    return streamPlan(
+      parsed.data.text,
+      makeDeps,
+      request,
+      async (micros) => {
+        if (micros > 0) await store.addDailyMicros(day, micros);
+      },
+      options.persist,
+    );
   };
 }
 
 /** Production POST. The app route stays free of `src/monitoring` imports. */
 export function createProductionPlanHandler(): (request: Request) => Promise<Response> {
-  return createPlanHandler(() => createPipelineDeps(), { store: createSpendStoreFromEnv() });
+  const db = createQueryableFromEnv();
+  return createPlanHandler(() => createPipelineDeps(), {
+    store: createSpendStoreFromEnv(),
+    persist: db ? createPlanPersistence(db, getRequestHashSecret()) : undefined,
+  });
 }

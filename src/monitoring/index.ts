@@ -22,6 +22,12 @@ export type { RedactionCounts, RedactionErrorCode, RedactionResult } from "./red
 export { hashRequest } from "./request-hash";
 export { insertStoredRequest, prepareStoredRequest } from "./store-request";
 export type { PrepareStoredRequestResult, Queryable, StoredRequest } from "./store-request";
+export { createPlanPersistence, modelsFromCalls, savePlan } from "./persist-plan";
+export type { PlanPersistence, PlanSaveInput, SavedPlan } from "./persist-plan";
+export { hydrateItinerary, loadStoredItinerary } from "./hydrate-plan";
+export type { HydratedStop, PlaceDetailsLookup, PlaceLiveDetails, StoredItinerary } from "./hydrate-plan";
+export { stripStopForStorage } from "./stored-stop";
+export type { StoredStop } from "./stored-stop";
 export { TRACE_STAGES, isTraceStage, spanKindFor } from "./stages";
 export type { TraceStage } from "./stages";
 export { registerDatadogTracing } from "./datadog-exporter";

@@ -4,10 +4,12 @@ import { describe, it } from "node:test";
 import {
   coordsTtlDays,
   createMemoryCoordsCache,
+  createPlacesCoordsCache,
   isLive,
   planCoordsWrite,
   type CoordsEntry,
-} from "../../src/retrieval/coords-cache";
+} from "../../src/retrieval";
+import { createMigratedDatabase } from "../migrations/harness";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const t0 = new Date("2026-10-01T00:00:00Z");
@@ -88,5 +90,41 @@ describe("planCoordsWrite", () => {
     const atFirstExpiry = new Date(t0.getTime() + 30 * DAY_MS);
     assert.deepEqual((await cache.read(["p1"], justBeforeFirstExpiry)).get("p1"), here);
     assert.equal((await cache.read(["p1"], atFirstExpiry)).has("p1"), false);
+  });
+});
+
+describe("places_cache adapter", () => {
+  it("does not serve an expired row and refreshes it from a later observation", async () => {
+    const db = await createMigratedDatabase();
+    try {
+      await db.query(
+        `INSERT INTO public.places_cache (place_id, lat, lng, coords_fetched_at, coords_expires_at)
+         VALUES ('p-old', 40.5, -74.25, NOW() - INTERVAL '40 days', NOW() - INTERVAL '10 days')`,
+      );
+      const cache = createPlacesCoordsCache(db, coordsTtlDays(30));
+      const now = new Date();
+      const expired = await cache.read(["p-old"], now);
+      assert.equal(expired.has("p-old"), false);
+
+      await cache.record([{ placeId: "p-old", coords: { lat: 40.5, lng: -74.25 } }], now);
+      const live = await cache.read(["p-old"], now);
+      assert.deepEqual(live.get("p-old"), { lat: 40.5, lng: -74.25 });
+
+      const before = await db.query<{ coords_fetched_at: string }>(
+        `SELECT coords_fetched_at FROM public.places_cache WHERE place_id = 'p-keep'`,
+      );
+      await cache.record([{ placeId: "p-keep", coords: { lat: 40.5, lng: -74 } }], now);
+      await cache.record([{ placeId: "p-keep", coords: { lat: 40.5, lng: -74 } }], new Date(now.getTime() + 1000));
+      const after = await db.query<{ coords_fetched_at: Date | string }>(
+        `SELECT coords_fetched_at FROM public.places_cache WHERE place_id = 'p-keep'`,
+      );
+      assert.equal(before.rows.length, 0);
+      assert.equal(after.rows.length, 1);
+      const fetched = after.rows[0].coords_fetched_at;
+      const fetchedMs = fetched instanceof Date ? fetched.getTime() : Date.parse(fetched);
+      assert.ok(Math.abs(fetchedMs - now.getTime()) < 2000);
+    } finally {
+      await db.close();
+    }
   });
 });
