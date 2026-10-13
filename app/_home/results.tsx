@@ -74,7 +74,7 @@ function OptionCard({ index, option }: { readonly index: number; readonly option
   const total = option.stops.reduce((sum, stop) => sum + stop.estimatedCostUsd, 0);
   return (
     <article className="home-card">
-      <span className="text-muted home-option-label">OPTION {index + 1}</span>
+      <span className="text-muted home-option-label">{`OPTION ${index + 1}`}</span>
       <h2>{option.theme}</h2>
       <ol className="home-stops">
         {option.stops.map((stop) => (
@@ -100,7 +100,7 @@ function OptionCard({ index, option }: { readonly index: number; readonly option
 function GhostCard({ index, live }: { readonly index: number; readonly live: boolean }) {
   return (
     <article className={live ? "home-ghost home-ghost-live" : "home-ghost"}>
-      <span className="text-muted home-option-label">OPTION {index + 1}</span>
+      <span className="text-muted home-option-label">{`OPTION ${index + 1}`}</span>
       <div className="home-bar home-bar-wide" />
       <div className="home-bar home-bar-short" />
       <span className="text-muted home-hint">{GHOST_HINTS[index]}</span>
