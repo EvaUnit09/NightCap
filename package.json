@@ -14,6 +14,7 @@
     "test": "node --import tsx --import ./tests/setup.mjs --test 'tests/**/*.test.ts'",
     "bench": "node --import tsx --import ./tests/setup.mjs scripts/bench-redact.ts",
     "eval": "node --import tsx --import ./tests/setup.mjs evaluation/run.ts",
+    "eval:agent": "node --import tsx --import ./tests/setup.mjs evaluation/agent/run.ts",
     "test:coverage": "node --import tsx --import ./tests/setup.mjs --test --experimental-test-coverage --test-coverage-include='src/**' --test-coverage-lines=80 'tests/**/*.test.ts'"
   },
   "dependencies": {

@@ -83,7 +83,7 @@ Core v1. Do not cut this to make the date.
 | 29 | Implement `search_venues`, `replace_stop`, `reorder_stops`, and `validate_itinerary`. | `src/agent/` | Each tool has a Zod contract and about four unit tests, including unknown-id rejection. Places errors return `is_error`. | yes |
 | 30 | Run the agent on Haiku 5.5 with a hard stop at 6 tool calls and $0.08 per turn (#44). | `src/agent/`, cost ledger | User text is treated as data. Venue ids must come from a tool result in this turn. Off-topic requests are refused. | yes |
 | 31 | Require `validate_itinerary` before the final answer. On failure, revert to the last valid itinerary and explain. | `src/agent/` | A turn cannot end on an invalid plan. The revert is counted in agent metrics. | yes |
-| 32 | Add the agent suite: 5 workflow tests, 5 adversarial tests, and 20 scripted edits. | `evaluation/` | The report includes completion rate, post-edit validity, average steps, and cost per turn. | no |
+| 32 | Add the agent suite: 5 workflow tests, 5 adversarial tests, and 20 scripted edits. | `evaluation/` | The report includes completion rate, post-edit validity, average steps, and cost per turn. | yes |
 
 ### 7. Observe and ship — target 2026-10-25
 
