@@ -1,14 +1,16 @@
 # Home
 
-Opening the site shows the Nightcap title, a nav brand, and the heading "Plan a date night in one sentence." The composer asks for one sentence. Three empty option cards sit below it. Saved plans is text in the nav, not a link.
+Opening the site shows the Nightcap title, a nav brand, and the heading "Plan a date night in one sentence." The composer asks for one sentence (chips, Use my location, Plan our night). Three empty option cards sit below it. Saved plans is text in the nav, not a link. After a successful keyed plan, options can show on a map and a Save and share block appears.
 
 ## Sub-features
 
 - `home-open` loads `/` and shows the date-night heading.
 - `home-title` sets the document title and the description the browser exposes.
-- `home-compose` covers the empty textbox, the example buttons, the chip menus, and Cmd/Ctrl+Enter.
+- `home-compose` covers the empty textbox, the example buttons, the chip menus, Use my location, and Cmd/Ctrl+Enter.
 - `home-submit-offline` covers a keyless plan request ending in the friendly unavailable alert.
 - `home-submit-live` covers a keyed run that replaces the ghost cards. It stays off unless API keys are present.
+- `home-map` covers Show on map and the route map after a done plan. Needs a keyed run; the map may say it is off without a browser Maps key.
+- `home-save-share` covers the Save and share block after a done plan (sign-in link, save, copy). Needs a keyed run; save needs auth and persist.
 
 ## How to get to it (user POV)
 
@@ -20,9 +22,12 @@ Preconditions:
 
 - `verify-nightcap doctor` prints `http://127.0.0.1:4173` and a live pid.
 - The brand "Nightcap" links to `/`. "Saved plans" is not a link.
+- Keyless idle and offline-submit work with no `.env.local`. Live options, map, and save need keys (and save needs auth/persist).
 
 - **Open home.** Visit the site root. Run `.cursor/skills/verify-nightcap/scripts/verify-nightcap drive home`. The command exits 0, `home.proof.txt` says `result: pass` and `status: 200`, and `home.html` contains `<title>Nightcap</title>`, `Plan a date night`, `content="Night-out itineraries for New York."`, `Plan our night`, `OPTION 1`, `OPTION 2`, and `OPTION 3`.
 - **Read the page.** Open `http://127.0.0.1:4173/` in a browser. The document title is `Nightcap` and the accessibility tree has one level-1 heading named `Plan a date night in one sentence.` Save the snapshot to the printed `ARIA_PATH` (`home.aria.txt`) and a screenshot to the printed `SCREENSHOT_PATH` (`home.png`). Also capture the page at about 1440px wide and again near 900px.
+- **Keyless submit.** With no model keys, enter a sentence and click Plan our night. Expect a `role="alert"` with friendly unavailable copy (for example "Planning is unavailable right now. Try again in a minute.").
+- **Keyed done / map / save (optional).** With keys, submit until options replace ghosts. Click Show on map and expect `aria-label="Route map"`. Expect a Save and share heading. Skip when keys are unset; record `verified-unreachable` with that prerequisite.
 
 ## Gotchas
 
@@ -31,3 +36,4 @@ Preconditions:
 - A 404 response also contains `<title>Nightcap</title>`. Home proof requires HTTP 200, `Plan a date night`, and the idle composer markers.
 - `drive home` does not write the screenshot. The browser step has to, or the UI proof is incomplete.
 - `next dev` loads `.env.local`. If that file holds real keys, a submit spends model calls. The friendly alert path is the one to check when keys are unset.
+- Map and Save and share mount only after a done plan (`app/_home/results.tsx`). Idle HTML will not contain those strings.

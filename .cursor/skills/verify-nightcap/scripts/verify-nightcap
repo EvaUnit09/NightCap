@@ -15,12 +15,14 @@ usage() {
   cat <<'EOF'
 Usage: verify-nightcap <command>
 
-  launch          Start next dev on 127.0.0.1:4173. Refuses if one is already up.
-  doctor          Read-only check that this run's server is worth driving.
-  url             Print this run's base URL.
-  drive home      Save the home-page response and assert its markers.
-  drive not-found Save the unknown-route response and assert the 404 markers.
-  cleanup         Stop the server this script started and remove .run/. Keeps artifacts/.
+  launch                       Start next dev on 127.0.0.1:4173. Refuses if one is already up.
+  doctor                       Read-only check that this run's server is worth driving.
+  url                          Print this run's base URL.
+  drive home                   Save the home-page response and assert its markers.
+  drive not-found              Save the unknown-route response and assert the 404 markers.
+  drive shared-plan-missing    Save /s/bad-slug and assert the share-missing copy.
+  drive shared-plan-unconfigured  Save a valid-format slug and assert unconfigured copy.
+  cleanup                      Stop the server this script started and remove .run/. Keeps artifacts/.
 EOF
 }
 
@@ -267,11 +269,14 @@ EOF
 
 cmd_drive() {
   local feature="${1:-}"
-  if [[ "$feature" != "home" && "$feature" != "not-found" ]]; then
-    echo "drive: expected 'home' or 'not-found'" >&2
-    usage >&2
-    return 1
-  fi
+  case "$feature" in
+    home|not-found|shared-plan-missing|shared-plan-unconfigured) ;;
+    *)
+      echo "drive: expected 'home', 'not-found', 'shared-plan-missing', or 'shared-plan-unconfigured'" >&2
+      usage >&2
+      return 1
+      ;;
+  esac
   cmd_doctor >/dev/null
   load_state
   local dest code heading
@@ -336,6 +341,54 @@ EOF
       echo "NOT_FOUND_PROOF=${dest}/not-found.proof.txt"
       echo "SCREENSHOT_PATH=${dest}/not-found.png"
       echo "ARIA_PATH=${dest}/not-found.aria.txt"
+      ;;
+    shared-plan-missing)
+      code="$(curl -sS --max-time 15 -D "$dest/shared-plan-missing.headers.txt" -o "$dest/shared-plan-missing.html" -w "%{http_code}" "$URL/s/bad-slug")"
+      if ! grep -q 'This shared plan was not found.' "$dest/shared-plan-missing.html" \
+        || ! grep -q 'Plan a night' "$dest/shared-plan-missing.html"; then
+        write_proof "$dest/shared-plan-missing.proof.txt" "shared-plan-missing" "$code" "result: fail"
+        echo "drive shared-plan-missing: markers missing (status ${code}). See ${dest}/shared-plan-missing.html" >&2
+        return 1
+      fi
+      write_proof "$dest/shared-plan-missing.proof.txt" "shared-plan-missing" "$code" "$(cat <<EOF
+result: pass
+entry: GET /s/bad-slug
+heading: Nightcap
+message: This shared plan was not found.
+screenshot: ${dest}/shared-plan-missing.png
+aria: ${dest}/shared-plan-missing.aria.txt
+EOF
+)"
+      echo "ARTIFACT_DIR=${dest}"
+      echo "SHARED_PLAN_MISSING_HTML=${dest}/shared-plan-missing.html"
+      echo "SHARED_PLAN_MISSING_HEADERS=${dest}/shared-plan-missing.headers.txt"
+      echo "SHARED_PLAN_MISSING_PROOF=${dest}/shared-plan-missing.proof.txt"
+      echo "SCREENSHOT_PATH=${dest}/shared-plan-missing.png"
+      echo "ARIA_PATH=${dest}/shared-plan-missing.aria.txt"
+      ;;
+    shared-plan-unconfigured)
+      code="$(curl -sS --max-time 15 -D "$dest/shared-plan-unconfigured.headers.txt" -o "$dest/shared-plan-unconfigured.html" -w "%{http_code}" "$URL/s/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")"
+      if [[ "$code" != "200" ]] \
+        || ! grep -q 'Sharing is not available on this server.' "$dest/shared-plan-unconfigured.html"; then
+        write_proof "$dest/shared-plan-unconfigured.proof.txt" "shared-plan-unconfigured" "$code" "result: fail"
+        echo "drive shared-plan-unconfigured: markers missing (status ${code}). See ${dest}/shared-plan-unconfigured.html" >&2
+        echo "drive shared-plan-unconfigured: skip when persist is configured; use shared-plan-missing or a ready slug instead." >&2
+        return 1
+      fi
+      write_proof "$dest/shared-plan-unconfigured.proof.txt" "shared-plan-unconfigured" "$code" "$(cat <<EOF
+result: pass
+entry: GET /s/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+message: Sharing is not available on this server.
+screenshot: ${dest}/shared-plan-unconfigured.png
+aria: ${dest}/shared-plan-unconfigured.aria.txt
+EOF
+)"
+      echo "ARTIFACT_DIR=${dest}"
+      echo "SHARED_PLAN_UNCONFIGURED_HTML=${dest}/shared-plan-unconfigured.html"
+      echo "SHARED_PLAN_UNCONFIGURED_HEADERS=${dest}/shared-plan-unconfigured.headers.txt"
+      echo "SHARED_PLAN_UNCONFIGURED_PROOF=${dest}/shared-plan-unconfigured.proof.txt"
+      echo "SCREENSHOT_PATH=${dest}/shared-plan-unconfigured.png"
+      echo "ARIA_PATH=${dest}/shared-plan-unconfigured.aria.txt"
       ;;
   esac
 }

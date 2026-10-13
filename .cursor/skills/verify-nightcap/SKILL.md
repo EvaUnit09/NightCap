@@ -1,11 +1,11 @@
 ---
 name: verify-nightcap
-description: "Drive the Nightcap Next.js web app the way a user does and save proof. Use when a change touches the home page, an unknown route, or any rendered page, and when a task needs evidence from the running app."
+description: "Drive the Nightcap Next.js web app the way a user does and save proof. Use when a change touches the home page, an unknown route, a share URL, or any rendered page, and when a task needs evidence from the running app."
 ---
 
 # Verify Nightcap
 
-Nightcap is a Next.js App Router app. The user-facing surface that exists today is the home page at `/` and the built-in unknown-route page. Launch needs no `.env.local` and no Supabase. The home page can submit a plan, and a live model run needs keys. The feature map covers the idle page without keys.
+Nightcap is a Next.js App Router app. The user-facing surface that exists today is the home page at `/`, the built-in unknown-route page, and public share URLs at `/s/[slug]`. Launch needs no `.env.local` and no Supabase. The home page can submit a plan, and a live model run needs keys. The feature map covers the idle page and share missing/unconfigured paths without keys.
 
 Read [features/README.md](features/README.md) before driving. Drive only the instance this skill started.
 
@@ -40,7 +40,7 @@ It prints the url, pid, port, run id, log path, and Next version.
 
 ## Drive
 
-The helper saves the HTTP response. The browser step records what a user sees. Do both for the feature you are proving. Stable handles are the path, the document title, and the heading text. Home also has a composer. The unknown-route page does not.
+The helper saves the HTTP response. The browser step records what a user sees. Do both for the feature you are proving. Stable handles are the path, the document title, and the heading text. Home also has a composer. The unknown-route page does not. Share pages use the Nightcap heading plus share copy.
 
 Home:
 
@@ -58,6 +58,22 @@ Unknown route:
 
 Then open `<url>/does-not-exist`. The accessibility tree shows a level-1 heading `404` and a level-2 heading `This page could not be found.` The document title visible to the user is `404: This page could not be found.` Save the snapshot and screenshot to the printed `ARIA_PATH` and `SCREENSHOT_PATH`.
 
+Shared plan (missing slug):
+
+```bash
+.cursor/skills/verify-nightcap/scripts/verify-nightcap drive shared-plan-missing
+```
+
+Then open `<url>/s/bad-slug`. Expect heading `Nightcap` and copy `This shared plan was not found.` Save the snapshot and screenshot to the printed paths.
+
+Shared plan (persist unset):
+
+```bash
+.cursor/skills/verify-nightcap/scripts/verify-nightcap drive shared-plan-unconfigured
+```
+
+Then open `<url>/s/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa`. Expect `Sharing is not available on this server.` Skip when a database is configured. Save the snapshot and screenshot to the printed paths.
+
 `verify-nightcap url` prints the base URL.
 
 ## Evidence
@@ -66,8 +82,10 @@ Proof for a feature is the pair of the request and the resulting page, plus the 
 
 - `home.html`, `home.headers.txt`, `home.proof.txt`, `home.aria.txt`, `home.png`
 - `not-found.html`, `not-found.headers.txt`, `not-found.proof.txt`, `not-found.aria.txt`, `not-found.png`
+- `shared-plan-missing.html`, `shared-plan-missing.headers.txt`, `shared-plan-missing.proof.txt`, `shared-plan-missing.aria.txt`, `shared-plan-missing.png`
+- `shared-plan-unconfigured.html`, `shared-plan-unconfigured.headers.txt`, `shared-plan-unconfigured.proof.txt`, `shared-plan-unconfigured.aria.txt`, `shared-plan-unconfigured.png`
 
-`*.proof.txt` records the feature id, entry path, HTTP status, and pass or fail. There is no test-only endpoint and no dry-run mode. Nothing is mocked: the page is the dev server rendering `app/page.tsx`. There is no database row or file side effect to check beyond these artifacts.
+`*.proof.txt` records the feature id, entry path, HTTP status, and pass or fail. There is no test-only endpoint and no dry-run mode. Nothing is mocked: the page is the dev server rendering `app/page.tsx` or `app/s/[slug]/page.tsx`. There is no database row or file side effect to check beyond these artifacts for the keyless drives.
 
 ## Cleanup
 
@@ -75,8 +93,8 @@ Proof for a feature is the pair of the request and the resulting page, plus the 
 .cursor/skills/verify-nightcap/scripts/verify-nightcap cleanup
 ```
 
-This stops the pid recorded in `.run/state.env` by signaling that process group, then removes `.run/`. It never deletes `artifacts/`. After cleanup, the `home.*` and `not-found.*` files from the run must still be on disk. Do not kill a process by name, and do not stop a server this script did not start. If a drive fails, run cleanup before starting another attempt so port 4173 is not left occupied.
+This stops the pid recorded in `.run/state.env` by signaling that process group, then removes `.run/`. It never deletes `artifacts/`. After cleanup, the proof files from the run must still be on disk. Do not kill a process by name, and do not stop a server this script did not start. If a drive fails, run cleanup before starting another attempt so port 4173 is not left occupied.
 
 ## Helpers
 
-The only helper is `.cursor/skills/verify-nightcap/scripts/verify-nightcap`. Invoke it by that path. Commands: `launch`, `doctor`, `url`, `drive home`, `drive not-found`, `cleanup`.
+The only helper is `.cursor/skills/verify-nightcap/scripts/verify-nightcap`. Invoke it by that path. Commands: `launch`, `doctor`, `url`, `drive home`, `drive not-found`, `drive shared-plan-missing`, `drive shared-plan-unconfigured`, `cleanup`.
