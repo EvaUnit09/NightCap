@@ -1,5 +1,5 @@
 import type { Retrieval } from "../retrieval";
-import type { SearchVenuesInput } from "../retrieval/query";
+import type { SearchVenuesInput } from "../retrieval";
 import type { Candidate } from "../validation/candidate";
 import type { Intent } from "../validation/intent";
 import type { Itinerary } from "../validation/itinerary";

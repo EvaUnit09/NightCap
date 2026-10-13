@@ -1,5 +1,5 @@
 import { allCandidates } from "../retrieval";
-import type { SearchVenuesInput } from "../retrieval/query";
+import type { SearchVenuesInput } from "../retrieval";
 import type { AgentToolContext } from "./context";
 import { toolError, toolOk, type ToolRunResult } from "./tool-result";
 
