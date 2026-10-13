@@ -1,0 +1,13 @@
+{
+  "name": "[nightcap] Plan error rate at or above 10% over 1h",
+  "type": "query alert",
+  "query": "sum(last_1h):sum:nightcap.plan.errors{service:nightcap,env:prod}.as_count() / sum:nightcap.plan.requests{service:nightcap,env:prod}.as_count() >= 0.1",
+  "message": "{{value}} of counted plan requests in the last hour ended in an SSE error frame or a 503. Counted: completed, failed, internal_error, spend_cap_unavailable. Not counted: 400, 429, client abort.",
+  "tags": ["service:nightcap", "env:prod", "managed-by:ops-datadog"],
+  "options": {
+    "thresholds": { "critical": 0.1 },
+    "notify_no_data": false,
+    "require_full_window": false,
+    "timeout_h": 1
+  }
+}

@@ -4,7 +4,6 @@ import { AsyncLocalStorage } from "node:async_hooks";
 
 import { getOptionalDdApiKey } from "../models/config";
 import { createDatadogExporter } from "./datadog-exporter";
-import { publishRequestOutcome } from "./datadog-metrics";
 import { createMemoryExporter } from "./memory-exporter";
 import { createNoopExporter } from "./noop-exporter";
 import { hashRequest } from "./request-hash";
@@ -73,28 +72,18 @@ export async function withRequestTrace<T>(
     requestText: input.requestText,
     testCaseId: input.testCaseId,
   };
-  const source = input.testCaseId === undefined ? "app" : "eval";
-  try {
-    const result = await storage.run(ctx, () =>
-      exporter.wrap(
-        {
-          name: "request",
-          kind: spanKindFor("request"),
-          attributes: rootAttributes(input, requestHash),
-          resolveAttributes: () => rootAttributes({ ...input, parsedIntent }, requestHash),
-          resolveIO: () => io,
-        },
-        () => fn(recorder),
-      ),
-    );
-    // A typed pipeline failure returns { status: "failed" } and does not throw,
-    // so the span tag stays ok. The error count has to read that output.
-    publishRequestOutcome({ thrown: false, output: io.output, source });
-    return result;
-  } catch (error) {
-    publishRequestOutcome({ thrown: true, output: io.output, source });
-    throw error;
-  }
+  return storage.run(ctx, () =>
+    exporter.wrap(
+      {
+        name: "request",
+        kind: spanKindFor("request"),
+        attributes: rootAttributes(input, requestHash),
+        resolveAttributes: () => rootAttributes({ ...input, parsedIntent }, requestHash),
+        resolveIO: () => io,
+      },
+      () => fn(recorder),
+    ),
+  );
 }
 
 /**

@@ -24,6 +24,17 @@ export function usdToMicros(usd: number): number {
   return Math.round(usd * MICROS_PER_USD);
 }
 
+export function dailySpendFraction(micros: number, capUsd: number): number {
+  const capMicros = usdToMicros(capUsd);
+  if (!Number.isSafeInteger(capMicros) || capMicros <= 0) {
+    throw new Error("daily spend cap must be a positive USD amount");
+  }
+  if (!Number.isSafeInteger(micros) || micros < 0) {
+    throw new Error("daily spend micros must be a non-negative integer");
+  }
+  return micros / capMicros;
+}
+
 /** Model list price plus Places Text Search plus Routes Essentials. */
 export function vendorMicros(spend: VendorSpend): number {
   return (

@@ -4,6 +4,15 @@ import { composePlanText, planRequestSchema } from "./plan-request";
 import { createQueryableFromEnv } from "../db/postgres";
 import { getEnableLiveRoutes, getRateLimitDailySpendUsd, getRateLimitRequestsPerHour, getRequestHashSecret } from "../models/config";
 import { costUsdFor } from "../models/pricing";
+import {
+  createMetricsSinkFromEnv,
+  createNoopMetricsSink,
+  planOutcomeSamples,
+  spendFractionSample,
+  type MetricSample,
+  type MetricsSink,
+  type PlanOutcome,
+} from "../monitoring/metrics";
 import { createPlanPersistence, modelsFromCalls, type PlanPersistence } from "../monitoring/persist-plan";
 import { billableRoutesHops, clientIp, usdToMicros, utcDay, vendorMicros } from "../monitoring/spend-cap";
 import { createSpendStoreFromEnv, type SpendStore } from "../monitoring/spend-store";
@@ -35,6 +44,14 @@ export interface PlanHandlerOptions {
   readonly store?: SpendStore;
   readonly now?: () => number;
   readonly persist?: PlanPersistence;
+  readonly metrics?: MetricsSink;
+}
+
+interface StreamMetrics {
+  readonly sink: MetricsSink;
+  readonly now: () => number;
+  readonly capUsd: number;
+  readonly precheck: MetricSample | null;
 }
 
 const JSON_HEADERS = { "Cache-Control": "no-store" } as const;
@@ -164,12 +181,20 @@ async function* planEvents(
   yield { event: "done", data: { options: result.options.length, itineraryIds } };
 }
 
+function outcomeFromError(
+  data: PipelineFailure | { readonly stage: "internal"; readonly code: "internal_error" },
+): PlanOutcome {
+  if (data.stage === "internal") return { kind: "internal_error" };
+  return { kind: "failed", failure: data };
+}
+
 function streamPlan(
   text: string,
   makeDeps: PlanDepsFactory,
   request: Request,
-  onSpend?: (micros: number) => Promise<void>,
-  persist?: PlanPersistence,
+  onSpend: ((micros: number, keepZeroTotal: boolean) => Promise<number | null>) | undefined,
+  persist: PlanPersistence | undefined,
+  batch: StreamMetrics,
 ): Response {
   const cancelled = new AbortController();
   const signal = AbortSignal.any([request.signal, cancelled.signal]);
@@ -178,25 +203,36 @@ function streamPlan(
     : null;
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
+      let outcome: PlanOutcome | null = null;
       try {
         const deps = spend ? observeDeps(makeDeps(), spend) : makeDeps();
         for await (const event of planEvents(text, deps, signal, spend, persist)) {
+          if (event.event === "done") outcome = { kind: "completed" };
+          if (event.event === "error") outcome = outcomeFromError(event.data);
           controller.enqueue(frame(event));
         }
       } catch {
         if (!signal.aborted) {
+          outcome = { kind: "internal_error" };
           controller.enqueue(frame({ event: "error", data: { stage: "internal", code: "internal_error" } }));
         }
       } finally {
-        if (onSpend && spend) {
-          try {
-            await onSpend(spendMicros(spend));
-          } catch {
-            // The plan already left this process. Losing the ledger write beats turning a finished stream into a 500.
+        try {
+          let added: number | null = null;
+          if (onSpend && spend) {
+            try {
+              added = await onSpend(spendMicros(spend), outcome?.kind === "completed");
+            } catch {
+              // The plan already left this process. Losing the ledger write beats turning a finished stream into a 500.
+            }
           }
-        }
-        if (!cancelled.signal.aborted) {
-          controller.close();
+          const samples: MetricSample[] = [];
+          if (batch.precheck) samples.push(batch.precheck);
+          if (added !== null) samples.push(spendFractionSample(added, batch.capUsd, batch.now()));
+          if (outcome) samples.push(...planOutcomeSamples(outcome, batch.now()));
+          await batch.sink.submit(samples);
+        } finally {
+          if (!cancelled.signal.aborted) controller.close();
         }
       }
     },
@@ -216,6 +252,7 @@ export function createPlanHandler(
   options: PlanHandlerOptions = {},
 ): (request: Request) => Promise<Response> {
   const now = options.now ?? Date.now;
+  const sink = options.metrics ?? createNoopMetricsSink();
   return async (request) => {
     const raw = await request.text().catch(() => null);
     if (raw === null) {
@@ -241,18 +278,27 @@ export function createPlanHandler(
 
     const store = options.store;
     if (!store) {
-      return streamPlan(text, makeDeps, request, undefined, options.persist);
+      return streamPlan(text, makeDeps, request, undefined, options.persist, {
+        sink,
+        now,
+        capUsd: getRateLimitDailySpendUsd(),
+        precheck: null,
+      });
     }
 
     const at = now();
     const day = utcDay(at);
+    const capUsd = getRateLimitDailySpendUsd();
     let spent: number;
     try {
       spent = await store.readDailyMicros(day);
     } catch {
+      await sink.submit(planOutcomeSamples({ kind: "spend_cap_unavailable" }, at));
       return limitResponse("spend_cap_unavailable");
     }
-    if (spent >= usdToMicros(getRateLimitDailySpendUsd())) {
+    const precheck = spendFractionSample(spent, capUsd, at);
+    if (spent >= usdToMicros(capUsd)) {
+      await sink.submit([precheck]);
       return limitResponse("daily_spend_cap");
     }
 
@@ -260,9 +306,11 @@ export function createPlanHandler(
     try {
       count = await store.recordPlan(clientIp(request), at);
     } catch {
+      await sink.submit([precheck, ...planOutcomeSamples({ kind: "spend_cap_unavailable" }, at)]);
       return limitResponse("spend_cap_unavailable");
     }
     if (count > getRateLimitRequestsPerHour()) {
+      await sink.submit([precheck]);
       return limitResponse("hourly_plan_limit");
     }
 
@@ -270,10 +318,12 @@ export function createPlanHandler(
       text,
       makeDeps,
       request,
-      async (micros) => {
-        if (micros > 0) await store.addDailyMicros(day, micros);
+      async (micros, keepZeroTotal) => {
+        if (micros > 0 || keepZeroTotal) return store.addDailyMicros(day, micros);
+        return null;
       },
       options.persist,
+      { sink, now, capUsd, precheck },
     );
   };
 }
@@ -284,5 +334,6 @@ export function createProductionPlanHandler(): (request: Request) => Promise<Res
   return createPlanHandler(() => createPipelineDeps(), {
     store: createSpendStoreFromEnv(),
     persist: db ? createPlanPersistence(db, getRequestHashSecret()) : undefined,
+    metrics: createMetricsSinkFromEnv(),
   });
 }

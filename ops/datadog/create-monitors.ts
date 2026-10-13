@@ -1,17 +1,13 @@
-import { readFileSync } from "node:fs";
-import { mkdir, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { readdirSync, readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
 import { z } from "zod";
-
-import { datadogApiOrigin } from "../../src/monitoring/datadog-metrics";
 
 const monitorSchema = z.object({
   name: z.string().min(1),
   type: z.literal("query alert"),
   query: z.string().min(1),
-  message: z.string().min(1),
+  message: z.string().min(1).refine((value) => !value.includes("@"), "monitor message must not include a notification handle"),
   tags: z.array(z.string()),
   options: z.object({
     thresholds: z.object({
@@ -19,16 +15,11 @@ const monitorSchema = z.object({
     }),
     notify_no_data: z.boolean(),
     require_full_window: z.boolean(),
+    timeout_h: z.number().int().positive().optional(),
   }),
 });
 
-const monitorFileSchema = z.object({
-  monitors: z.array(monitorSchema).length(2),
-});
-
-const searchSchema = z.object({
-  monitors: z.array(z.object({ id: z.number().int().positive(), name: z.string() })).default([]),
-});
+const listedSchema = z.array(z.object({ id: z.number().int().positive(), name: z.string() }));
 
 const writtenSchema = z.object({
   id: z.number().int().positive(),
@@ -49,13 +40,49 @@ export interface MonitorClient {
   readonly fetch: typeof fetch;
 }
 
-export const MONITORS_CREATE_DISABLED =
-  "[monitoring] Datadog monitor create disabled: DD_MONITORS_APPLY is not 1, so no monitor was created";
+const ENV_TOKEN = /^[A-Za-z0-9._-]{1,32}$/;
+const HANDLE_TOKEN = /^[A-Za-z0-9._-]{1,64}$/;
 
-export function loadMonitors(text?: string): readonly MonitorDefinition[] {
-  const raw = text ?? readFileSync(new URL("./monitors.json", import.meta.url), "utf8");
-  const parsed: unknown = JSON.parse(raw);
-  return monitorFileSchema.parse(parsed).monitors;
+export function datadogApiOrigin(site: string | undefined): string {
+  const host = site === undefined || site.trim() === "" ? "datadoghq.com" : site.trim();
+  if (!/^[a-z0-9.-]+$/.test(host)) {
+    throw new Error("DD_SITE must be a hostname");
+  }
+  return `https://api.${host}`;
+}
+
+export function loadMonitors(dir: URL = new URL("./monitors/", import.meta.url)): readonly MonitorDefinition[] {
+  const names = readdirSync(dir)
+    .filter((name) => name.endsWith(".json"))
+    .sort();
+  return names.map((name) => monitorSchema.parse(JSON.parse(readFileSync(new URL(name, dir), "utf8"))));
+}
+
+export function prepareMonitors(
+  monitors: readonly MonitorDefinition[],
+  options: { readonly envName?: string; readonly notify?: string } = {},
+): MonitorDefinition[] {
+  return monitors.map((monitor) => withNotify(rewriteEnv(monitor, options.envName ?? "prod"), options.notify));
+}
+
+export function dryRunText(monitors: readonly MonitorDefinition[], site: string | undefined): string {
+  const origin = datadogApiOrigin(site);
+  return monitors.map((monitor) => `POST ${origin}/api/v1/monitor\n${JSON.stringify(monitor, null, 2)}`).join("\n");
+}
+
+export async function validateMonitors(monitors: readonly MonitorDefinition[], client: MonitorClient): Promise<void> {
+  const origin = datadogApiOrigin(client.site);
+  for (const monitor of monitors) {
+    const response = await client.fetch(`${origin}/api/v1/monitor/validate`, {
+      method: "POST",
+      redirect: "error",
+      signal: AbortSignal.timeout(5_000),
+      headers: { ...authHeaders(client), "content-type": "application/json" },
+      body: JSON.stringify(monitor),
+    });
+    if (!response.ok) throw new Error(`Datadog monitor HTTP ${response.status}`);
+    await response.arrayBuffer();
+  }
 }
 
 export async function applyMonitors(
@@ -63,15 +90,16 @@ export async function applyMonitors(
   client: MonitorClient,
 ): Promise<readonly MonitorWrite[]> {
   const origin = datadogApiOrigin(client.site);
+  const existing = await listManaged(origin, client);
   const writes: MonitorWrite[] = [];
   for (const monitor of monitors) {
-    const existing = await searchByName(origin, monitor.name, client);
-    if (existing.length === 0) {
+    const hits = existing.filter((hit) => hit.name === monitor.name);
+    if (hits.length === 0) {
       const id = await writeMonitor("POST", `${origin}/api/v1/monitor`, monitor, client);
       writes.push({ name: monitor.name, action: "created", id });
       continue;
     }
-    for (const hit of existing) {
+    for (const hit of hits) {
       const id = await writeMonitor("PUT", `${origin}/api/v1/monitor/${hit.id}`, monitor, client);
       writes.push({ name: monitor.name, action: "updated", id });
     }
@@ -79,24 +107,35 @@ export async function applyMonitors(
   return writes;
 }
 
-export async function writeDryRunReceipt(dir: string, name: string, body: unknown): Promise<string> {
-  await mkdir(dir, { recursive: true });
-  const path = join(dir, name);
-  await writeFile(path, `${JSON.stringify(body, null, 2)}\n`);
-  return path;
+function rewriteEnv(monitor: MonitorDefinition, envName: string): MonitorDefinition {
+  if (envName === "prod") return monitor;
+  if (!ENV_TOKEN.test(envName)) throw new Error("monitor env must be a single token");
+  const next = `env:${envName}`;
+  return {
+    ...monitor,
+    name: `${monitor.name} [${envName}]`,
+    query: monitor.query.replaceAll("env:prod", next),
+    tags: monitor.tags.map((tag) => (tag === "env:prod" ? next : tag)),
+  };
 }
 
-async function searchByName(origin: string, name: string, client: MonitorClient): Promise<readonly { id: number; name: string }[]> {
-  const url = new URL(`${origin}/api/v1/monitor/search`);
-  url.searchParams.set("query", `title:"${name}"`);
+function withNotify(monitor: MonitorDefinition, handle: string | undefined): MonitorDefinition {
+  if (handle === undefined || handle.length === 0) return monitor;
+  const token = handle.startsWith("@") ? handle.slice(1) : handle;
+  if (!HANDLE_TOKEN.test(token)) throw new Error("notify handle must be a single token");
+  return { ...monitor, message: `${monitor.message} @${token}` };
+}
+
+async function listManaged(origin: string, client: MonitorClient): Promise<readonly { id: number; name: string }[]> {
+  const url = new URL(`${origin}/api/v1/monitor`);
+  url.searchParams.set("monitor_tags", "managed-by:ops-datadog");
   const response = await client.fetch(url, {
     method: "GET",
     redirect: "error",
     signal: AbortSignal.timeout(5_000),
     headers: authHeaders(client),
   });
-  const parsed = searchSchema.parse(await readBody(response));
-  return parsed.monitors.filter((hit) => hit.name === name);
+  return listedSchema.parse(await readBody(response));
 }
 
 async function writeMonitor(
@@ -109,10 +148,7 @@ async function writeMonitor(
     method,
     redirect: "error",
     signal: AbortSignal.timeout(5_000),
-    headers: {
-      ...authHeaders(client),
-      "content-type": "application/json",
-    },
+    headers: { ...authHeaders(client), "content-type": "application/json" },
     body: JSON.stringify(monitor),
   });
   return writtenSchema.parse(await readBody(response)).id;
@@ -127,11 +163,55 @@ function authHeaders(client: MonitorClient): Record<string, string> {
 
 async function readBody(response: Response): Promise<unknown> {
   const text = await response.text();
-  if (!response.ok) {
-    throw new Error(`Datadog monitor HTTP ${response.status}`);
-  }
+  if (!response.ok) throw new Error(`Datadog monitor HTTP ${response.status}`);
   const parsed: unknown = JSON.parse(text);
   return parsed;
+}
+
+function redact(text: string): string {
+  let out = text;
+  for (const secret of [process.env.DD_API_KEY, process.env.DD_APP_KEY]) {
+    const trimmed = secret?.trim();
+    if (trimmed !== undefined && trimmed.length > 0) out = out.split(trimmed).join("[redacted]");
+  }
+  return out;
+}
+
+function readArgs(argv: readonly string[]): { validate: boolean; apply: boolean; envName: string; notify: string | undefined } {
+  let validate = false;
+  let apply = false;
+  let envName = "prod";
+  let notify: string | undefined;
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index];
+    if (arg === "--validate") {
+      validate = true;
+      continue;
+    }
+    if (arg === "--apply") {
+      apply = true;
+      continue;
+    }
+    if (arg === "--env" || arg === "--notify") {
+      const value = argv[index + 1];
+      if (value === undefined || value.startsWith("--")) throw new Error(`${arg} needs a value`);
+      if (arg === "--env") envName = value;
+      else notify = value;
+      index += 1;
+      continue;
+    }
+    throw new Error(`unknown argument ${arg}`);
+  }
+  return { validate, apply, envName, notify };
+}
+
+function requireKeys(): { apiKey: string; appKey: string } {
+  const apiKey = process.env.DD_API_KEY?.trim();
+  const appKey = process.env.DD_APP_KEY?.trim();
+  if (!apiKey || !appKey) {
+    throw new Error("--validate and --apply need DD_API_KEY and DD_APP_KEY");
+  }
+  return { apiKey, appKey };
 }
 
 function isDirectRun(): boolean {
@@ -141,32 +221,20 @@ function isDirectRun(): boolean {
 }
 
 async function main(): Promise<number> {
-  const monitors = loadMonitors();
-  if (process.env.DD_MONITORS_APPLY !== "1") {
-    console.warn(MONITORS_CREATE_DISABLED);
-    const dir = process.env.NIGHTCAP_MONITOR_RECEIPT_DIR ?? "/opt/cursor/artifacts";
-    const path = await writeDryRunReceipt(dir, "s7-33-create-noop.json", {
-      mode: "dry-run",
-      warning: MONITORS_CREATE_DISABLED,
-      monitors,
-    });
-    console.log(`receipt ${path}`);
+  const args = readArgs(process.argv.slice(2));
+  const monitors = prepareMonitors(loadMonitors(), { envName: args.envName, notify: args.notify });
+  if (!args.validate && !args.apply) {
+    process.stdout.write(`${redact(dryRunText(monitors, process.env.DD_SITE))}\n`);
     return 0;
   }
-  const apiKey = process.env.DD_API_KEY?.trim();
-  const appKey = process.env.DD_APP_KEY?.trim();
-  if (!apiKey || !appKey) {
-    console.warn("[monitoring] Datadog monitor create disabled: DD_API_KEY and DD_APP_KEY are both required");
-    return 0;
-  }
-  const writes = await applyMonitors(monitors, {
-    apiKey,
-    appKey,
-    site: process.env.DD_SITE,
-    fetch,
-  });
-  for (const write of writes) {
-    console.log(`${write.action} ${write.name} id=${write.id}`);
+  const keys = requireKeys();
+  const client: MonitorClient = { ...keys, site: process.env.DD_SITE, fetch };
+  if (args.validate) await validateMonitors(monitors, client);
+  if (args.apply) {
+    const writes = await applyMonitors(monitors, client);
+    for (const write of writes) {
+      process.stdout.write(`${write.action} ${write.name} id=${write.id}\n`);
+    }
   }
   return 0;
 }
