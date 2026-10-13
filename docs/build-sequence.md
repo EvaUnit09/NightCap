@@ -4,7 +4,7 @@ Written 2026-10-08 from [scope.md](scope.md). Status column added 2026-10-12.
 
 The Is done column is `yes`, `partial`, or `no`, judged against that row's Done when clause. `partial` means the module is in the tree and at least one Done when clause is still open. Remaining work for the 2026-10-11 milestone is in [work-2026-10-12.md](work-2026-10-12.md).
 
-The validator is in `src/validation/validator.ts`. PR #21 committed the 60-case set to `evaluation/nightcap_eval_cases_v1.json`. No check keeps its ids frozen yet. The filter-only baseline is not in the repo.
+The validator is in `src/validation/validator.ts`. PR #21 committed the 60-case set to `evaluation/nightcap_eval_cases_v1.json`. Step 20's comparison table is [eval-comparison-v1.md](eval-comparison-v1.md) (decisions #38 and #39).
 
 Build in phase order. The validator, Places client, prompt loader, model router, and Datadog
 wrapper are shared: the pipeline, repair loop, agent, and eval runner call the same ones.
@@ -59,7 +59,7 @@ Do this before prompt iteration. Later phases call these modules; they do not re
 | 17 | Stream with SSE: parsed intent first, then each itinerary only after it passes validation. | `app/` route handler | The client never receives an unvalidated stop. | yes |
 | 18 | Check in the frozen 60-case synthetic set. | `evaluation/` | Cases cover borough, budget ($15–$320), time, vibe, and edges (late Sunday, dietary, tight budget). v1 stays frozen; new failures go to v2. | yes |
 | 19 | Score validity, invented-venue rate, diversity/novelty, and format compliance. | `evaluation/` runner | One command prints the four metrics. Candidate recall is scored separately so a retrieval miss is not blamed on the planner. | yes |
-| 20 | Run both baselines on the same set: filter-only (no LLM) and raw ChatGPT/Claude (no retrieval). | `evaluation/` | The comparison table exists before a prompt version is called done. | partial |
+| 20 | Run both baselines on the same set: filter-only (no LLM) and raw ChatGPT/Claude (no retrieval). | `evaluation/` | The comparison table exists before a prompt version is called done. | yes |
 | 21 | CI on every PR: typecheck, lint, unit tests, and a small eval smoke subset. | `.github/workflows`, Dockerfile | A prompt change cannot merge without the smoke subset. Target 80% coverage on `src/`. | partial |
 
 ### 5. API and UI — target 2026-10-18
