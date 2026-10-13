@@ -49,3 +49,4 @@ next-env.d.ts
 
 # eval reports (npm run eval)
 /evaluation/results/
+.arena/
