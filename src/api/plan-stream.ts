@@ -1,7 +1,6 @@
 import "server-only";
 
-import { z } from "zod";
-
+import { composePlanText, planRequestSchema } from "./plan-request";
 import { createQueryableFromEnv } from "../db/postgres";
 import { getEnableLiveRoutes, getRateLimitDailySpendUsd, getRateLimitRequestsPerHour, getRequestHashSecret } from "../models/config";
 import { costUsdFor } from "../models/pricing";
@@ -14,8 +13,6 @@ import type { ItineraryOption } from "../validation/itinerary";
 
 /** Body cap checked before JSON.parse. The text itself is capped at WRAP_USER_TEXT_MAX_CHARS. */
 const BODY_MAX_CHARS = 4 * WRAP_USER_TEXT_MAX_CHARS;
-
-const requestSchema = z.object({ text: z.string().trim().min(1).max(WRAP_USER_TEXT_MAX_CHARS) }).strict();
 
 /**
  * The SSE protocol. `intent` comes first when parsing succeeded, then one
@@ -231,14 +228,18 @@ export function createPlanHandler(
     } catch {
       return badRequest("invalid_json");
     }
-    const parsed = requestSchema.safeParse(body);
+    const parsed = planRequestSchema.safeParse(body);
     if (!parsed.success) {
+      return badRequest("invalid_request");
+    }
+    const text = composePlanText(parsed.data);
+    if (text.length > WRAP_USER_TEXT_MAX_CHARS) {
       return badRequest("invalid_request");
     }
 
     const store = options.store;
     if (!store) {
-      return streamPlan(parsed.data.text, makeDeps, request, undefined, options.persist);
+      return streamPlan(text, makeDeps, request, undefined, options.persist);
     }
 
     const at = now();
@@ -264,7 +265,7 @@ export function createPlanHandler(
     }
 
     return streamPlan(
-      parsed.data.text,
+      text,
       makeDeps,
       request,
       async (micros) => {
