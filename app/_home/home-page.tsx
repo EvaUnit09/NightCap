@@ -49,8 +49,8 @@ export function HomePage() {
         />
         <TryRow onPick={setText} />
       </div>
-      <IntentTags plan={plan} />
-      <Results plan={plan} />
+        <IntentTags plan={plan} />
+      <Results key={plan.kind === "idle" ? "idle" : plan.requestId} plan={plan} />
     </div>
   );
 }
