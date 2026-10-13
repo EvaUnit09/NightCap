@@ -2,7 +2,7 @@
 
 This directory is the maintained source for verifying Nightcap's user-facing behavior. Read the index before driving the app, then use the matching feature file as the recipe.
 
-The app currently renders two pages. The home page and the unknown-route page are the map. Saved plans is inert text on home and has no page. Live model runs are outside the keyless drive.
+The app currently renders the home page, the built-in unknown-route page, and public share URLs under `/s/[slug]`. Saved plans in the nav is still inert text on home. Live model runs, Maps paint, and saving a share need keys or persist and stay outside the default keyless drive.
 
 ## Baseline preconditions
 
@@ -15,7 +15,7 @@ The app currently renders two pages. The home page and the unknown-route page ar
 ## Driving conventions
 
 - Start every recipe from a freshly launched server unless a feature file says otherwise.
-- Prefer the path, document title, and accessible heading name. Home also has a textbox and buttons. The unknown-route page does not.
+- Prefer the path, document title, and accessible heading name. Home also has a textbox and buttons. The unknown-route page does not. Share pages use the Nightcap heading plus share copy.
 - Run HTTP checks through `verify-nightcap drive <feature>`.
 - Open the same URL in a browser for the accessibility snapshot and screenshot.
 - Do not remove proof artifacts during cleanup.
@@ -40,5 +40,6 @@ Each feature file starts with an H1 title and one paragraph describing the user-
 
 ## Features
 
-- [Home](./home.md) covers opening `/`, the date-night heading, and the idle composer.
+- [Home](./home.md) covers opening `/`, the date-night heading, the idle composer, keyless failure, and keyed map/save when keys exist.
 - [Unknown route](./not-found.md) covers opening a path that has no page and reading the 404.
+- [Shared plan](./shared-plan.md) covers `/s/<slug>` missing, unconfigured, and ready share views.
