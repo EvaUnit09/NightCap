@@ -3,6 +3,7 @@ import { afterEach, describe, it } from "node:test";
 
 import { createSseFrameParser, streamPlan, toFailureReason, toPlanUpdate } from "../../app/_home/plan-client";
 import type { PlanUpdate } from "../../app/_home/plan-state";
+import type { Intent } from "../../src/validation/intent";
 import { INTENT, OPTION_A, OPTION_B } from "../pipeline/orchestrator-harness";
 
 const ONE_STOP = {
@@ -20,7 +21,7 @@ const ONE_STOP = {
   ],
 };
 
-const SINGLE_INTENT = { ...INTENT, stopTypes: ["dinner"], singleStop: true };
+const SINGLE_INTENT: Intent = { ...INTENT, stopTypes: ["dinner"], singleStop: true };
 
 function frame(event: string, data: unknown): string {
   return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;

@@ -2,7 +2,7 @@
 
 This directory is the maintained source for verifying Nightcap's user-facing behavior. Read the index before driving the app, then use the matching feature file as the recipe.
 
-The app currently renders two pages. The home shell and the unknown-route page are the map. Itinerary requests, streaming plans, feedback, and saved plans are not implemented, so they have no feature files.
+The app currently renders two pages. The home page and the unknown-route page are the map. Saved plans is inert text on home and has no page. Live model runs are outside the keyless drive.
 
 ## Baseline preconditions
 
@@ -15,7 +15,7 @@ The app currently renders two pages. The home shell and the unknown-route page a
 ## Driving conventions
 
 - Start every recipe from a freshly launched server unless a feature file says otherwise.
-- Prefer the path, document title, and accessible heading name. These pages have no buttons or text fields.
+- Prefer the path, document title, and accessible heading name. Home also has a textbox and buttons. The unknown-route page does not.
 - Run HTTP checks through `verify-nightcap drive <feature>`.
 - Open the same URL in a browser for the accessibility snapshot and screenshot.
 - Do not remove proof artifacts during cleanup.
@@ -23,7 +23,7 @@ The app currently renders two pages. The home shell and the unknown-route page a
 ## Proof and skip reporting
 
 - Capture the request and the resulting page, not only a screenshot.
-- UI proof includes an accessibility snapshot that shows the heading, and a screenshot of the same page. The home page has no CSS, so a dark browser can hide the heading in the image.
+- UI proof includes an accessibility snapshot that shows the heading, and a screenshot of the same page.
 - HTTP proof includes the status line, the saved HTML, and `*.proof.txt`.
 - Record the feature id and entry path with every artifact. The helper writes these into `*.proof.txt`.
 - Report an unreachable path with the command you ran and the unmet precondition.
@@ -40,5 +40,5 @@ Each feature file starts with an H1 title and one paragraph describing the user-
 
 ## Features
 
-- [Home](./home.md) covers opening `/` and reading the Nightcap title and heading.
+- [Home](./home.md) covers opening `/`, the date-night heading, and the idle composer.
 - [Unknown route](./not-found.md) covers opening a path that has no page and reading the 404.

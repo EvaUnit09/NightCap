@@ -65,10 +65,16 @@ require_next_version() {
   echo "next ${installed}"
 }
 
+nightcap_title_and_heading() {
+  local body="$1"
+  grep -q '<title>Nightcap</title>' <<<"$body" || return 1
+  grep -q '<h1>Nightcap</h1>' <<<"$body" || grep -q 'Plan a date night' <<<"$body"
+}
+
 foreign_nightcap_on_3000() {
   local body
   body="$(curl -fsS --max-time 2 http://127.0.0.1:3000/ 2>/dev/null || true)"
-  grep -q '<h1>Nightcap</h1>' <<<"$body"
+  nightcap_title_and_heading "$body"
 }
 
 listener_owned_by_us() {
@@ -130,7 +136,7 @@ cmd_doctor() {
   local code body
   body="$(mktemp)"
   code="$(curl -sS --max-time 5 -o "$body" -w "%{http_code}" "$URL/")"
-  if [[ "$code" != "200" ]] || ! grep -q '<title>Nightcap</title>' "$body" || ! grep -q '<h1>Nightcap</h1>' "$body"; then
+  if [[ "$code" != "200" ]] || ! nightcap_title_and_heading "$(cat "$body")"; then
     echo "doctor: ${URL}/ returned status ${code} without the Nightcap home markers" >&2
     rm -f "$body"
     return 1
@@ -186,7 +192,7 @@ cmd_launch() {
       return 1
     fi
     code="$(curl -sS --max-time 2 -o "$body" -w "%{http_code}" "$URL/" 2>/dev/null || true)"
-    if [[ "$code" == "200" ]] && grep -q '<h1>Nightcap</h1>' "$body"; then
+    if [[ "$code" == "200" ]] && nightcap_title_and_heading "$(cat "$body")"; then
       rm -f "$body"
       echo "ready ${URL}"
       echo "pid ${PID}"
@@ -223,25 +229,32 @@ cmd_drive() {
   fi
   cmd_doctor >/dev/null
   load_state
-  local dest code
+  local dest code heading
   dest="$ART_ROOT/$RUN_ID"
   mkdir -p "$dest"
   case "$feature" in
     home)
       code="$(curl -sS --max-time 10 -D "$dest/home.headers.txt" -o "$dest/home.html" -w "%{http_code}" "$URL/")"
       if [[ "$code" != "200" ]] \
-        || ! grep -q '<title>Nightcap</title>' "$dest/home.html" \
-        || ! grep -q '<h1>Nightcap</h1>' "$dest/home.html" \
-        || ! grep -q 'content="Night-out itineraries for New York."' "$dest/home.html"; then
+        || ! nightcap_title_and_heading "$(cat "$dest/home.html")" \
+        || ! grep -q 'content="Night-out itineraries for New York."' "$dest/home.html" \
+        || ! grep -q 'Plan our night' "$dest/home.html" \
+        || ! grep -q 'OPTION 1' "$dest/home.html" \
+        || ! grep -q 'OPTION 2' "$dest/home.html" \
+        || ! grep -q 'OPTION 3' "$dest/home.html"; then
         write_proof "$dest/home.proof.txt" "home" "$code" "result: fail"
         echo "drive home: markers missing (status ${code}). See ${dest}/home.html" >&2
         return 1
+      fi
+      heading="Nightcap"
+      if grep -q 'Plan a date night' "$dest/home.html"; then
+        heading="Plan a date night"
       fi
       write_proof "$dest/home.proof.txt" "home" "$code" "$(cat <<EOF
 result: pass
 entry: GET /
 title: Nightcap
-heading: Nightcap
+heading: ${heading}
 description: Night-out itineraries for New York.
 screenshot: ${dest}/home.png
 aria: ${dest}/home.aria.txt

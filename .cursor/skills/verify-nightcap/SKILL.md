@@ -5,7 +5,7 @@ description: "Drive the Nightcap Next.js web app the way a user does and save pr
 
 # Verify Nightcap
 
-Nightcap is a Next.js App Router app. The user-facing surface that exists today is the web page at `/` and the built-in unknown-route page. Neither page reads env vars, auth, or the database, so launch needs no `.env.local` and no Supabase. Itinerary planning is not in the app yet, so it is not in the feature map.
+Nightcap is a Next.js App Router app. The user-facing surface that exists today is the home page at `/` and the built-in unknown-route page. Launch needs no `.env.local` and no Supabase. The home page can submit a plan, and a live model run needs keys. The feature map covers the idle page without keys.
 
 Read [features/README.md](features/README.md) before driving. Drive only the instance this skill started.
 
@@ -17,9 +17,9 @@ From the repo root:
 .cursor/skills/verify-nightcap/scripts/verify-nightcap launch
 ```
 
-That runs `npm run dev -- --hostname 127.0.0.1 --port 4173` in its own process group. Ready means `http://127.0.0.1:4173/` returns HTTP 200 and the body contains `<h1>Nightcap</h1>`. The command prints `ready`, the pid, the run id, and the log path. A second launch while that pid is healthy prints `already running` and does not start another server.
+That runs `npm run dev -- --hostname 127.0.0.1 --port 4173` in its own process group. Ready means `http://127.0.0.1:4173/` returns HTTP 200 and the body contains `<title>Nightcap</title>` plus either `<h1>Nightcap</h1>` or `Plan a date night`. The command prints `ready`, the pid, the run id, and the log path. A second launch while that pid is healthy prints `already running` and does not start another server.
 
-This checkout can run one Next server. `next dev` and another Next process share `.next`. Launch refuses when port 3000 is already serving a page with `<h1>Nightcap</h1>`, and when port 4173 is already taken. It does not kill either one.
+This checkout can run one Next server. `next dev` and another Next process share `.next`. Launch refuses when port 3000 is already serving Nightcap, which means the title is Nightcap and the body has either `<h1>Nightcap</h1>` or `Plan a date night`. An older checkout with the old heading still blocks a second server. Launch also refuses when port 4173 is already taken. It does not kill either one.
 
 Teardown is `verify-nightcap cleanup`. It signals the process group recorded at launch and deletes `.cursor/skills/verify-nightcap/.run/`. It leaves `.cursor/skills/verify-nightcap/artifacts/` in place.
 
@@ -34,13 +34,13 @@ Run this first whenever a drive looks wrong. It is read-only. It passes only whe
 - `.run/state.env` exists and its pid is alive
 - installed `next` matches `dependencies.next` in `package.json`
 - a listener on port 4173 belongs to that process group
-- `GET /` is HTTP 200 and contains `<title>Nightcap</title>` and `<h1>Nightcap</h1>`
+- `GET /` is HTTP 200 and contains `<title>Nightcap</title>` and either `<h1>Nightcap</h1>` or `Plan a date night`
 
 It prints the url, pid, port, run id, log path, and Next version.
 
 ## Drive
 
-The helper saves the HTTP response. The browser step records what a user sees. Do both for the feature you are proving. Stable handles are the path, the document title, and the heading text. There are no buttons or fields on these pages.
+The helper saves the HTTP response. The browser step records what a user sees. Do both for the feature you are proving. Stable handles are the path, the document title, and the heading text. Home also has a composer. The unknown-route page does not.
 
 Home:
 
@@ -48,7 +48,7 @@ Home:
 .cursor/skills/verify-nightcap/scripts/verify-nightcap drive home
 ```
 
-Then open the printed URL `/` in a browser. The accessibility tree has a level-1 heading named `Nightcap` and the document is titled `Nightcap`. Write that snapshot to the printed `ARIA_PATH` and a screenshot to the printed `SCREENSHOT_PATH`.
+Then open the printed URL `/` in a browser. The accessibility tree has a level-1 heading named `Plan a date night in one sentence.` and the document is titled `Nightcap`. Write that snapshot to the printed `ARIA_PATH` and a screenshot to the printed `SCREENSHOT_PATH`.
 
 Unknown route:
 
