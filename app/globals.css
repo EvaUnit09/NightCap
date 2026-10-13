@@ -155,6 +155,21 @@ textarea {
   margin-top: 20px;
 }
 
+.feedback {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: end;
+  margin-top: 12px;
+  border: 0;
+  padding: 0;
+}
+
+.feedback button,
+.feedback select {
+  min-height: 44px;
+}
+
 @media (max-width: 720px) {
   .filters {
     grid-template-columns: 1fr;

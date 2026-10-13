@@ -49,6 +49,25 @@ describe("Supabase migration with real Postgres", { concurrency: 1 }, () => {
       }
     });
 
+    it("stores a Datadog request hash on feedback and does not mention a captcha", async () => {
+      const column = await db.query<{ column_name: string }>(`
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'feedback' AND column_name = 'request_hash'
+      `);
+      assert.deepEqual(column.rows.map((row) => row.column_name), ["request_hash"]);
+      const comments = await db.query<{ description: string | null }>(`
+        SELECT d.description
+        FROM pg_description AS d
+        JOIN pg_class AS c ON c.oid = d.objoid
+        JOIN pg_namespace AS n ON n.oid = c.relnamespace
+        WHERE n.nspname = 'public' AND c.relname = 'feedback'
+      `);
+      const text = comments.rows.map((row) => row.description ?? "").join("\n");
+      assert.equal(/turnstile/i.test(text), false);
+      assert.equal(text.includes("request_hash"), true);
+    });
+
     it("has no public policies on requests, itineraries, feedback, or places_cache", async () => {
       const policies = await db.query(`
         SELECT tablename, policyname

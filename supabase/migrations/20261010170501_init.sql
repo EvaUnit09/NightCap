@@ -354,7 +354,7 @@ $$;
 -- =============================================================================
 -- GRANTS
 -- Server (service_role) reads/writes all tables. The only public path is the
--- share RPC. Feedback writes go through the API after Turnstile, not anon INSERT.
+-- share RPC. Feedback writes go through the API with service_role, not anon INSERT.
 -- Saves go through save_plan() (service_role), not authenticated INSERT.
 -- =============================================================================
 GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
@@ -408,7 +408,7 @@ COMMENT ON COLUMN public.requests.user_id IS
 COMMENT ON TABLE public.itineraries IS
   'Generated options with validation and trace metadata. service_role only; public reads go through get_shared_plan(). stops store placeId plus planning fields; names are hydrated live.';
 COMMENT ON TABLE public.feedback IS
-  'Thumbs, would-go/did-go, new-to-you, closed-venue reports. Writes via service_role after Turnstile.';
+  'Thumbs, would-go, did-go, new-to-you, and closed-venue reports. Writes via service_role through the API.';
 COMMENT ON TABLE public.places_cache IS
   'place_id indefinitely; lat/lng with coords_expires_at <= 30 days. Hours, price, and rating are fetched live. Venue names are not stored here.';
 COMMENT ON TABLE public.saved_plans IS

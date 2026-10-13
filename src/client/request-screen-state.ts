@@ -11,7 +11,12 @@ export interface ReloadedStop {
 export type ScreenModel =
   | { readonly phase: "idle" }
   | { readonly phase: "planning"; readonly intent: Intent | null; readonly options: readonly ItineraryOption[] }
-  | { readonly phase: "ready"; readonly intent: Intent | null; readonly options: readonly ItineraryOption[] }
+  | {
+      readonly phase: "ready";
+      readonly intent: Intent | null;
+      readonly options: readonly ItineraryOption[];
+      readonly itineraryIds: readonly string[];
+    }
   | { readonly phase: "daily_spend_cap"; readonly message: string }
   | { readonly phase: "hourly_plan_limit"; readonly message: string }
   | { readonly phase: "unavailable" }
@@ -25,7 +30,7 @@ export type ScreenEvent =
   | { readonly type: "submit" }
   | { readonly type: "intent"; readonly intent: Intent }
   | { readonly type: "itinerary"; readonly option: ItineraryOption }
-  | { readonly type: "done" }
+  | { readonly type: "done"; readonly itineraryIds: readonly string[] }
   | { readonly type: "daily_spend_cap"; readonly message: string }
   | { readonly type: "hourly_plan_limit"; readonly message: string }
   | { readonly type: "unavailable" }
@@ -51,7 +56,7 @@ export function reduceScreen(state: ScreenModel, event: ScreenEvent): ScreenMode
       return { ...state, options: [...state.options, event.option] };
     case "done":
       if (state.phase !== "planning") return state;
-      return { phase: "ready", intent: state.intent, options: state.options };
+      return { phase: "ready", intent: state.intent, options: state.options, itineraryIds: event.itineraryIds };
     case "daily_spend_cap":
       return { phase: "daily_spend_cap", message: event.message };
     case "hourly_plan_limit":
@@ -74,6 +79,43 @@ export function reduceScreen(state: ScreenModel, event: ScreenEvent): ScreenMode
     default: {
       const neverEvent: never = event;
       return neverEvent;
+    }
+  }
+}
+
+export interface FeedbackTarget {
+  readonly itineraryId: string;
+  readonly placeIds: readonly string[];
+}
+
+export function feedbackTargets(screen: ScreenModel): readonly FeedbackTarget[] {
+  switch (screen.phase) {
+    case "ready": {
+      if (screen.itineraryIds.length === 0 || screen.itineraryIds.length !== screen.options.length) return [];
+      const targets: FeedbackTarget[] = [];
+      for (let index = 0; index < screen.options.length; index += 1) {
+        const itineraryId = screen.itineraryIds[index];
+        const option = screen.options[index];
+        if (!itineraryId || !option) return [];
+        targets.push({ itineraryId, placeIds: option.stops.map((stop) => stop.placeId) });
+      }
+      return targets;
+    }
+    case "reloaded":
+      return [{ itineraryId: screen.id, placeIds: screen.stops.map((stop) => stop.placeId) }];
+    case "idle":
+    case "planning":
+    case "daily_spend_cap":
+    case "hourly_plan_limit":
+    case "unavailable":
+    case "rejected":
+    case "failed":
+    case "reloading":
+    case "reload_missing":
+      return [];
+    default: {
+      const neverScreen: never = screen;
+      return neverScreen;
     }
   }
 }

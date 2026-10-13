@@ -5,7 +5,13 @@ import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent 
 import { planRequestSchema, type PlanRequest } from "../src/api/plan-request";
 import { loadItinerary } from "../src/client/load-itinerary";
 import { requestPlan } from "../src/client/plan-events";
-import { initialScreen, reduceScreen, type ScreenModel } from "../src/client/request-screen-state";
+import {
+  feedbackTargets,
+  initialScreen,
+  reduceScreen,
+  type FeedbackTarget,
+  type ScreenModel,
+} from "../src/client/request-screen-state";
 import type { Intent } from "../src/validation/intent";
 import type { ItineraryOption } from "../src/validation/itinerary";
 
@@ -36,12 +42,85 @@ function Notice({ children }: { readonly children: string }) {
   );
 }
 
-function Timelines({ options }: { readonly options: readonly ItineraryOption[] }) {
+function FeedbackBar({
+  itineraryId,
+  placeIds,
+}: {
+  readonly itineraryId?: string;
+  readonly placeIds: readonly string[];
+}) {
+  const [placeId, setPlaceId] = useState(placeIds[0] ?? "");
+  const [note, setNote] = useState("");
+  const selected = placeIds.includes(placeId) ? placeId : (placeIds[0] ?? "");
+
+  async function send(signal: Record<string, unknown>) {
+    if (!itineraryId) return;
+    const response = await fetch("/api/feedback", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ itineraryId, signal }),
+    });
+    setNote(response.ok ? "Saved." : "Not saved.");
+  }
+
+  return (
+    <fieldset className="feedback" disabled={itineraryId === undefined}>
+      <legend>Feedback</legend>
+      <button type="button" onClick={() => void send({ kind: "thumbs", thumbs: 1 })}>
+        Thumbs up
+      </button>
+      <button type="button" onClick={() => void send({ kind: "thumbs", thumbs: -1 })}>
+        Thumbs down
+      </button>
+      <button type="button" onClick={() => void send({ kind: "would_go", wouldGo: true })}>
+        Would go
+      </button>
+      <button type="button" onClick={() => void send({ kind: "did_go", didGo: true })}>
+        Did go
+      </button>
+      <label>
+        Place
+        <select value={selected} onChange={(event) => setPlaceId(event.target.value)} disabled={placeIds.length === 0}>
+          {placeIds.length === 0 ? <option value="">No place</option> : null}
+          {placeIds.map((id) => (
+            <option key={id} value={id}>
+              {id}
+            </option>
+          ))}
+        </select>
+      </label>
+      <button
+        type="button"
+        disabled={selected.length === 0}
+        onClick={() => void send({ kind: "new_to_you", placeId: selected, value: true })}
+      >
+        New to me
+      </button>
+      <button
+        type="button"
+        disabled={selected.length === 0}
+        onClick={() => void send({ kind: "closed_venue", placeId: selected })}
+      >
+        Closed
+      </button>
+      {note ? <p role="status">{note}</p> : null}
+    </fieldset>
+  );
+}
+
+function Timelines({
+  options,
+  targets,
+}: {
+  readonly options: readonly ItineraryOption[];
+  readonly targets: readonly FeedbackTarget[];
+}) {
   if (options.length === 0) return null;
+  const linked = targets.length === options.length;
   return (
     <div className="timelines">
       {options.map((option, index) => (
-        <article className="card" key={index}>
+        <article className="card" key={targets[index]?.itineraryId ?? index}>
           <h2>{option.theme}</h2>
           <ol>
             {option.stops.map((stop) => (
@@ -52,6 +131,7 @@ function Timelines({ options }: { readonly options: readonly ItineraryOption[] }
               </li>
             ))}
           </ol>
+          {linked ? <FeedbackBar itineraryId={targets[index]?.itineraryId} placeIds={option.stops.map((stop) => stop.placeId)} /> : null}
         </article>
       ))}
     </div>
@@ -59,33 +139,56 @@ function Timelines({ options }: { readonly options: readonly ItineraryOption[] }
 }
 
 function Results({ screen }: { readonly screen: ScreenModel }) {
+  const targets = feedbackTargets(screen);
   switch (screen.phase) {
     case "idle":
-      return null;
+      return <FeedbackBar placeIds={[]} />;
     case "planning":
       return (
         <div aria-busy="true">
           <Notice>Planning the night.</Notice>
           {screen.intent ? <p className="intent">{intentLine(screen.intent)}</p> : null}
-          <Timelines options={screen.options} />
+          <Timelines options={screen.options} targets={[]} />
+          <FeedbackBar placeIds={[]} />
         </div>
       );
     case "ready":
       return (
         <div>
           {screen.intent ? <p className="intent">{intentLine(screen.intent)}</p> : null}
-          <Timelines options={screen.options} />
+          <Timelines options={screen.options} targets={targets} />
+          {targets.length === 0 ? <FeedbackBar placeIds={[]} /> : null}
         </div>
       );
     case "daily_spend_cap":
     case "hourly_plan_limit":
-      return <Notice>{screen.message}</Notice>;
+      return (
+        <div>
+          <Notice>{screen.message}</Notice>
+          <FeedbackBar placeIds={[]} />
+        </div>
+      );
     case "unavailable":
-      return <Notice>Planning is unavailable right now.</Notice>;
+      return (
+        <div>
+          <Notice>Planning is unavailable right now.</Notice>
+          <FeedbackBar placeIds={[]} />
+        </div>
+      );
     case "rejected":
-      return <Notice>That request could not be sent. Check the text and try again.</Notice>;
+      return (
+        <div>
+          <Notice>That request could not be sent. Check the text and try again.</Notice>
+          <FeedbackBar placeIds={[]} />
+        </div>
+      );
     case "failed":
-      return <Notice>This plan did not finish. Try again.</Notice>;
+      return (
+        <div>
+          <Notice>This plan did not finish. Try again.</Notice>
+          <FeedbackBar placeIds={[]} />
+        </div>
+      );
     case "reloading":
       return <Notice>Loading the saved plan.</Notice>;
     case "reload_missing":
@@ -103,6 +206,7 @@ function Results({ screen }: { readonly screen: ScreenModel }) {
               </li>
             ))}
           </ol>
+          <FeedbackBar itineraryId={screen.id} placeIds={screen.stops.map((stop) => stop.placeId)} />
         </article>
       );
     default: {
@@ -161,7 +265,7 @@ export function RequestScreen({ itineraryId }: { readonly itineraryId?: string }
       const outcome = await requestPlan(input, {
         onIntent: (intent) => dispatch({ type: "intent", intent }),
         onItinerary: (option) => dispatch({ type: "itinerary", option }),
-        onDone: () => dispatch({ type: "done" }),
+        onDone: (itineraryIds) => dispatch({ type: "done", itineraryIds }),
         onFailed: (code) => dispatch({ type: "failed", code }),
       });
       switch (outcome.kind) {

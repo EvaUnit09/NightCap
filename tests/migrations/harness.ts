@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { PGlite } from "@electric-sql/pglite";
 
@@ -69,10 +69,21 @@ export const SHIM_SQL = `
 
 export type RoleName = "anon" | "authenticated" | "service_role" | "authenticator";
 
-export async function createMigratedDatabase(sql = MIGRATION_SQL): Promise<PGlite> {
+export function migrationPaths(): string[] {
+  const dir = join(process.cwd(), "supabase/migrations");
+  return readdirSync(dir)
+    .filter((name) => name.endsWith(".sql"))
+    .sort()
+    .map((name) => join(dir, name));
+}
+
+export async function createMigratedDatabase(sql?: string): Promise<PGlite> {
   const db = new PGlite();
   await db.exec(SHIM_SQL);
-  await db.exec(sql);
+  const scripts = sql === undefined ? migrationPaths().map((path) => readFileSync(path, "utf-8")) : [sql];
+  for (const script of scripts) {
+    await db.exec(script);
+  }
   await db.exec(`
     GRANT SELECT, INSERT, UPDATE, DELETE ON auth.users TO service_role;
   `);

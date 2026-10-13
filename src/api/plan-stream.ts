@@ -23,7 +23,7 @@ const BODY_MAX_CHARS = 4 * WRAP_USER_TEXT_MAX_CHARS;
 export type PlanEvent =
   | { readonly event: "intent"; readonly data: Intent }
   | { readonly event: "itinerary"; readonly data: { readonly index: number; readonly option: ItineraryOption } }
-  | { readonly event: "done"; readonly data: { readonly options: number } }
+  | { readonly event: "done"; readonly data: { readonly options: number; readonly itineraryIds: readonly string[] } }
   | {
       readonly event: "error";
       readonly data: PipelineFailure | { readonly stage: "internal"; readonly code: "internal_error" };
@@ -130,10 +130,11 @@ async function* planEvents(
   const started = Date.now();
   const result = await runPipeline({ text, signal }, deps);
   if (spend) spend.auditModelUsd = result.audit.totalCostUsd;
+  let itineraryIds: readonly string[] = [];
   if (persist && result.intent !== null) {
     const latencyMs = Math.max(0, Date.now() - started);
     try {
-      await persist.save({
+      const saved = await persist.save({
         rawText: text,
         intent: JSON.parse(JSON.stringify(result.intent)) as Record<string, unknown>,
         options:
@@ -145,6 +146,7 @@ async function* planEvents(
         costUsd: result.audit.totalCostUsd,
         latencyMs,
       });
+      itineraryIds = saved?.itineraryIds ?? [];
     } catch {
       // The plan already exists for this response. A database miss must not replace it with an error event.
     }
@@ -159,7 +161,7 @@ async function* planEvents(
   for (const [index, emitted] of result.options.entries()) {
     yield { event: "itinerary", data: { index, option: emitted.option } };
   }
-  yield { event: "done", data: { options: result.options.length } };
+  yield { event: "done", data: { options: result.options.length, itineraryIds } };
 }
 
 function streamPlan(

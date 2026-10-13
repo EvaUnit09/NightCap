@@ -55,7 +55,7 @@ describe("POST /api/plan", () => {
       { event: "intent", data: INTENT },
       { event: "itinerary", data: { index: 0, option: OPTION_A } },
       { event: "itinerary", data: { index: 1, option: OPTION_B } },
-      { event: "done", data: { options: 2 } },
+      { event: "done", data: { options: 2, itineraryIds: [] } },
     ]);
   });
 
@@ -73,7 +73,7 @@ describe("POST /api/plan", () => {
 
     assert.deepEqual(received.map((e) => e.event), ["intent", "itinerary", "done"]);
     assert.deepEqual(received[1].data, { index: 0, option: OPTION_A });
-    assert.deepEqual(received[2].data, { options: 1 });
+    assert.deepEqual(received[2].data, { options: 1, itineraryIds: [] });
     assert.doesNotMatch(wire, /ChIJfake|Nowhere Bistro/);
   });
 
