@@ -11,7 +11,12 @@ const itineraryFrameSchema = z
   })
   .strict();
 
-const doneFrameSchema = z.object({ options: z.int().nonnegative() }).strict();
+const doneFrameSchema = z
+  .object({
+    options: z.int().nonnegative(),
+    itineraryIds: z.array(z.string().uuid()).optional(),
+  })
+  .strict();
 
 const failureSchema = z.discriminatedUnion("stage", [
   z.object({ stage: z.literal("redact"), code: z.string().min(1).max(80) }).strict(),
@@ -30,7 +35,7 @@ const limitSchema = z.object({
 export interface PlanEmit {
   onIntent(intent: Intent): void;
   onItinerary(option: ItineraryOption): void;
-  onDone(): void;
+  onDone(itineraryIds: readonly string[]): void;
   onFailed(code: string): void;
 }
 
@@ -68,8 +73,9 @@ function applyFrame(event: string, data: string, emit: PlanEmit): FrameStep {
       return "ok";
     }
     case "done": {
-      if (!doneFrameSchema.safeParse(payload).success) return "invalid";
-      emit.onDone();
+      const parsed = doneFrameSchema.safeParse(payload);
+      if (!parsed.success) return "invalid";
+      emit.onDone(parsed.data.itineraryIds ?? []);
       return "terminal";
     }
     case "error": {

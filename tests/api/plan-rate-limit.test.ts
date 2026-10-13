@@ -57,7 +57,7 @@ describe("POST /api/plan spend cap", () => {
     const wire = await response.text();
 
     assert.equal(response.status, 200);
-    assert.match(wire, /event: done\ndata: \{"options":2\}/);
+    assert.match(wire, /event: done\ndata: \{"options":2,"itineraryIds":\[\]\}/);
     assert.equal(await store.readDailyMicros(utcDay(NOW)), 400 + 35_000 + 10_000);
   });
 

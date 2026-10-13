@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { initialScreen, reduceScreen } from "../../src/client/request-screen-state";
+import { feedbackTargets, initialScreen, reduceScreen } from "../../src/client/request-screen-state";
 import { INTENT, OPTION_A } from "../pipeline/orchestrator-harness";
 
 describe("request screen state", () => {
@@ -9,9 +9,17 @@ describe("request screen state", () => {
     const planning = reduceScreen(initialScreen(undefined), { type: "submit" });
     const withIntent = reduceScreen(planning, { type: "intent", intent: INTENT });
     const withOption = reduceScreen(withIntent, { type: "itinerary", option: OPTION_A });
-    const ready = reduceScreen(withOption, { type: "done" });
+    const ready = reduceScreen(withOption, { type: "done", itineraryIds: [] });
 
-    assert.deepEqual(ready, { phase: "ready", intent: INTENT, options: [OPTION_A] });
+    assert.deepEqual(ready, { phase: "ready", intent: INTENT, options: [OPTION_A], itineraryIds: [] });
+    assert.deepEqual(feedbackTargets(ready), []);
+    const linked = reduceScreen(withOption, {
+      type: "done",
+      itineraryIds: ["11111111-1111-4111-8111-111111111111"],
+    });
+    assert.deepEqual(feedbackTargets(linked), [
+      { itineraryId: "11111111-1111-4111-8111-111111111111", placeIds: OPTION_A.stops.map((stop) => stop.placeId) },
+    ]);
   });
 
   it("replaces a planning night with the daily cap message and no options", () => {
@@ -22,6 +30,7 @@ describe("request screen state", () => {
     const capped = reduceScreen(planning, { type: "daily_spend_cap", message: "Come back tomorrow." });
 
     assert.deepEqual(capped, { phase: "daily_spend_cap", message: "Come back tomorrow." });
+    assert.deepEqual(feedbackTargets(capped), []);
   });
 
   it("shows an hourly limit message", () => {
