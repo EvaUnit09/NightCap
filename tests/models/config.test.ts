@@ -76,7 +76,7 @@ describe("Config module", () => {
       delete process.env.MAX_TRAVEL_LEGS_PER_REQUEST;
       assert.equal(getTravelCapMinutes(), 25);
       assert.equal(getAgentMaxToolCalls(), 6);
-      assert.equal(getAgentMaxCostUsdPerTurn(), 0.03);
+      assert.equal(getAgentMaxCostUsdPerTurn(), 0.08);
       assert.equal(getRepairMaxRounds(), 2);
       assert.equal(getMaxTravelLegsPerRequest(), 4);
       delete process.env.ROUTES_API_TIMEOUT_MS;

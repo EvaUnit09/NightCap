@@ -124,7 +124,7 @@ const configSchema = z.object({
     .positive()
     .default(DEFAULT_TRAVEL_CAP_MINUTES),
   agentMaxToolCalls: z.coerce.number().int().positive().default(6),
-  agentMaxCostUsdPerTurn: z.coerce.number().positive().default(0.03),
+  agentMaxCostUsdPerTurn: z.coerce.number().positive().default(0.08),
   repairMaxRounds: z.coerce.number().int().positive().default(2),
   maxTravelLegsPerRequest: z.coerce
     .number()
@@ -375,7 +375,7 @@ export function getAgentMaxToolCalls(): number {
   return getConfig().agentMaxToolCalls;
 }
 
-/** Get agent max cost in USD per turn (0.03 by default). */
+/** Get agent max cost in USD per turn (0.08 by default). */
 export function getAgentMaxCostUsdPerTurn(): number {
   return getConfig().agentMaxCostUsdPerTurn;
 }

@@ -312,7 +312,7 @@ Flow: user message + current itinerary → agent calls tools → must call `vali
 | Security                 | User text treated as data; Zod on every tool input; server-side keys only; no arbitrary URLs or code                                                         |
 | Infinite loop prevention | Max 6 tool calls per turn                                                                                                                                    |
 | Guardrails               | The final itinerary must pass the validator, or it reverts to the last valid version; venue IDs must originate from tool results; off-topic requests refused |
-| Cost monitoring          | Budget of $0.03 per turn, tracked in Datadog; counts toward the global daily spend cap                                                                       |
+| Cost monitoring          | Budget of $0.08 per turn, tracked in Datadog; counts toward the global daily spend cap (#44)                                                                |
 
 
 

@@ -28,7 +28,7 @@ flowchart TD
 
 ```mermaid
 flowchart LR
-    M[User edit message + current itinerary] --> A[Refine agent<br/>Haiku 5.5, tool runner<br/>≤ 6 tool calls, ≤ $0.03/turn]
+    M[User edit message + current itinerary] --> A[Refine agent<br/>Haiku 5.5, tool runner<br/>≤ 6 tool calls, ≤ $0.08/turn]
     A --> T1[search_venues]
     A --> T2[replace_stop / reorder_stops]
     A --> T3[validate_itinerary]
