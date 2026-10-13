@@ -1,7 +1,14 @@
+"use client";
+
+import { useState } from "react";
+
+import { stopsForSelection, type MapStop } from "../../src/client/map-markers";
 import type { TravelMode } from "../../src/validation/common";
 import type { Intent } from "../../src/validation/intent";
 import type { ItineraryOption } from "../../src/validation/itinerary";
-import { FAILURE_COPY, type PlanState } from "./plan-state";
+import { RouteMap } from "../route-map";
+import { SaveShare } from "../save-share";
+import { FAILURE_COPY, type OptionSlots, type PlanState } from "./plan-state";
 
 const GHOST_HINTS = [
   "Usually drinks, then dinner.",
@@ -56,6 +63,24 @@ function tagsFor(intent: Intent): readonly string[] {
   ];
 }
 
+function filledOptions(slots: OptionSlots): readonly ItineraryOption[] {
+  const options: ItineraryOption[] = [];
+  for (const slot of slots) {
+    if (slot === null) break;
+    options.push(slot);
+  }
+  return options;
+}
+
+function mapStopsFor(options: readonly ItineraryOption[], selectedIndex: number): readonly MapStop[] {
+  return stopsForSelection(
+    options.map((option) => ({
+      stops: option.stops.map((stop) => ({ placeId: stop.placeId, name: stop.name })),
+    })),
+    selectedIndex,
+  );
+}
+
 export function IntentTags({ plan }: { readonly plan: PlanState }) {
   const intent = intentOf(plan);
   if (!intent) return null;
@@ -70,12 +95,29 @@ export function IntentTags({ plan }: { readonly plan: PlanState }) {
   );
 }
 
-function OptionCard({ index, option }: { readonly index: number; readonly option: ItineraryOption }) {
+function OptionCard({
+  index,
+  option,
+  selected,
+  selectable,
+  onSelect,
+}: {
+  readonly index: number;
+  readonly option: ItineraryOption;
+  readonly selected: boolean;
+  readonly selectable: boolean;
+  readonly onSelect: () => void;
+}) {
   const total = option.stops.reduce((sum, stop) => sum + stop.estimatedCostUsd, 0);
   return (
-    <article className="home-card">
+    <article className="home-card" data-selected={selected ? "true" : "false"}>
       <span className="text-muted home-option-label">{`OPTION ${index + 1}`}</span>
       <h2>{option.theme}</h2>
+      {selectable ? (
+        <button type="button" className="home-show-map" aria-pressed={selected} onClick={onSelect}>
+          Show on map
+        </button>
+      ) : null}
       <ol className="home-stops">
         {option.stops.map((stop) => (
           <li key={stop.placeId}>
@@ -109,7 +151,14 @@ function GhostCard({ index, live }: { readonly index: number; readonly live: boo
 }
 
 export function Results({ plan }: { readonly plan: PlanState }) {
+  const [selectedIndex, setSelectedIndex] = useState(0);
   const showGhosts = plan.kind === "idle" || plan.kind === "streaming";
+  const options = plan.kind === "idle" ? [] : filledOptions(plan.options);
+  const ready = plan.kind === "done";
+  const mapStops = ready ? mapStopsFor(options, selectedIndex) : [];
+  const saveId =
+    ready && plan.itineraryIds.length === options.length ? plan.itineraryIds[selectedIndex] : undefined;
+
   return (
     <section className="home-results" aria-label="Itineraries">
       {plan.kind === "failed" ? (
@@ -120,11 +169,24 @@ export function Results({ plan }: { readonly plan: PlanState }) {
       <div className="home-grid">
         {([0, 1, 2] as const).map((index) => {
           const option = plan.kind === "idle" ? null : plan.options[index];
-          if (option) return <OptionCard key={index} index={index} option={option} />;
+          if (option) {
+            return (
+              <OptionCard
+                key={index}
+                index={index}
+                option={option}
+                selected={ready && index === selectedIndex}
+                selectable={ready}
+                onSelect={() => setSelectedIndex(index)}
+              />
+            );
+          }
           if (!showGhosts) return null;
           return <GhostCard key={index} index={index} live={plan.kind === "streaming"} />;
         })}
       </div>
+      {ready && mapStops.length > 0 ? <RouteMap stops={mapStops} /> : null}
+      {ready ? <SaveShare itineraryId={saveId} /> : null}
     </section>
   );
 }

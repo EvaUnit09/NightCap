@@ -77,6 +77,18 @@ describe("toPlanUpdate", () => {
     assert.deepEqual(rejected, { kind: "failed", reason: "service_unavailable" });
   });
 
+  it("accepts a production done frame that includes itineraryIds", () => {
+    const ids = ["11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222"];
+    assert.deepEqual(
+      toPlanUpdate({ event: "done", data: JSON.stringify({ options: 2, itineraryIds: ids }) }, INTENT),
+      { kind: "done", itineraryIds: ids },
+    );
+    assert.deepEqual(toPlanUpdate({ event: "done", data: JSON.stringify({ options: 2 }) }, INTENT), {
+      kind: "done",
+      itineraryIds: [],
+    });
+  });
+
   it("maps wire stages onto friendly reasons", () => {
     assert.equal(toFailureReason("retrieve", "no_candidates"), "no_candidates");
     assert.equal(toFailureReason("retrieve", "retrieval_error"), "service_unavailable");
@@ -103,7 +115,10 @@ describe("streamPlan", () => {
       frame("intent", INTENT) +
       frame("itinerary", { index: 0, option: OPTION_A }) +
       frame("itinerary", { index: 1, option: OPTION_B }) +
-      frame("done", { options: 2 });
+      frame("done", {
+        options: 2,
+        itineraryIds: ["11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222"],
+      });
     const bytes = new TextEncoder().encode(wire);
     const splitAt = Math.floor(bytes.length / 2);
     let body = "";
@@ -119,6 +134,10 @@ describe("streamPlan", () => {
       updates.map((update) => update.kind),
       ["intent", "option", "option", "done"],
     );
+    assert.deepEqual(updates.at(-1), {
+      kind: "done",
+      itineraryIds: ["11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222"],
+    });
   });
 
   it("treats a done count that does not match received slots as a dropped connection", async () => {
