@@ -21,6 +21,7 @@ import {
 import type { Intent } from "../src/validation/intent";
 import type { ItineraryOption } from "../src/validation/itinerary";
 import { RouteMap } from "./route-map";
+import { SaveShare } from "./save-share";
 
 const WHEN = new Intl.DateTimeFormat("en-US", {
   weekday: "short",
@@ -265,6 +266,7 @@ export function RequestScreen({ itineraryId }: { readonly itineraryId?: string }
   const mapOptions = useMemo(() => mapOptionsForScreen(screen), [screen]);
   const selectedIndex = clampSelection(selected, mapOptions.length);
   const mapStops = useMemo(() => stopsForSelection(mapOptions, selectedIndex), [mapOptions, selectedIndex]);
+  const saveId = feedbackTargets(screen)[selectedIndex]?.itineraryId;
 
   useEffect(() => {
     if (!itineraryId) return;
@@ -395,6 +397,7 @@ export function RequestScreen({ itineraryId }: { readonly itineraryId?: string }
         </div>
       </form>
       <Results screen={screen} selectedIndex={selectedIndex} onSelect={setSelected} mapStops={mapStops} />
+      <SaveShare itineraryId={saveId} />
     </div>
   );
 }
