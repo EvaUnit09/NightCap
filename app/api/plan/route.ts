@@ -1,4 +1,3 @@
-import { createPlanHandler } from "../../../src/api/plan-stream";
-import { createPipelineDeps } from "../../../src/pipeline";
+import { createProductionPlanHandler } from "../../../src/api/plan-stream";
 
-export const POST = createPlanHandler(() => createPipelineDeps());
+export const POST = createProductionPlanHandler();
