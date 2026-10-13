@@ -2,13 +2,13 @@
 
 import { useState } from "react";
 
-import { stopsForSelection, type MapStop } from "../../src/client/map-markers";
 import type { TravelMode } from "../../src/validation/common";
 import type { Intent } from "../../src/validation/intent";
 import type { ItineraryOption } from "../../src/validation/itinerary";
 import { RouteMap } from "../route-map";
 import { SaveShare } from "../save-share";
-import { FAILURE_COPY, type OptionSlots, type PlanState } from "./plan-state";
+import { FAILURE_COPY, type PlanState } from "./plan-state";
+import { selectNight } from "./selection";
 
 const GHOST_HINTS = [
   "Usually drinks, then dinner.",
@@ -63,24 +63,6 @@ function tagsFor(intent: Intent): readonly string[] {
   ];
 }
 
-function filledOptions(slots: OptionSlots): readonly ItineraryOption[] {
-  const options: ItineraryOption[] = [];
-  for (const slot of slots) {
-    if (slot === null) break;
-    options.push(slot);
-  }
-  return options;
-}
-
-function mapStopsFor(options: readonly ItineraryOption[], selectedIndex: number): readonly MapStop[] {
-  return stopsForSelection(
-    options.map((option) => ({
-      stops: option.stops.map((stop) => ({ placeId: stop.placeId, name: stop.name })),
-    })),
-    selectedIndex,
-  );
-}
-
 export function IntentTags({ plan }: { readonly plan: PlanState }) {
   const intent = intentOf(plan);
   if (!intent) return null;
@@ -99,21 +81,19 @@ function OptionCard({
   index,
   option,
   selected,
-  selectable,
   onSelect,
 }: {
   readonly index: number;
   readonly option: ItineraryOption;
   readonly selected: boolean;
-  readonly selectable: boolean;
-  readonly onSelect: () => void;
+  readonly onSelect?: () => void;
 }) {
   const total = option.stops.reduce((sum, stop) => sum + stop.estimatedCostUsd, 0);
   return (
     <article className="home-card" data-selected={selected ? "true" : "false"}>
       <span className="text-muted home-option-label">{`OPTION ${index + 1}`}</span>
       <h2>{option.theme}</h2>
-      {selectable ? (
+      {onSelect ? (
         <button type="button" className="home-show-map" aria-pressed={selected} onClick={onSelect}>
           Show on map
         </button>
@@ -151,13 +131,10 @@ function GhostCard({ index, live }: { readonly index: number; readonly live: boo
 }
 
 export function Results({ plan }: { readonly plan: PlanState }) {
-  const [selectedIndex, setSelectedIndex] = useState(0);
+  const [requested, setRequested] = useState(0);
   const showGhosts = plan.kind === "idle" || plan.kind === "streaming";
-  const options = plan.kind === "idle" ? [] : filledOptions(plan.options);
   const ready = plan.kind === "done";
-  const mapStops = ready ? mapStopsFor(options, selectedIndex) : [];
-  const saveId =
-    ready && plan.itineraryIds.length === options.length ? plan.itineraryIds[selectedIndex] : undefined;
+  const night = ready ? selectNight(plan, requested) : null;
 
   return (
     <section className="home-results" aria-label="Itineraries">
@@ -175,9 +152,8 @@ export function Results({ plan }: { readonly plan: PlanState }) {
                 key={index}
                 index={index}
                 option={option}
-                selected={ready && index === selectedIndex}
-                selectable={ready}
-                onSelect={() => setSelectedIndex(index)}
+                selected={night !== null && index === night.index}
+                onSelect={ready ? () => setRequested(index) : undefined}
               />
             );
           }
@@ -185,8 +161,10 @@ export function Results({ plan }: { readonly plan: PlanState }) {
           return <GhostCard key={index} index={index} live={plan.kind === "streaming"} />;
         })}
       </div>
-      {ready && mapStops.length > 0 ? <RouteMap stops={mapStops} /> : null}
-      {ready ? <SaveShare itineraryId={saveId} /> : null}
+      {night && night.mapStops.length > 0 ? <RouteMap stops={night.mapStops} /> : null}
+      {night ? (
+        <SaveShare key={night.itineraryId ?? "unsaved"} itineraryId={night.itineraryId} />
+      ) : null}
     </section>
   );
 }

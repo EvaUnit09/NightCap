@@ -3,6 +3,16 @@
 import Link from "next/link";
 import { useEffect, useState, type FormEvent } from "react";
 
+async function readSignedIn(signal: AbortSignal): Promise<boolean> {
+  try {
+    const response = await fetch("/api/auth/session", { signal });
+    const body = (await response.json()) as { signedIn?: boolean };
+    return body.signedIn === true;
+  } catch {
+    return false;
+  }
+}
+
 export function SaveShare({ itineraryId }: { readonly itineraryId?: string }) {
   const [email, setEmail] = useState("");
   const [signedIn, setSignedIn] = useState(false);
@@ -12,15 +22,20 @@ export function SaveShare({ itineraryId }: { readonly itineraryId?: string }) {
 
   useEffect(() => {
     const controller = new AbortController();
-    void fetch("/api/auth/session", { signal: controller.signal })
-      .then((response) => response.json())
-      .then((body: { signedIn?: boolean }) => {
-        if (!controller.signal.aborted) setSignedIn(body.signedIn === true);
-      })
-      .catch(() => {
-        if (!controller.signal.aborted) setSignedIn(false);
+    const refresh = () => {
+      void readSignedIn(controller.signal).then((next) => {
+        if (!controller.signal.aborted) setSignedIn(next);
       });
-    return () => controller.abort();
+    };
+    refresh();
+    const onVisible = () => {
+      if (document.visibilityState === "visible") refresh();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      controller.abort();
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, []);
 
   async function sendLink(event: FormEvent<HTMLFormElement>) {
