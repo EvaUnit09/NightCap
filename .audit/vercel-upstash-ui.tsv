@@ -1,0 +1,10 @@
+ts	phase	decision	why	evidence	result
+2026-10-13T05:43:33Z	start	start run for vercel UrlError and Wine UI wiring	operator stepped away with checkable done predicate	agent run; prior PR46 exists	open
+2026-10-13T05:43:33Z	frame	predicate: build without UrlError; Wine UI reachable; verify-nightcap proof; PR open	falsifiable exit for autonomous run	user prompt	framed
+2026-10-13T05:43:33Z	frame	found open PR46 already fixing https URL gate with CI+Vercel green	laziness: do not reinvent; verify and close gaps	https://github.com/EvaUnit09/NightCap/pull/46	open
+2026-10-13T05:44:58Z	repro	reproduced UrlError on main with redis://bad during collect /api/plan	confirm same stack as Vercel before changing code	/opt/cursor/artifacts/build-fail-repro.log; upstash-spend-store.ts:8	VERIFIED fail
+2026-10-13T05:44:58Z	cause	createSpendStoreFromEnv connects whenever url and token are set; Redis ctor requires https REST URL; createProductionPlanHandler runs at module load	fix root cause at env gate not in Redis wrapper	spend-store.ts:124; plan-stream.ts; app/api/plan/route.ts:3	mechanism confirmed
+2026-10-13T05:44:58Z	fix	cherry-pick PR46 https URL gate into this branch	same smallest fix; avoid reinventing	091315d	applied
+2026-10-13T05:57:23Z	verify	build with redis://bad exits 0 after fix; /api/plan listed	prove UrlError gone on real next build	/opt/cursor/artifacts/build-pass-after-fix.log	VERIFIED
+2026-10-13T05:57:23Z	verify	Wine home markers pass via verify-nightcap drive home; browser h1 Plan a date night in one sentence.	prove UI from 44/45 is wired on this tip	/opt/cursor/artifacts/home-wine-ui.png;/opt/cursor/artifacts/wine-ui-demo.mp4;artifacts/20261013T054512/home.proof.txt	VERIFIED
+2026-10-13T05:57:23Z	skill	doctor failed because lsof saw no listeners; added /proc fallback in verify-nightcap	broken skill mid-task gets its own PR; do not silently route around	verify-nightcap/scripts/verify-nightcap listen_pids	open side PR
