@@ -37,7 +37,8 @@ describe("refine agent caps", () => {
     assert.ok(model.requests().length <= 7);
   });
 
-  it("hard-stops when turn cost reaches $0.08", async () => {
+  it("refuses a Places search that would exceed the turn cost cap", async () => {
+    let retrieves = 0;
     const model = scriptedModel([
       toolTurn("search_venues", {
         area: "SoHo",
@@ -56,27 +57,31 @@ describe("refine agent caps", () => {
       },
       {
         models: model,
-        retrieve: async () => ({
-          byStopType: new Map([
-            [
-              "dessert",
-              {
-                kind: "ranked" as const,
-                candidates: [sampleCandidate("ChIJ_dessert", "Dessert", "dessert")],
-              },
-            ],
-          ]),
-          placesRequests: 3,
-        }),
+        retrieve: async () => {
+          retrieves += 1;
+          return {
+            byStopType: new Map([
+              [
+                "dessert",
+                {
+                  kind: "ranked" as const,
+                  candidates: [sampleCandidate("ChIJ_dessert", "Dessert", "dessert")],
+                },
+              ],
+            ]),
+            placesRequests: 1,
+          };
+        },
         validate: async () => [],
         maxToolCalls: 6,
-        maxCostUsd: 0.08,
+        // One Text Search is $0.035, so a $0.03 cap must refuse before retrieve.
+        maxCostUsd: 0.03,
         modelId: "claude-haiku-5-5",
       },
     );
-    assert.ok(result.metrics.costUsd >= 0.08 || result.metrics.stoppedReason === "max_cost" || result.metrics.placesRequests === 3);
-    assert.ok(result.metrics.costUsd > 0);
-    // 3 Places searches * $0.035 = $0.105 > $0.08 after first tool
+    assert.equal(retrieves, 0);
+    assert.equal(result.metrics.placesRequests, 0);
+    assert.ok(result.metrics.costUsd <= 0.03);
     assert.equal(result.metrics.stoppedReason, "max_cost");
   });
 

@@ -1,4 +1,6 @@
 import { withStage } from "../monitoring";
+import { redact } from "../monitoring/redact";
+import { billableRoutesHops } from "../monitoring/spend-cap";
 import {
   getAgentMaxCostUsdPerTurn,
   getAgentMaxToolCalls,
@@ -6,15 +8,14 @@ import {
 import { getModelFor } from "../models/router";
 import { loadPrompt } from "../pipeline/prompt-loader";
 import { wrapUserText } from "../pipeline/wrap-user-text";
+import type { Retrieval, SearchVenuesInput } from "../retrieval";
 import type { Candidate } from "../validation/candidate";
 import type { Intent } from "../validation/intent";
 import type { Itinerary } from "../validation/itinerary";
 import type { ValidationError } from "../validation/validation-error";
 import type { ValidatorInput, ValidatorOptions } from "../validation/validator";
-import type { Retrieval, SearchVenuesInput } from "../retrieval";
-import { billableRoutesHops } from "../monitoring/spend-cap";
 import type { AgentToolContext } from "./context";
-import { modelCostUsd, turnCostUsd } from "./cost";
+import { modelCostUsd, placesCostUsd, turnCostUsd } from "./cost";
 import { freezeMetrics, type AgentMetrics } from "./metrics";
 import type {
   AgentMessage,
@@ -24,7 +25,7 @@ import type {
 import { isOffTopic } from "./off-topic";
 import { runAgentTool } from "./run-tool";
 import { AGENT_TOOL_DEFINITIONS } from "./tools-schema";
-import { createTurnState, type AgentTurnState } from "./turn-state";
+import { admissiblePlaceIds, createTurnState, type AgentTurnState } from "./turn-state";
 
 const AGENT_MAX_TOKENS = 2048;
 const REFUSED_REPLY =
@@ -70,11 +71,16 @@ export type RefineAgentResult =
       readonly metrics: AgentMetrics;
     };
 
+function escapeJsonData(value: unknown): string {
+  return JSON.stringify(value).replaceAll("<", "\\u003c").replaceAll(">", "\\u003e");
+}
+
 function toolContext(state: AgentTurnState, deps: RefineAgentDeps, request: RefineAgentRequest): AgentToolContext {
   return {
     itinerary: state.itinerary,
     intent: request.intent,
     allowedPlaceIds: state.allowedPlaceIds,
+    admissiblePlaceIds: admissiblePlaceIds(state),
     candidates: state.candidates,
     retrieve: deps.retrieve,
     validate: deps.validate,
@@ -110,6 +116,7 @@ function applyToolResult(state: AgentTurnState, toolName: string, result: Awaite
     case "reorder_stops": {
       if (content.itinerary && typeof content.itinerary === "object") {
         state.itinerary = content.itinerary as Itinerary;
+        state.dirty = true;
         state.workingInvalid = true;
         state.metrics.validatedBeforeFinal = false;
         state.lastValidateOk = false;
@@ -124,6 +131,7 @@ function applyToolResult(state: AgentTurnState, toolName: string, result: Awaite
         state.itinerary = itinerary;
         state.lastValidItinerary = structuredClone(itinerary);
         state.workingInvalid = false;
+        state.dirty = false;
         state.metrics.validatedBeforeFinal = true;
       } else {
         state.workingInvalid = true;
@@ -152,8 +160,16 @@ function finalize(
   state: AgentTurnState,
   kindHint: "updated" | "reverted" | "refused",
 ): RefineAgentResult {
+  if (kindHint === "refused") {
+    return {
+      kind: "refused",
+      itinerary: state.itinerary,
+      reply: state.replyText,
+      metrics: freezeMetrics(state.metrics),
+    };
+  }
   const needsRevert =
-    kindHint !== "refused" &&
+    state.dirty &&
     (!state.metrics.validatedBeforeFinal || state.workingInvalid || !state.lastValidateOk);
   if (needsRevert) {
     state.metrics.reverts += 1;
@@ -169,19 +185,26 @@ function finalize(
       metrics: freezeMetrics(state.metrics),
     };
   }
-  if (kindHint === "refused") {
-    return {
-      kind: "refused",
-      itinerary: state.itinerary,
-      reply: state.replyText,
-      metrics: freezeMetrics(state.metrics),
-    };
-  }
   return {
     kind: "updated",
     itinerary: state.itinerary,
     reply: state.replyText,
     metrics: freezeMetrics(state.metrics),
+  };
+}
+
+function budgetToolResult(
+  toolUseId: string,
+  code: "max_cost" | "max_tool_calls",
+): AgentUserContent {
+  return {
+    type: "tool_result",
+    tool_use_id: toolUseId,
+    content: JSON.stringify({
+      is_error: true,
+      error: { code, message: "Turn budget exhausted" },
+    }),
+    is_error: true,
   };
 }
 
@@ -201,12 +224,20 @@ async function runTurnBody(
     return finalize(state, "refused");
   }
 
+  const redacted = redact(request.editText);
+  if (!redacted.ok) {
+    state.metrics.refused = true;
+    state.metrics.stoppedReason = "refused";
+    state.replyText = "I could not safely read that edit. Your last valid itinerary is unchanged.";
+    return finalize(state, "refused");
+  }
+
   const prompt = loadPrompt("refine_agent", "v1");
   const userPayload = [
-    wrapUserText(request.editText),
+    wrapUserText(redacted.text),
     "",
     "Current itinerary (JSON data):",
-    wrapUserText(JSON.stringify(request.itinerary)),
+    escapeJsonData(request.itinerary),
   ].join("\n");
 
   const messages: AgentMessage[] = [{ role: "user", content: userPayload }];
@@ -235,7 +266,7 @@ async function runTurnBody(
     } catch {
       state.metrics.stoppedReason = "model_error";
       state.replyText = "The refinement model failed. Your last valid itinerary is unchanged.";
-      return finalize(state, "reverted");
+      return finalize(state, state.dirty ? "reverted" : "updated");
     }
 
     state.metrics.modelCalls += 1;
@@ -262,20 +293,32 @@ async function runTurnBody(
       return finalize(state, "updated");
     }
 
+    if (state.metrics.costUsd >= maxCostUsd) {
+      state.metrics.stoppedReason = "max_cost";
+      return finalize(state, "updated");
+    }
+
     const toolResults: AgentUserContent[] = [];
     for (const toolUse of toolUses) {
-      if (state.metrics.toolCalls >= maxToolCalls || state.metrics.costUsd >= maxCostUsd) {
-        state.metrics.stoppedReason =
-          state.metrics.toolCalls >= maxToolCalls ? "max_tool_calls" : "max_cost";
-        toolResults.push({
-          type: "tool_result",
-          tool_use_id: toolUse.id,
-          content: JSON.stringify({
-            is_error: true,
-            error: { code: state.metrics.stoppedReason, message: "Turn budget exhausted" },
-          }),
-          is_error: true,
-        });
+      if (state.metrics.toolCalls >= maxToolCalls) {
+        state.metrics.stoppedReason = "max_tool_calls";
+        toolResults.push(budgetToolResult(toolUse.id, "max_tool_calls"));
+        state.metrics.toolCalls += 1;
+        continue;
+      }
+      if (state.metrics.costUsd >= maxCostUsd) {
+        state.metrics.stoppedReason = "max_cost";
+        toolResults.push(budgetToolResult(toolUse.id, "max_cost"));
+        state.metrics.toolCalls += 1;
+        continue;
+      }
+      if (
+        toolUse.name === "search_venues" &&
+        state.metrics.costUsd + placesCostUsd(1) > maxCostUsd
+      ) {
+        state.metrics.stoppedReason = "max_cost";
+        toolResults.push(budgetToolResult(toolUse.id, "max_cost"));
+        state.metrics.toolCalls += 1;
         continue;
       }
 
@@ -285,8 +328,24 @@ async function runTurnBody(
           : { tool: toolUse.name };
       const result = await runAgentTool(input, toolContext(state, deps, request));
       state.metrics.toolCalls += 1;
+
+      if (
+        !result.is_error &&
+        toolUse.name === "search_venues" &&
+        result.placesRequests !== undefined &&
+        state.metrics.costUsd + placesCostUsd(result.placesRequests) > maxCostUsd
+      ) {
+        // Do not accept over-budget Places spend from the retrieve path.
+        state.metrics.stoppedReason = "max_cost";
+        toolResults.push(budgetToolResult(toolUse.id, "max_cost"));
+        continue;
+      }
+
       applyToolResult(state, toolUse.name, result);
       recomputeCost(state, modelUsd);
+      if (state.metrics.costUsd > maxCostUsd) {
+        state.metrics.stoppedReason = "max_cost";
+      }
       toolResults.push({
         type: "tool_result",
         tool_use_id: toolUse.id,

@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 
 import { runAgentTool, runValidateItinerary } from "../../src/agent";
 import type { ValidationError } from "../../src/validation/validation-error";
-import { baseContext, sampleItinerary } from "./fixtures";
+import { baseContext, sampleCandidate, sampleItinerary } from "./fixtures";
 
 describe("validate_itinerary", () => {
   it("reports valid when the injected validator returns no errors", async () => {
@@ -58,5 +58,22 @@ describe("validate_itinerary", () => {
     assert.equal(result.is_error, true);
     if (!result.is_error) return;
     assert.equal(result.error.code, "invalid_tool_input");
+  });
+
+  it("rejects validate proposals that use place ids outside this turn's admissible set", async () => {
+    const itinerary = sampleItinerary();
+    itinerary.options[0].stops[0].placeId = "pool-only-id";
+    itinerary.options[0].stops[0].name = "pool-only-id";
+    const result = await runValidateItinerary(
+      { tool: "validate_itinerary", itinerary },
+      baseContext({
+        candidates: [sampleCandidate("pool-only-id"), ...baseContext().candidates],
+        allowedPlaceIds: new Set(),
+        admissiblePlaceIds: new Set(["place-a", "place-b", "place-c", "place-d"]),
+      }),
+    );
+    assert.equal(result.is_error, true);
+    if (!result.is_error) return;
+    assert.equal(result.error.code, "unknown_place_id");
   });
 });

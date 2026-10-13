@@ -1,5 +1,4 @@
-import type { Retrieval } from "../retrieval";
-import type { SearchVenuesInput } from "../retrieval";
+import type { Retrieval, SearchVenuesInput } from "../retrieval";
 import type { Candidate } from "../validation/candidate";
 import type { Intent } from "../validation/intent";
 import type { Itinerary } from "../validation/itinerary";
@@ -15,6 +14,8 @@ export interface AgentToolContext {
   readonly intent: Intent;
   /** Place ids from `search_venues` results in this turn (replace_stop gate). */
   readonly allowedPlaceIds: ReadonlySet<string>;
+  /** Turn-start stop ids plus this turn's search hits (validate provenance). */
+  readonly admissiblePlaceIds: ReadonlySet<string>;
   /** Candidate facts for validation and for filling a replaced stop's name. */
   readonly candidates: readonly Candidate[];
   readonly retrieve: (input: SearchVenuesInput, signal?: AbortSignal) => Promise<Retrieval>;

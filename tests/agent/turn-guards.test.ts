@@ -47,6 +47,28 @@ describe("refine agent guards", () => {
     assert.equal(typeof user.content, "string");
     assert.match(String(user.content), /<user_text>/);
     assert.match(String(user.content), /swap the bar for dessert/);
+    assert.match(String(user.content), /Current itinerary \(JSON data\):/);
+  });
+
+  it("does not count a no-op turn as a revert", async () => {
+    const model = scriptedModel([textTurn("Looks good as is.")]);
+    const result = await runRefineAgent(
+      {
+        editText: "does this still look good?",
+        itinerary: sampleItinerary(),
+        intent: sampleIntent(),
+        candidates: sampleItinerary().options.flatMap((o) =>
+          o.stops.map((s) => sampleCandidate(s.placeId)),
+        ),
+      },
+      {
+        models: model,
+        retrieve: baseContext().retrieve,
+        validate: async () => [],
+      },
+    );
+    assert.equal(result.kind, "updated");
+    assert.equal(result.metrics.reverts, 0);
   });
 
   it("rejects inventing a venue id not returned by search_venues this turn", async () => {
