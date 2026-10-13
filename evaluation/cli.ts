@@ -1,3 +1,6 @@
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { parseArgs } from "node:util";
 
 import { getModelFor } from "../src/models/router";
@@ -59,9 +62,12 @@ the metrics. This calls paid APIs and costs money.
 Needs GOOGLE_PLACES_API_KEY and ENABLE_LIVE_ROUTES=true for every system,
 plus ANTHROPIC_API_KEY for pipeline and raw-model.
 
-With DD_API_KEY and DD_APP_KEY the local report is also pushed to a Datadog
-experiment. Without either key the push is skipped. DD_EVAL_PUSH=mock records
-the push in-process. DD_EVAL_PUSH=0 turns the push off.`;
+A Datadog experiment is pushed only when DD_EVAL_PUSH is live or 1 and both
+DD_API_KEY and DD_APP_KEY are set. Keys alone skip the push. DD_EVAL_PUSH=mock
+records the push in-process. DD_EVAL_PUSH=0 turns the push off. A mock run
+without live eval keys, or NIGHTCAP_EVAL_OFFLINE=1, writes synthetic error
+records. With no --out, that report goes to a temp directory so --compare
+does not read it from evaluation/results.`;
 
 export interface EvalCliIo {
   readonly env: Readonly<Record<string, string | undefined>>;
@@ -112,7 +118,7 @@ export interface EvalArgs {
   readonly compare: boolean;
   readonly limit: number | null;
   readonly concurrency: number;
-  readonly outDir: string;
+  readonly outDir: string | undefined;
   readonly help: boolean;
 }
 
@@ -157,7 +163,7 @@ export function parseEvalArgs(argv: readonly string[]): EvalArgs {
     compare: values.compare ?? false,
     limit: positiveInt("limit", values.limit),
     concurrency: positiveInt("concurrency", values.concurrency) ?? DEFAULT_CONCURRENCY,
-    outDir: values.out ?? DEFAULT_RESULTS_DIR,
+    outDir: values.out,
     help: values.help ?? false,
   };
 }
@@ -192,6 +198,7 @@ const NO_MODEL: ModelClient = {
 
 interface RunContext {
   readonly args: EvalArgs;
+  readonly reportDir: string;
   readonly io: EvalCliIo;
   readonly cases: readonly EvalCase[];
   readonly offline: boolean;
@@ -251,6 +258,13 @@ function runOffline(env: EvalCliIo["env"], system: SystemChoice, hasDeps: boolea
   return env.DD_EVAL_PUSH?.trim().toLowerCase() === "mock" && missingLiveEnv(env, system).length > 0;
 }
 
+async function runReportDir(outDir: string | undefined, offline: boolean): Promise<string> {
+  if (offline && outDir === undefined) {
+    return mkdtemp(join(tmpdir(), "nightcap-eval-offline-"));
+  }
+  return outDir ?? DEFAULT_RESULTS_DIR;
+}
+
 interface SystemRun {
   readonly report: EvalReport;
   readonly path: string;
@@ -287,7 +301,7 @@ async function runSystem(system: RunnableSystem, context: RunContext): Promise<S
       recordFromError(evalCase.id, "offline eval did not call the pipeline", { pool: [], poolOracle: null }),
     );
     const report = reportFor(system, context, startedAt, records, promptVersionsFor(system, PROMPT_VERSIONS));
-    return { report, path: await writeReport(args.outDir, report) };
+    return { report, path: await writeReport(context.reportDir, report) };
   }
   const deps = (io.createDeps ?? (() => createPipelineDeps(system === FILTER_ONLY_SYSTEM ? { models: NO_MODEL } : {})))();
   const records = await runCases(cases, runnerFor(system, deps, io), {
@@ -295,7 +309,7 @@ async function runSystem(system: RunnableSystem, context: RunContext): Promise<S
     onRecord: (record) => io.stderr(progressLine(system, record)),
   });
   const report = reportFor(system, context, startedAt, records, promptVersionsFor(system, deps.promptVersions));
-  return { report, path: await writeReport(args.outDir, report) };
+  return { report, path: await writeReport(context.reportDir, report) };
 }
 
 async function publishExperiments(reports: readonly EvalReport[], io: EvalCliIo): Promise<void> {
@@ -333,10 +347,10 @@ async function publishExperiments(reports: readonly EvalReport[], io: EvalCliIo)
   }
 }
 
-async function compareSaved(args: EvalArgs, io: EvalCliIo): Promise<number> {
-  const reports = await loadLatestReports(args.outDir);
+async function compareSaved(outDir: string, io: EvalCliIo): Promise<number> {
+  const reports = await loadLatestReports(outDir);
   if (reports.length === 0) {
-    io.stderr(`No reports in ${args.outDir}. Run \`npm run eval -- --system all\` first.`);
+    io.stderr(`No reports in ${outDir}. Run \`npm run eval -- --system all\` first.`);
     return EXIT_USAGE;
   }
   const missing = COMPARED_SYSTEMS.filter((system) => !reports.some((report) => report.system === system));
@@ -359,7 +373,7 @@ export async function runEvalCli(argv: readonly string[], io: EvalCliIo): Promis
     return EXIT_OK;
   }
   if (args.compare) {
-    return compareSaved(args, io);
+    return compareSaved(args.outDir ?? DEFAULT_RESULTS_DIR, io);
   }
   const offline = runOffline(io.env, args.system, io.createDeps !== undefined);
   if (io.createDeps === undefined && !offline) {
@@ -372,10 +386,11 @@ export async function runEvalCli(argv: readonly string[], io: EvalCliIo): Promis
   const allCases = (io.loadCases ?? loadEvalCasesV1)();
   const cases = args.limit === null ? allCases : allCases.slice(0, args.limit);
   const systems: readonly RunnableSystem[] = args.system === "all" ? COMPARED_SYSTEMS : [args.system];
+  const reportDir = await runReportDir(args.outDir, offline);
 
   const finished: SystemRun[] = [];
   for (const system of systems) {
-    finished.push(await runSystem(system, { args, io, cases, offline }));
+    finished.push(await runSystem(system, { args, reportDir, io, cases, offline }));
   }
   if (args.system === "all") {
     const reports = finished.map(({ report }) => report);

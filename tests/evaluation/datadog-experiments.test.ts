@@ -2,10 +2,11 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { after, describe, it } from "node:test";
 
 import { EXIT_OK, runEvalCli } from "../../evaluation/cli";
+import { loadLatestReports } from "../../evaluation/compare";
 import {
   adaptDatadogExperiments,
   applyEvalObservabilityDefaults,
@@ -16,7 +17,7 @@ import {
   pushEvalReport,
 } from "../../evaluation/datadog-experiments";
 import type { EvalCaseRecord } from "../../evaluation/record";
-import type { EvalReport } from "../../evaluation/report";
+import { DEFAULT_RESULTS_DIR, type EvalReport } from "../../evaluation/report";
 import { scoreRecords } from "../../evaluation/score";
 
 const V1 = "parse_intent@v1+plan_itineraries@v1+repair_itinerary@v1";
@@ -139,17 +140,40 @@ describe("datadog experiments", () => {
       evalProjectName({ DD_EVAL_ML_APP: "eval-lab", DD_LLMOBS_PROJECT_NAME: "proj-a" }),
       "proj-a",
     );
-    assert.deepEqual(planExperimentPush({}), { kind: "skip", reason: "DD_API_KEY or DD_APP_KEY is not set" });
-    assert.deepEqual(planExperimentPush({ DD_API_KEY: "api" }), {
+  });
+
+  it("plans a live push only when DD_EVAL_PUSH is live or 1 and both keys are set", () => {
+    const keys = { DD_API_KEY: "api", DD_APP_KEY: "app" };
+    assert.deepEqual(planExperimentPush({}), { kind: "skip", reason: "DD_EVAL_PUSH must be live or 1" });
+    assert.deepEqual(planExperimentPush(keys), { kind: "skip", reason: "DD_EVAL_PUSH must be live or 1" });
+    assert.deepEqual(planExperimentPush({ ...keys, DD_EVAL_PUSH: "yes" }), {
+      kind: "skip",
+      reason: "DD_EVAL_PUSH must be live or 1",
+    });
+    assert.deepEqual(planExperimentPush({ ...keys, DD_EVAL_PUSH: "live" }), { kind: "live" });
+    assert.deepEqual(planExperimentPush({ ...keys, DD_EVAL_PUSH: "1" }), { kind: "live" });
+    assert.deepEqual(planExperimentPush({ DD_EVAL_PUSH: "live" }), {
       kind: "skip",
       reason: "DD_API_KEY or DD_APP_KEY is not set",
     });
-    assert.deepEqual(planExperimentPush({ DD_API_KEY: "api", DD_APP_KEY: "app" }), { kind: "live" });
-    assert.deepEqual(planExperimentPush({ DD_API_KEY: "api", DD_APP_KEY: "app", DD_EVAL_PUSH: "0" }), {
+    assert.deepEqual(planExperimentPush({ DD_EVAL_PUSH: "1", DD_API_KEY: "api" }), {
+      kind: "skip",
+      reason: "DD_API_KEY or DD_APP_KEY is not set",
+    });
+    assert.deepEqual(planExperimentPush({ ...keys, DD_EVAL_PUSH: "0" }), {
+      kind: "skip",
+      reason: "DD_EVAL_PUSH is off",
+    });
+    assert.deepEqual(planExperimentPush({ ...keys, DD_EVAL_PUSH: "off" }), {
+      kind: "skip",
+      reason: "DD_EVAL_PUSH is off",
+    });
+    assert.deepEqual(planExperimentPush({ ...keys, DD_EVAL_PUSH: "false" }), {
       kind: "skip",
       reason: "DD_EVAL_PUSH is off",
     });
     assert.deepEqual(planExperimentPush({ DD_EVAL_PUSH: "mock" }), { kind: "mock" });
+    assert.deepEqual(planExperimentPush({ ...keys, DD_EVAL_PUSH: "mock" }), { kind: "mock" });
   });
 
   it("reuses one dataset id for two prompt versions", async () => {
@@ -279,16 +303,77 @@ describe("eval CLI experiment push", () => {
 
     assert.equal(code, EXIT_OK);
     const log = [...stdout, ...stderr].join("\n");
-    assert.match(log, /eval experiment push skipped: DD_API_KEY or DD_APP_KEY is not set/);
+    assert.match(log, /eval experiment push skipped: DD_EVAL_PUSH must be live or 1/);
     assert.match(log, /Report: /);
     assert.equal(log.includes("experiment submit"), false);
+  });
+
+  it("skips the push when DD_EVAL_PUSH=live and a Datadog key is missing", async () => {
+    const stdout: string[] = [];
+    const stderr: string[] = [];
+    const client = createMemoryExperimentsClient();
+    const code = await runEvalCli(["--limit", "1", "--out", await dir()], {
+      env: { DD_EVAL_PUSH: "live", NIGHTCAP_EVAL_OFFLINE: "1" },
+      stdout: (text) => stdout.push(text),
+      stderr: (text) => stderr.push(text),
+      now: () => new Date("2026-10-13T00:00:02.000Z"),
+      experiments: client,
+    });
+
+    assert.equal(code, EXIT_OK);
+    const log = [...stdout, ...stderr].join("\n");
+    assert.match(log, /eval experiment push skipped: DD_API_KEY or DD_APP_KEY is not set/);
+    assert.equal(log.includes("experiment submit"), false);
+    assert.equal(client.experiments.length, 0);
+  });
+
+  it("does not push when both keys are set and DD_EVAL_PUSH is unset", async () => {
+    const stdout: string[] = [];
+    const stderr: string[] = [];
+    const client = createMemoryExperimentsClient();
+    const code = await runEvalCli(["--limit", "1", "--out", await dir()], {
+      env: { DD_API_KEY: "api", DD_APP_KEY: "app", NIGHTCAP_EVAL_OFFLINE: "1" },
+      stdout: (text) => stdout.push(text),
+      stderr: (text) => stderr.push(text),
+      now: () => new Date("2026-10-13T00:00:03.000Z"),
+      experiments: client,
+    });
+
+    assert.equal(code, EXIT_OK);
+    const log = [...stdout, ...stderr].join("\n");
+    assert.match(log, /eval experiment push skipped: DD_EVAL_PUSH must be live or 1/);
+    assert.equal(log.includes("experiment submit"), false);
+    assert.equal(client.experiments.length, 0);
+  });
+
+  it("pushes when DD_EVAL_PUSH=live and both keys are set", async () => {
+    const stdout: string[] = [];
+    const client = createMemoryExperimentsClient();
+    const code = await runEvalCli(["--limit", "1", "--out", await dir()], {
+      env: {
+        DD_EVAL_PUSH: "live",
+        DD_API_KEY: "api",
+        DD_APP_KEY: "app",
+        NIGHTCAP_EVAL_OFFLINE: "1",
+      },
+      stdout: (text) => stdout.push(text),
+      stderr: () => undefined,
+      now: () => new Date("2026-10-13T00:00:04.000Z"),
+      experiments: client,
+    });
+
+    assert.equal(code, EXIT_OK);
+    assert.match(stdout.join("\n"), /experiment submit nc-001 prompt_version=/);
+    assert.equal(client.experiments[0]?.spans[0]?.tags.test_case_id, "nc-001");
+    assert.equal(client.experiments.length, 1);
   });
 
   it("logs an experiment submit for nc-001 when the push is mocked", async () => {
     const stdout: string[] = [];
     const stderr: string[] = [];
+    const output = await dir();
     const client = createMemoryExperimentsClient();
-    const code = await runEvalCli(["--limit", "1", "--out", await dir()], {
+    const code = await runEvalCli(["--limit", "1", "--out", output], {
       env: { DD_EVAL_PUSH: "mock" },
       stdout: (text) => stdout.push(text),
       stderr: (text) => stderr.push(text),
@@ -299,8 +384,103 @@ describe("eval CLI experiment push", () => {
     assert.equal(code, EXIT_OK);
     const log = [...stdout, ...stderr].join("\n");
     assert.match(log, /experiment submit nc-001 prompt_version=/);
+    assert.equal(log.includes(`Report: ${output}/`), true);
     assert.equal(client.experiments[0]?.spans[0]?.tags.test_case_id, "nc-001");
     assert.equal(client.experiments.length, 1);
+  });
+
+  it("keeps a mock run out of the default results directory --compare reads", async () => {
+    const startedAt = "2099-01-02T03:04:05.000Z";
+    const stdout: string[] = [];
+    const stderr: string[] = [];
+    const code = await runEvalCli(["--limit", "1"], {
+      env: { DD_EVAL_PUSH: "mock" },
+      stdout: (text) => stdout.push(text),
+      stderr: (text) => stderr.push(text),
+      now: () => new Date(startedAt),
+    });
+
+    assert.equal(code, EXIT_OK);
+    const log = [...stdout, ...stderr].join("\n");
+    assert.match(log, /experiment submit nc-001 prompt_version=/);
+    assert.match(log, /Validity \(cases\)\s+0\.0% \(0\/1\)/);
+    const reportPath = log.match(/Report: (\S+)/)?.[1];
+    if (reportPath === undefined) {
+      throw new Error(`expected a report path in:\n${log}`);
+    }
+    assert.equal(reportPath.startsWith(`${DEFAULT_RESULTS_DIR}/`), false);
+    const isolatedDir = dirname(reportPath);
+    const isolated = await loadLatestReports(isolatedDir);
+    assert.deepEqual(
+      isolated.map((item) => ({
+        system: item.system,
+        startedAt: item.startedAt,
+        caseId: item.records[0]?.caseId,
+        outcome: item.records[0]?.outcome.kind,
+        numerator: item.metrics.validity.cases.numerator,
+        denominator: item.metrics.validity.cases.denominator,
+        rate: item.metrics.validity.cases.rate,
+      })),
+      [
+        {
+          system: "pipeline",
+          startedAt,
+          caseId: "nc-001",
+          outcome: "error",
+          numerator: 0,
+          denominator: 1,
+          rate: 0,
+        },
+      ],
+    );
+    const compared = await loadLatestReports(DEFAULT_RESULTS_DIR);
+    assert.equal(
+      compared.some((item) => item.startedAt === startedAt),
+      false,
+    );
+    const compareStdout: string[] = [];
+    const compareCode = await runEvalCli(["--compare", "--out", isolatedDir], {
+      env: {},
+      stdout: (text) => compareStdout.push(text),
+      stderr: () => undefined,
+      now: () => new Date(startedAt),
+    });
+    assert.equal(compareCode, EXIT_OK);
+    assert.match(compareStdout.join("\n"), /\| pipeline \| 1 \| 0\.0% \(0\/1\) \|/);
+    await rm(isolatedDir, { recursive: true, force: true });
+  });
+
+  it("keeps an offline run out of the default results directory --compare reads", async () => {
+    const startedAt = "2099-01-02T03:04:06.000Z";
+    const stdout: string[] = [];
+    const stderr: string[] = [];
+    const code = await runEvalCli(["--limit", "1"], {
+      env: { NIGHTCAP_EVAL_OFFLINE: "1" },
+      stdout: (text) => stdout.push(text),
+      stderr: (text) => stderr.push(text),
+      now: () => new Date(startedAt),
+    });
+
+    assert.equal(code, EXIT_OK);
+    const log = [...stdout, ...stderr].join("\n");
+    assert.match(log, /eval experiment push skipped: DD_EVAL_PUSH must be live or 1/);
+    assert.equal(log.includes("experiment submit"), false);
+    const reportPath = log.match(/Report: (\S+)/)?.[1];
+    if (reportPath === undefined) {
+      throw new Error(`expected a report path in:\n${log}`);
+    }
+    assert.equal(reportPath.startsWith(`${DEFAULT_RESULTS_DIR}/`), false);
+    const isolated = await loadLatestReports(dirname(reportPath));
+    assert.equal(isolated[0]?.startedAt, startedAt);
+    assert.equal(isolated[0]?.records[0]?.outcome.kind, "error");
+    assert.equal(isolated[0]?.metrics.validity.cases.numerator, 0);
+    assert.equal(isolated[0]?.metrics.validity.cases.denominator, 1);
+    const compared = await loadLatestReports(DEFAULT_RESULTS_DIR);
+    assert.equal(
+      compared.some((item) => item.startedAt === startedAt),
+      false,
+    );
+    await rm(dirname(reportPath), { recursive: true, force: true });
   });
 });
 

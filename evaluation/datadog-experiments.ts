@@ -98,6 +98,9 @@ export function planExperimentPush(env: Readonly<Record<string, string | undefin
   if (flag === "mock") {
     return { kind: "mock" };
   }
+  if (flag !== "live" && flag !== "1") {
+    return { kind: "skip", reason: "DD_EVAL_PUSH must be live or 1" };
+  }
   const apiKey = env.DD_API_KEY?.trim() ?? "";
   const appKey = env.DD_APP_KEY?.trim() ?? "";
   if (apiKey === "" || appKey === "") {
