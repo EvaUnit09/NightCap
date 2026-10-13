@@ -126,5 +126,10 @@ export function createSpendStoreFromEnv(
   const url = env.UPSTASH_REDIS_REST_URL?.trim();
   const token = env.UPSTASH_REDIS_REST_TOKEN?.trim();
   if (url && token && isUpstashRestUrl(url)) return createSpendStore(connect(url, token));
+  if (url && token) {
+    console.warn(
+      "[monitoring] UPSTASH_REDIS_REST_URL must start with https://; using in-memory spend store",
+    );
+  }
   return createSpendStore(createMemorySpendRedis());
 }
