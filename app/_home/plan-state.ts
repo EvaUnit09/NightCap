@@ -12,7 +12,6 @@ export function nextRequestId(): RequestId {
   return requestSequence as RequestId;
 }
 
-/** Result slots by SSE `index`. Three, because ITINERARY_OPTIONS_MAX is 3. */
 export type OptionSlots = readonly [ItineraryOption | null, ItineraryOption | null, ItineraryOption | null];
 
 export const EMPTY_SLOTS: OptionSlots = [null, null, null];

@@ -1,10 +1,5 @@
 import type { TravelMode } from "../../src/validation/common";
 
-/**
- * Same value as `WRAP_USER_TEXT_MAX_CHARS`. That constant lives in a
- * server-only module, so the client keeps its own copy and a test fails
- * if the two drift.
- */
 export const REQUEST_TEXT_MAX_CHARS = 8 * 1024;
 
 export type WhenChoice = "tonight" | "tomorrow" | "this_friday";
@@ -21,7 +16,6 @@ export type BudgetChoice =
   | { readonly kind: "preset"; readonly usd: BudgetPresetUsd }
   | { readonly kind: "custom"; readonly usd: CustomBudgetUsd };
 
-/** Rounded to 3 decimals before it is stored, so the composed clause has a bounded width. */
 export interface ApproxLocation {
   readonly lat: number;
   readonly lng: number;
