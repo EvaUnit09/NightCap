@@ -1,7 +1,11 @@
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { parseArgs } from "node:util";
 
 import { getModelFor } from "../src/models/router";
 import {
+  PROMPT_VERSIONS,
   createPipelineDeps,
   type ModelClient,
   type ModelStage,
@@ -13,11 +17,20 @@ import type { PlacesClient } from "../src/retrieval";
 import type { TravelCalculator } from "../src/validation/travel";
 import { createRoutesTravelCalculator } from "../src/validation/validator-server";
 import { loadEvalCasesV1, type EvalCase } from "./cases";
+import {
+  EVAL_EXPERIMENT_PUSH_SKIPPED,
+  createDatadogExperimentsClient,
+  createMemoryExperimentsClient,
+  evalProjectName,
+  planExperimentPush,
+  pushEvalReport,
+  type ExperimentsClient,
+} from "./datadog-experiments";
 import { COMPARED_SYSTEMS, formatComparisonTable, loadLatestReports } from "./compare";
 import { FILTER_ONLY_SYSTEM, filterOnlyCaseRunner, filterOnlyPoolOracle, type FilterOnlyDeps } from "./filter-only";
 import { formatMetricsTable } from "./format";
 import { RAW_MODEL_PROMPT_VERSION, rawModelCaseRunner } from "./raw-model";
-import type { EvalCaseRecord } from "./record";
+import { recordFromError, type EvalCaseRecord } from "./record";
 import { DEFAULT_RESULTS_DIR, REPORT_SCHEMA_VERSION, writeReport, type EvalReport } from "./report";
 import { DEFAULT_CONCURRENCY, pipelineCaseRunner, runCases, type CaseRunner } from "./runner";
 import { partyBudgetsById } from "./party-budget";
@@ -47,7 +60,14 @@ the metrics. This calls paid APIs and costs money.
                    --out. Runs nothing and needs no keys.
 
 Needs GOOGLE_PLACES_API_KEY and ENABLE_LIVE_ROUTES=true for every system,
-plus ANTHROPIC_API_KEY for pipeline and raw-model.`;
+plus ANTHROPIC_API_KEY for pipeline and raw-model.
+
+A Datadog experiment is pushed only when DD_EVAL_PUSH is live or 1 and both
+DD_API_KEY and DD_APP_KEY are set. Keys alone skip the push. DD_EVAL_PUSH=mock
+records the push in-process. DD_EVAL_PUSH=0 turns the push off. A mock run
+without live eval keys, or NIGHTCAP_EVAL_OFFLINE=1, writes synthetic error
+records. With no --out, that report goes to a temp directory so --compare
+does not read it from evaluation/results.`;
 
 export interface EvalCliIo {
   readonly env: Readonly<Record<string, string | undefined>>;
@@ -61,6 +81,8 @@ export interface EvalCliIo {
   /** Test seam for the raw-model id lookup. Default: live Places Text Search. */
   readonly createPlaces?: () => PlacesClient;
   readonly loadCases?: () => EvalCase[];
+  /** Test seam. When absent, the CLI builds a client from env after the run. */
+  readonly experiments?: ExperimentsClient;
 }
 
 function isSet(value: string | undefined): boolean {
@@ -96,7 +118,7 @@ export interface EvalArgs {
   readonly compare: boolean;
   readonly limit: number | null;
   readonly concurrency: number;
-  readonly outDir: string;
+  readonly outDir: string | undefined;
   readonly help: boolean;
 }
 
@@ -141,7 +163,7 @@ export function parseEvalArgs(argv: readonly string[]): EvalArgs {
     compare: values.compare ?? false,
     limit: positiveInt("limit", values.limit),
     concurrency: positiveInt("concurrency", values.concurrency) ?? DEFAULT_CONCURRENCY,
-    outDir: values.out ?? DEFAULT_RESULTS_DIR,
+    outDir: values.out,
     help: values.help ?? false,
   };
 }
@@ -176,8 +198,10 @@ const NO_MODEL: ModelClient = {
 
 interface RunContext {
   readonly args: EvalArgs;
+  readonly reportDir: string;
   readonly io: EvalCliIo;
   readonly cases: readonly EvalCase[];
+  readonly offline: boolean;
 }
 
 function filterOnlyDepsFor(deps: PipelineDeps, io: EvalCliIo): FilterOnlyDeps {
@@ -206,15 +230,39 @@ function runnerFor(system: RunnableSystem, deps: PipelineDeps, io: EvalCliIo): C
   }
 }
 
-function promptVersionsFor(system: RunnableSystem, deps: PipelineDeps): Readonly<Record<string, string>> {
+function promptVersionsFor(
+  system: RunnableSystem,
+  pipelineVersions: Readonly<Record<string, string>>,
+): Readonly<Record<string, string>> {
   switch (system) {
     case "pipeline":
-      return deps.promptVersions;
+      return pipelineVersions;
     case "filter-only":
       return {};
     case "raw-model":
       return { plan_itineraries: RAW_MODEL_PROMPT_VERSION };
+    default: {
+      const exhaustive: never = system;
+      return exhaustive;
+    }
   }
+}
+
+function runOffline(env: EvalCliIo["env"], system: SystemChoice, hasDeps: boolean): boolean {
+  if (hasDeps) {
+    return false;
+  }
+  if (env.NIGHTCAP_EVAL_OFFLINE === "1") {
+    return true;
+  }
+  return env.DD_EVAL_PUSH?.trim().toLowerCase() === "mock" && missingLiveEnv(env, system).length > 0;
+}
+
+async function runReportDir(outDir: string | undefined, offline: boolean): Promise<string> {
+  if (offline && outDir === undefined) {
+    return mkdtemp(join(tmpdir(), "nightcap-eval-offline-"));
+  }
+  return outDir ?? DEFAULT_RESULTS_DIR;
 }
 
 interface SystemRun {
@@ -222,15 +270,15 @@ interface SystemRun {
   readonly path: string;
 }
 
-async function runSystem(system: RunnableSystem, context: RunContext): Promise<SystemRun> {
+function reportFor(
+  system: RunnableSystem,
+  context: RunContext,
+  startedAt: string,
+  records: readonly EvalCaseRecord[],
+  promptVersions: Readonly<Record<string, string>>,
+): EvalReport {
   const { args, io, cases } = context;
-  const deps = (io.createDeps ?? (() => createPipelineDeps(system === FILTER_ONLY_SYSTEM ? { models: NO_MODEL } : {})))();
-  const startedAt = io.now().toISOString();
-  const records = await runCases(cases, runnerFor(system, deps, io), {
-    concurrency: args.concurrency,
-    onRecord: (record) => io.stderr(progressLine(system, record)),
-  });
-  const report: EvalReport = {
+  return {
     schemaVersion: REPORT_SCHEMA_VERSION,
     system,
     caseSet: "v1",
@@ -238,17 +286,71 @@ async function runSystem(system: RunnableSystem, context: RunContext): Promise<S
     finishedAt: io.now().toISOString(),
     limit: args.limit,
     concurrency: args.concurrency,
-    promptVersions: promptVersionsFor(system, deps),
+    promptVersions,
     metrics: scoreRecords(records, { partyBudgets: partyBudgetsById(cases) }),
     records,
   };
-  return { report, path: await writeReport(args.outDir, report) };
 }
 
-async function compareSaved(args: EvalArgs, io: EvalCliIo): Promise<number> {
-  const reports = await loadLatestReports(args.outDir);
+async function runSystem(system: RunnableSystem, context: RunContext): Promise<SystemRun> {
+  const { args, io, cases, offline } = context;
+  const startedAt = io.now().toISOString();
+  if (offline) {
+    io.stderr(`offline eval: ${system} did not call models or Places`);
+    const records = cases.map((evalCase) =>
+      recordFromError(evalCase.id, "offline eval did not call the pipeline", { pool: [], poolOracle: null }),
+    );
+    const report = reportFor(system, context, startedAt, records, promptVersionsFor(system, PROMPT_VERSIONS));
+    return { report, path: await writeReport(context.reportDir, report) };
+  }
+  const deps = (io.createDeps ?? (() => createPipelineDeps(system === FILTER_ONLY_SYSTEM ? { models: NO_MODEL } : {})))();
+  const records = await runCases(cases, runnerFor(system, deps, io), {
+    concurrency: args.concurrency,
+    onRecord: (record) => io.stderr(progressLine(system, record)),
+  });
+  const report = reportFor(system, context, startedAt, records, promptVersionsFor(system, deps.promptVersions));
+  return { report, path: await writeReport(context.reportDir, report) };
+}
+
+async function publishExperiments(reports: readonly EvalReport[], io: EvalCliIo): Promise<void> {
+  const plan = planExperimentPush(io.env);
+  let client = io.experiments;
+  switch (plan.kind) {
+    case "skip":
+      io.stdout(`${EVAL_EXPERIMENT_PUSH_SKIPPED}: ${plan.reason}`);
+      return;
+    case "mock":
+      client ??= createMemoryExperimentsClient();
+      break;
+    case "live":
+      try {
+        client ??= await createDatadogExperimentsClient();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        io.stderr(`eval experiment push failed: ${message}`);
+        return;
+      }
+      break;
+    default: {
+      const exhaustive: never = plan;
+      throw new Error(`Unknown experiment push plan: ${JSON.stringify(exhaustive)}`);
+    }
+  }
+  const projectName = evalProjectName(io.env);
+  for (const report of reports) {
+    try {
+      await pushEvalReport({ report, client, projectName, log: io.stdout });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      io.stderr(`eval experiment push failed: ${message}`);
+    }
+  }
+}
+
+async function compareSaved(outDir: string, io: EvalCliIo): Promise<number> {
+  const reports = await loadLatestReports(outDir);
   if (reports.length === 0) {
-    io.stderr(`No reports in ${args.outDir}. Run \`npm run eval -- --system all\` first.`);
+    io.stderr(`No reports in ${outDir}. Run \`npm run eval -- --system all\` first.`);
     return EXIT_USAGE;
   }
   const missing = COMPARED_SYSTEMS.filter((system) => !reports.some((report) => report.system === system));
@@ -271,9 +373,10 @@ export async function runEvalCli(argv: readonly string[], io: EvalCliIo): Promis
     return EXIT_OK;
   }
   if (args.compare) {
-    return compareSaved(args, io);
+    return compareSaved(args.outDir ?? DEFAULT_RESULTS_DIR, io);
   }
-  if (io.createDeps === undefined) {
+  const offline = runOffline(io.env, args.system, io.createDeps !== undefined);
+  if (io.createDeps === undefined && !offline) {
     const missing = missingLiveEnv(io.env, args.system);
     if (missing.length > 0) {
       io.stderr(["Refusing to run the live eval:", ...missing.map((line) => `  - ${line}`)].join("\n"));
@@ -283,10 +386,11 @@ export async function runEvalCli(argv: readonly string[], io: EvalCliIo): Promis
   const allCases = (io.loadCases ?? loadEvalCasesV1)();
   const cases = args.limit === null ? allCases : allCases.slice(0, args.limit);
   const systems: readonly RunnableSystem[] = args.system === "all" ? COMPARED_SYSTEMS : [args.system];
+  const reportDir = await runReportDir(args.outDir, offline);
 
   const finished: SystemRun[] = [];
   for (const system of systems) {
-    finished.push(await runSystem(system, { args, io, cases }));
+    finished.push(await runSystem(system, { args, reportDir, io, cases, offline }));
   }
   if (args.system === "all") {
     const reports = finished.map(({ report }) => report);
@@ -296,5 +400,6 @@ export async function runEvalCli(argv: readonly string[], io: EvalCliIo): Promis
     const [only] = finished;
     io.stdout(`${formatMetricsTable(only.report.metrics)}\n\nReport: ${only.path}`);
   }
+  await publishExperiments(finished.map(({ report }) => report), io);
   return EXIT_OK;
 }

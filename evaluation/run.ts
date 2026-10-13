@@ -4,8 +4,10 @@
  * imported: dd-trace patches `@anthropic-ai/sdk` only as it first loads.
  */
 import { registerDatadogTracing } from "../src/monitoring/datadog-exporter";
+import { applyEvalObservabilityDefaults } from "./datadog-experiments";
 
 async function main(): Promise<number> {
+  applyEvalObservabilityDefaults(process.env);
   await registerDatadogTracing();
   const { runEvalCli } = await import("./cli");
   return runEvalCli(process.argv.slice(2), {
