@@ -1,6 +1,6 @@
 # Home
 
-Opening the site shows the Nightcap name as the page title and as the only heading. There is no form and no other control.
+Opening the site shows the Nightcap name as the page title and as the level-1 heading, plus the request form. Streamed itineraries use level-2 headings. There is no captcha.
 
 ## Sub-features
 
@@ -25,6 +25,6 @@ Preconditions:
 
 - Port 3000 is the everyday `npm run dev` port. A verification run uses 4173 and must refuse a server it did not start.
 - The HTML shell includes Next scripts. Assert the `<h1>Nightcap</h1>` marker and the accessibility heading, not that the body is only that tag.
-- The page has no CSS. In a dark browser the heading can be black on black in the screenshot. The accessibility snapshot and the `<h1>` marker still prove it is there. Save the screenshot anyway.
+- The page uses `app/globals.css`. Home proof is still the title, the level-1 heading `Nightcap`, and the description meta tag.
 - A 404 response also contains `<title>Nightcap</title>` before the error title. Home proof requires HTTP 200 and the level-1 heading `Nightcap`.
 - `drive home` does not write the screenshot. The browser step has to, or the UI proof is incomplete.
