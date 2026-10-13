@@ -32,6 +32,9 @@ const eslintConfig = defineConfig([
     "next-env.d.ts",
     // Vendored pstack skills (including poteto-mode scripts/*.ts and *.mjs)
     ".cursor/**",
+    // Static design-tool export; not app code.
+    "docs/design_handoff_Frontend/**",
+    ".arena/**",
   ]),
 ]);
 
