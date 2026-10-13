@@ -7,6 +7,7 @@ import { after, describe, it } from "node:test";
 
 import { EXIT_OK, runEvalCli } from "../../evaluation/cli";
 import {
+  adaptDatadogExperiments,
   applyEvalObservabilityDefaults,
   createMemoryExperimentsClient,
   evalProjectName,
@@ -20,6 +21,46 @@ import { scoreRecords } from "../../evaluation/score";
 
 const V1 = "parse_intent@v1+plan_itineraries@v1+repair_itinerary@v1";
 const V2 = "parse_intent@v1+plan_itineraries@v2+repair_itinerary@v1";
+
+class FakeDataset {
+  readonly #id: string;
+  readonly #records: Array<{ readonly id: string; readonly tags: readonly string[] }> = [];
+
+  constructor(id: string) {
+    this.#id = id;
+  }
+
+  addRecord(
+    _input: Readonly<Record<string, string>>,
+    _expectedOutput: undefined,
+    _metadata: Readonly<Record<string, string>>,
+    tags: string[],
+  ): this {
+    const caseId = tags.find((tag) => tag.startsWith("test_case_id:"))?.slice("test_case_id:".length);
+    this.#records.push({ id: `rec-${caseId}`, tags });
+    return this;
+  }
+
+  async push(): Promise<{ pushedCount: number; totalCount: number }> {
+    return { pushedCount: this.#records.length, totalCount: this.#records.length };
+  }
+
+  id(): string {
+    return this.#id;
+  }
+
+  version(): number | null {
+    return null;
+  }
+
+  latestVersion(): number {
+    return 3;
+  }
+
+  records(): ReadonlyArray<{ readonly id: string; readonly tags: readonly string[] }> {
+    return this.#records;
+  }
+}
 
 function completed(caseId: string): EvalCaseRecord {
   return {
@@ -109,6 +150,100 @@ describe("datadog experiments", () => {
       reason: "DD_EVAL_PUSH is off",
     });
     assert.deepEqual(planExperimentPush({ DD_EVAL_PUSH: "mock" }), { kind: "mock" });
+  });
+
+  it("reuses one dataset id for two prompt versions", async () => {
+    const store = new Map<string, FakeDataset>();
+    const starts: Array<{ readonly id: string; readonly version: number | undefined }> = [];
+    const spans: Array<{ readonly datasetRecordId?: string; readonly promptVersion: string }> = [];
+    let creates = 0;
+    const client = adaptDatadogExperiments({
+      async pullDataset(name) {
+        const found = store.get(name);
+        if (found === undefined) {
+          throw new Error(`Dataset '${name}' not found in project 'nightcap-eval' (after 1000ms)`);
+        }
+        return found;
+      },
+      createDataset(name) {
+        creates += 1;
+        const dataset = new FakeDataset("ds-1");
+        store.set(name, dataset);
+        return dataset;
+      },
+      async startExperiment(options) {
+        starts.push({ id: options.dataset.id, version: options.dataset.version });
+        return {
+          experimentId: () => "exp-1",
+          async submitSpan(span) {
+            spans.push({
+              datasetRecordId: span.datasetRecordId,
+              promptVersion: span.tags.prompt_version ?? "",
+            });
+          },
+          async close() {
+            return undefined;
+          },
+        };
+      },
+    });
+    const lines: string[] = [];
+    const versions = { parse_intent: "v1", plan_itineraries: "v1", repair_itinerary: "v1" };
+
+    await pushEvalReport({
+      report: report(versions),
+      client,
+      projectName: "nightcap-eval",
+      log: (line) => lines.push(line),
+    });
+    await pushEvalReport({
+      report: report({ ...versions, plan_itineraries: "v2" }),
+      client,
+      projectName: "nightcap-eval",
+      log: (line) => lines.push(line),
+    });
+
+    assert.equal(creates, 1);
+    assert.deepEqual(starts, [
+      { id: "ds-1", version: 3 },
+      { id: "ds-1", version: 3 },
+    ]);
+    assert.deepEqual(spans, [
+      { datasetRecordId: "rec-nc-001", promptVersion: V1 },
+      { datasetRecordId: "rec-nc-001", promptVersion: V2 },
+    ]);
+    assert.deepEqual(lines, [
+      `experiment submit nc-001 prompt_version=${V1}`,
+      `experiment submit nc-001 prompt_version=${V2}`,
+    ]);
+  });
+
+  it("leaves the dataset uncreated when lookup fails for another reason", async () => {
+    let creates = 0;
+    const client = adaptDatadogExperiments({
+      async pullDataset() {
+        throw new Error("Failed to list datasets in project 'nightcap-eval': HTTP 500");
+      },
+      createDataset() {
+        creates += 1;
+        return new FakeDataset("ds-x");
+      },
+      async startExperiment() {
+        throw new Error("start should not run");
+      },
+    });
+
+    await assert.rejects(
+      () =>
+        pushEvalReport({
+          report: report({ parse_intent: "v1", plan_itineraries: "v1", repair_itinerary: "v1" }),
+          client,
+          projectName: "nightcap-eval",
+          log: () => undefined,
+        }),
+      /Failed to list datasets in project 'nightcap-eval': HTTP 500/,
+    );
+    assert.equal(creates, 0);
   });
 
   it("copies DD_EVAL_ML_APP only onto empty tracer env vars", () => {
