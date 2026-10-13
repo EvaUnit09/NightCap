@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { beforeEach, describe, it } from "node:test";
 
+import { PLAN_TEXT_MAX_CHARS } from "../../src/api/plan-request";
 import { createPlanHandler } from "../../src/api/plan-stream";
+import { WRAP_USER_TEXT_MAX_CHARS } from "../../src/pipeline";
 import { resetConfig } from "../../src/models";
 import { ModelCallError } from "../../src/pipeline";
 import { INTENT, OPTION_A, OPTION_B, REQUEST_TEXT, fakeModels, harness, option } from "../pipeline/orchestrator-harness";
@@ -145,6 +147,44 @@ describe("POST /api/plan", () => {
     assert.equal(seen.aborted, true);
     assert.equal(wire, "");
   });
+
+  it("keeps the text cap aligned with the prompt wrapper", () => {
+    assert.equal(PLAN_TEXT_MAX_CHARS, WRAP_USER_TEXT_MAX_CHARS);
+  });
+
+  it("accepts optional date, budget, and neighborhood and folds them into the user text", async () => {
+    const models = fakeModels({ parse_intent: [{ json: INTENT }], plan_itineraries: [plan(OPTION_A, OPTION_B)] });
+    const handler = createPlanHandler(() => harness({ models }).deps);
+
+    const response = await handler(
+      post({
+        text: "drinks then dinner",
+        date: "2026-10-16",
+        budgetUsd: 180,
+        neighborhood: "West Village",
+      }),
+    );
+
+    assert.equal(response.status, 200);
+    const user = models.requestsFor("parse_intent")[0]?.user ?? "";
+    assert.match(user, /drinks then dinner/);
+    assert.match(user, /Date: 2026-10-16/);
+    assert.match(user, /Budget: \$180 for the night/);
+    assert.match(user, /Neighborhood: West Village/);
+  });
+
+  for (const [name, body] of [
+    ["a calendar date that does not exist", { text: "hi", date: "2026-02-31" }],
+    ["a budget that is not a whole dollar amount", { text: "hi", budgetUsd: 10.5 }],
+    ["a blank neighborhood", { text: "hi", neighborhood: "   " }],
+    ["filters that push the text past the cap", { text: "a".repeat(PLAN_TEXT_MAX_CHARS), date: "2026-10-16" }],
+  ] as const) {
+    it(`rejects ${name} before the pipeline starts`, async () => {
+      const response = await createPlanHandler(unreachable)(post(body));
+      assert.equal(response.status, 400);
+      assert.deepEqual(await response.json(), { error: "invalid_request" });
+    });
+  }
 
   for (const [name, body, code] of [
     ["malformed JSON", "{not json", "invalid_json"],
