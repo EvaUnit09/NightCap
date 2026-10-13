@@ -166,8 +166,39 @@ textarea {
 }
 
 .feedback button,
-.feedback select {
+.feedback select,
+.show-map {
   min-height: 44px;
+}
+
+.card[data-selected="true"] {
+  border-color: var(--accent);
+}
+
+.show-map {
+  margin-top: 8px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+
+.route-map {
+  margin-top: 16px;
+}
+
+.route-map:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.route-map-canvas {
+  height: 280px;
+  margin-top: 8px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
 }
 
 @media (max-width: 720px) {
