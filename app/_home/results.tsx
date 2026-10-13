@@ -1,7 +1,14 @@
+"use client";
+
+import { useState } from "react";
+
 import type { TravelMode } from "../../src/validation/common";
 import type { Intent } from "../../src/validation/intent";
 import type { ItineraryOption } from "../../src/validation/itinerary";
+import { RouteMap } from "../route-map";
+import { SaveShare } from "../save-share";
 import { FAILURE_COPY, type PlanState } from "./plan-state";
+import { selectNight } from "./selection";
 
 const GHOST_HINTS = [
   "Usually drinks, then dinner.",
@@ -70,12 +77,27 @@ export function IntentTags({ plan }: { readonly plan: PlanState }) {
   );
 }
 
-function OptionCard({ index, option }: { readonly index: number; readonly option: ItineraryOption }) {
+function OptionCard({
+  index,
+  option,
+  selected,
+  onSelect,
+}: {
+  readonly index: number;
+  readonly option: ItineraryOption;
+  readonly selected: boolean;
+  readonly onSelect?: () => void;
+}) {
   const total = option.stops.reduce((sum, stop) => sum + stop.estimatedCostUsd, 0);
   return (
-    <article className="home-card">
+    <article className="home-card" data-selected={selected ? "true" : "false"}>
       <span className="text-muted home-option-label">{`OPTION ${index + 1}`}</span>
       <h2>{option.theme}</h2>
+      {onSelect ? (
+        <button type="button" className="home-show-map" aria-pressed={selected} onClick={onSelect}>
+          Show on map
+        </button>
+      ) : null}
       <ol className="home-stops">
         {option.stops.map((stop) => (
           <li key={stop.placeId}>
@@ -109,7 +131,11 @@ function GhostCard({ index, live }: { readonly index: number; readonly live: boo
 }
 
 export function Results({ plan }: { readonly plan: PlanState }) {
+  const [requested, setRequested] = useState(0);
   const showGhosts = plan.kind === "idle" || plan.kind === "streaming";
+  const ready = plan.kind === "done";
+  const night = ready ? selectNight(plan, requested) : null;
+
   return (
     <section className="home-results" aria-label="Itineraries">
       {plan.kind === "failed" ? (
@@ -120,11 +146,25 @@ export function Results({ plan }: { readonly plan: PlanState }) {
       <div className="home-grid">
         {([0, 1, 2] as const).map((index) => {
           const option = plan.kind === "idle" ? null : plan.options[index];
-          if (option) return <OptionCard key={index} index={index} option={option} />;
+          if (option) {
+            return (
+              <OptionCard
+                key={index}
+                index={index}
+                option={option}
+                selected={night !== null && index === night.index}
+                onSelect={ready ? () => setRequested(index) : undefined}
+              />
+            );
+          }
           if (!showGhosts) return null;
           return <GhostCard key={index} index={index} live={plan.kind === "streaming"} />;
         })}
       </div>
+      {night && night.mapStops.length > 0 ? <RouteMap stops={night.mapStops} /> : null}
+      {night ? (
+        <SaveShare key={night.itineraryId ?? "unsaved"} itineraryId={night.itineraryId} />
+      ) : null}
     </section>
   );
 }

@@ -21,7 +21,12 @@ function isWireErrorStage(value: string): value is WireErrorStage {
 }
 
 const errorEnvelopeSchema = z.object({ stage: z.string(), code: z.string() }).strict();
-const doneSchema = z.object({ options: z.number().int().nonnegative() }).strict();
+const doneSchema = z
+  .object({
+    options: z.number().int().nonnegative(),
+    itineraryIds: z.array(z.string().uuid()).optional(),
+  })
+  .strict();
 
 export function toFailureReason(stage: WireErrorStage, code: string): PlanFailureReason {
   switch (stage) {
@@ -128,8 +133,9 @@ export function toPlanUpdate(frame: SseFrame, intentSoFar: Intent | null): PlanU
       return { kind: "option", index: parsed.data.index, option: parsed.data.option };
     }
     case "done": {
-      if (!doneSchema.safeParse(payload).success) return failed("service_unavailable");
-      return { kind: "done" };
+      const parsed = doneSchema.safeParse(payload);
+      if (!parsed.success) return failed("service_unavailable");
+      return { kind: "done", itineraryIds: parsed.data.itineraryIds ?? [] };
     }
     case "error": {
       const parsed = errorEnvelopeSchema.safeParse(payload);

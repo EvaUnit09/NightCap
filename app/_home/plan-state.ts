@@ -44,6 +44,7 @@ export type PlanState =
       readonly requestId: RequestId;
       readonly intent: Intent;
       readonly options: OptionSlots;
+      readonly itineraryIds: readonly string[];
     }
   | {
       readonly kind: "failed";
@@ -58,7 +59,7 @@ export const IDLE: PlanState = { kind: "idle" };
 export type PlanUpdate =
   | { readonly kind: "intent"; readonly intent: Intent }
   | { readonly kind: "option"; readonly index: 0 | 1 | 2; readonly option: ItineraryOption }
-  | { readonly kind: "done" }
+  | { readonly kind: "done"; readonly itineraryIds: readonly string[] }
   | { readonly kind: "failed"; readonly reason: PlanFailureReason };
 
 export type PlanAction =
@@ -104,6 +105,7 @@ function applyUpdate(state: Extract<PlanState, { kind: "streaming" }>, update: P
         requestId: state.requestId,
         intent: state.intent,
         options: state.options,
+        itineraryIds: update.itineraryIds,
       };
     case "failed":
       return {

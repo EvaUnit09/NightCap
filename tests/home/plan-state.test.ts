@@ -30,7 +30,10 @@ describe("planReducer", () => {
       planReducer(current, { type: "received", requestId: first, update: { kind: "intent", intent: INTENT } }),
       current,
     );
-    assert.equal(planReducer(IDLE, { type: "received", requestId: first, update: { kind: "done" } }), IDLE);
+    assert.equal(
+      planReducer(IDLE, { type: "received", requestId: first, update: { kind: "done", itineraryIds: [] } }),
+      IDLE,
+    );
   });
 
   it("fills intent and option slots, and a duplicate update is the same state", () => {
@@ -67,7 +70,11 @@ describe("planReducer", () => {
   it("requires intent before done, and keeps partial results on failure", () => {
     const open = streaming();
     if (open.kind !== "streaming") throw new Error("expected streaming");
-    const missing = planReducer(open, { type: "received", requestId: open.requestId, update: { kind: "done" } });
+    const missing = planReducer(open, {
+      type: "received",
+      requestId: open.requestId,
+      update: { kind: "done", itineraryIds: [] },
+    });
     assert.deepEqual(missing, {
       kind: "failed",
       requestId: open.requestId,
@@ -86,11 +93,17 @@ describe("planReducer", () => {
       requestId: open.requestId,
       update: { kind: "option", index: 1, option: OPTION_B },
     });
-    const done = planReducer(withOption, { type: "received", requestId: open.requestId, update: { kind: "done" } });
+    const ids = ["11111111-1111-4111-8111-111111111111"] as const;
+    const done = planReducer(withOption, {
+      type: "received",
+      requestId: open.requestId,
+      update: { kind: "done", itineraryIds: ids },
+    });
     assert.equal(done.kind, "done");
     if (done.kind !== "done") return;
     assert.equal(done.intent, INTENT);
     assert.equal(done.options[1], OPTION_B);
+    assert.deepEqual(done.itineraryIds, [...ids]);
 
     const failed = planReducer(withOption, {
       type: "received",
