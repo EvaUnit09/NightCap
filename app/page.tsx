@@ -1,3 +1,5 @@
+import { Suspense } from "react";
+
 import { RequestScreen } from "./request-screen";
 
 function itineraryParam(value: string | string[] | undefined): string | undefined {
@@ -6,12 +8,18 @@ function itineraryParam(value: string | string[] | undefined): string | undefine
   return raw;
 }
 
-export default async function Home({ searchParams }: PageProps<"/">) {
+async function PlannedNight({ searchParams }: Pick<PageProps<"/">, "searchParams">) {
   const query = await searchParams;
+  return <RequestScreen itineraryId={itineraryParam(query.itinerary)} />;
+}
+
+export default function Home({ searchParams }: PageProps<"/">) {
   return (
     <main>
       <h1>Nightcap</h1>
-      <RequestScreen itineraryId={itineraryParam(query.itinerary)} />
+      <Suspense fallback={null}>
+        <PlannedNight searchParams={searchParams} />
+      </Suspense>
     </main>
   );
 }
