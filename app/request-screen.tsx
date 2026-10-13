@@ -1,9 +1,15 @@
 "use client";
 
-import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 
 import { planRequestSchema, type PlanRequest } from "../src/api/plan-request";
 import { loadItinerary } from "../src/client/load-itinerary";
+import {
+  clampSelection,
+  mapOptionsForScreen,
+  stopsForSelection,
+  type MapStop,
+} from "../src/client/map-markers";
 import { requestPlan } from "../src/client/plan-events";
 import {
   feedbackTargets,
@@ -14,6 +20,7 @@ import {
 } from "../src/client/request-screen-state";
 import type { Intent } from "../src/validation/intent";
 import type { ItineraryOption } from "../src/validation/itinerary";
+import { RouteMap } from "./route-map";
 
 const WHEN = new Intl.DateTimeFormat("en-US", {
   weekday: "short",
@@ -111,17 +118,24 @@ function FeedbackBar({
 function Timelines({
   options,
   targets,
+  selectedIndex,
+  onSelect,
 }: {
   readonly options: readonly ItineraryOption[];
   readonly targets: readonly FeedbackTarget[];
+  readonly selectedIndex: number;
+  readonly onSelect: (index: number) => void;
 }) {
   if (options.length === 0) return null;
   const linked = targets.length === options.length;
   return (
     <div className="timelines">
       {options.map((option, index) => (
-        <article className="card" key={targets[index]?.itineraryId ?? index}>
+        <article className="card" key={targets[index]?.itineraryId ?? index} data-selected={index === selectedIndex}>
           <h2>{option.theme}</h2>
+          <button type="button" className="show-map" aria-pressed={index === selectedIndex} onClick={() => onSelect(index)}>
+            Show on map
+          </button>
           <ol>
             {option.stops.map((stop) => (
               <li key={stop.placeId}>
@@ -138,7 +152,22 @@ function Timelines({
   );
 }
 
-function Results({ screen }: { readonly screen: ScreenModel }) {
+function NightMap({ stops }: { readonly stops: readonly MapStop[] }) {
+  if (stops.length === 0) return null;
+  return <RouteMap stops={stops} />;
+}
+
+function Results({
+  screen,
+  selectedIndex,
+  onSelect,
+  mapStops,
+}: {
+  readonly screen: ScreenModel;
+  readonly selectedIndex: number;
+  readonly onSelect: (index: number) => void;
+  readonly mapStops: readonly MapStop[];
+}) {
   const targets = feedbackTargets(screen);
   switch (screen.phase) {
     case "idle":
@@ -148,7 +177,8 @@ function Results({ screen }: { readonly screen: ScreenModel }) {
         <div aria-busy="true">
           <Notice>Planning the night.</Notice>
           {screen.intent ? <p className="intent">{intentLine(screen.intent)}</p> : null}
-          <Timelines options={screen.options} targets={[]} />
+          <Timelines options={screen.options} targets={[]} selectedIndex={selectedIndex} onSelect={onSelect} />
+          <NightMap stops={mapStops} />
           <FeedbackBar placeIds={[]} />
         </div>
       );
@@ -156,7 +186,8 @@ function Results({ screen }: { readonly screen: ScreenModel }) {
       return (
         <div>
           {screen.intent ? <p className="intent">{intentLine(screen.intent)}</p> : null}
-          <Timelines options={screen.options} targets={targets} />
+          <Timelines options={screen.options} targets={targets} selectedIndex={selectedIndex} onSelect={onSelect} />
+          <NightMap stops={mapStops} />
           {targets.length === 0 ? <FeedbackBar placeIds={[]} /> : null}
         </div>
       );
@@ -195,19 +226,25 @@ function Results({ screen }: { readonly screen: ScreenModel }) {
       return <Notice>That plan could not be reloaded.</Notice>;
     case "reloaded":
       return (
-        <article className="card reload">
-          <h2>Saved plan</h2>
-          <ol>
-            {screen.stops.map((stop) => (
-              <li key={stop.placeId}>
-                <time dateTime={stop.start}>{formatWhen(stop.start)}</time>
-                <strong>{stop.name ?? stop.placeId}</strong>
-                <p>{stop.why}</p>
-              </li>
-            ))}
-          </ol>
-          <FeedbackBar itineraryId={screen.id} placeIds={screen.stops.map((stop) => stop.placeId)} />
-        </article>
+        <div>
+          <article className="card reload" data-selected={selectedIndex === 0}>
+            <h2>Saved plan</h2>
+            <ol>
+              {screen.stops.map((stop) => (
+                <li key={stop.placeId}>
+                  <time dateTime={stop.start}>{formatWhen(stop.start)}</time>
+                  <strong>{stop.name ?? stop.placeId}</strong>
+                  <p>{stop.why}</p>
+                </li>
+              ))}
+            </ol>
+            <button type="button" className="show-map" aria-pressed={selectedIndex === 0} onClick={() => onSelect(0)}>
+              Show on map
+            </button>
+            <FeedbackBar itineraryId={screen.id} placeIds={screen.stops.map((stop) => stop.placeId)} />
+          </article>
+          <NightMap stops={mapStops} />
+        </div>
       );
     default: {
       const neverScreen: never = screen;
@@ -224,6 +261,10 @@ export function RequestScreen({ itineraryId }: { readonly itineraryId?: string }
   const [date, setDate] = useState("");
   const [budget, setBudget] = useState("");
   const [neighborhood, setNeighborhood] = useState("");
+  const [selected, setSelected] = useState(0);
+  const mapOptions = useMemo(() => mapOptionsForScreen(screen), [screen]);
+  const selectedIndex = clampSelection(selected, mapOptions.length);
+  const mapStops = useMemo(() => stopsForSelection(mapOptions, selectedIndex), [mapOptions, selectedIndex]);
 
   useEffect(() => {
     if (!itineraryId) return;
@@ -260,6 +301,7 @@ export function RequestScreen({ itineraryId }: { readonly itineraryId?: string }
     }
     const input: PlanRequest = parsed.data;
     busy.current = true;
+    setSelected(0);
     dispatch({ type: "submit" });
     try {
       const outcome = await requestPlan(input, {
@@ -352,7 +394,7 @@ export function RequestScreen({ itineraryId }: { readonly itineraryId?: string }
           <p className="hint">Press ⌘Enter or Ctrl+Enter from the text box.</p>
         </div>
       </form>
-      <Results screen={screen} />
+      <Results screen={screen} selectedIndex={selectedIndex} onSelect={setSelected} mapStops={mapStops} />
     </div>
   );
 }
