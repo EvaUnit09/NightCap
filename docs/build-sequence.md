@@ -72,7 +72,7 @@ Do this before prompt iteration. Later phases call these modules; they do not re
 | 25 | Build the request screen: free text plus optional date, budget, and neighborhood, then side-by-side stop timelines. | `app/` | A beta user can submit a request and see 2–3 streamed itineraries with a one-line why on each stop. | no |
 | 26 | Collect thumbs, would-go, did-you-go, new-to-you, and closed-venue reports. | `feedback`, UI | Each signal is stored against the itinerary or place id and can be joined back to the Datadog trace. | no |
 | 27 | Add the route map. Cut this second if the date slips. | Google Maps JS | Stops for the selected itinerary render on a map. | no |
-| 28 | Add magic-link save and share. Cut this third if the date slips. | Supabase auth, `saved_plans` | An anonymous session can save a plan and open it from a share slug. | partial |
+| 28 | Add magic-link save and share. Cut this third if the date slips. | Supabase auth, `saved_plans` | An anonymous session can save a plan and open it from a share slug. | yes |
 
 ### 6. Refinement agent — target 2026-10-18
 

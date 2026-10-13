@@ -79,12 +79,12 @@ export async function loadStoredItinerary(db: Queryable, id: string): Promise<St
 }
 
 /** Names and Places details come from `lookup`. The stored stops stay placeId-only. */
-export async function hydrateItinerary(
-  itinerary: StoredItinerary,
+export async function hydrateStoredStops(
+  stops: readonly StoredStop[],
   lookup: PlaceDetailsLookup,
-): Promise<{ readonly itinerary: StoredItinerary; readonly stops: readonly HydratedStop[] }> {
-  const details = await lookup.lookup(itinerary.stops.map((stop) => stop.placeId));
-  const stops = itinerary.stops.map((stop): HydratedStop => {
+): Promise<readonly HydratedStop[]> {
+  const details = await lookup.lookup(stops.map((stop) => stop.placeId));
+  return stops.map((stop): HydratedStop => {
     const live = details.get(stop.placeId);
     return {
       ...stop,
@@ -94,5 +94,11 @@ export async function hydrateItinerary(
       priceLevel: live?.priceLevel ?? null,
     };
   });
-  return { itinerary, stops };
+}
+
+export async function hydrateItinerary(
+  itinerary: StoredItinerary,
+  lookup: PlaceDetailsLookup,
+): Promise<{ readonly itinerary: StoredItinerary; readonly stops: readonly HydratedStop[] }> {
+  return { itinerary, stops: await hydrateStoredStops(itinerary.stops, lookup) };
 }

@@ -201,8 +201,54 @@ textarea {
   border-radius: 12px;
 }
 
+.save-share {
+  margin-top: 28px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.save-share form,
+.save-share p {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: end;
+}
+
+.save-share input,
+.save-share button {
+  min-height: 44px;
+}
+
+.save-share input {
+  display: block;
+  width: min(100%, 280px);
+  margin-top: 4px;
+}
+
+.share-stops {
+  margin: 16px 0 0;
+  padding-left: 1.2rem;
+  max-width: 100%;
+}
+
+.share-stops li {
+  margin: 0 0 16px;
+  overflow-wrap: anywhere;
+}
+
+.share-stops time {
+  display: block;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
 @media (max-width: 720px) {
   .filters {
     grid-template-columns: 1fr;
+  }
+
+  .share-stops {
+    padding-left: 1rem;
   }
 }

@@ -60,6 +60,8 @@ user text is treated as data.
 | `places_cache` | place_id (PK), lat, lng, coords_fetched_at, coords_expires_at (≤ 30d). No payload. Query-result cache dropped. |
 | `saved_plans` | id, user_id (magic link), itinerary_id, share_slug |
 
+`POST /api/saved-plans` calls `save_plan` with the signed-in user id. The share slug comes back from that function. `GET /api/shared-plans/[slug]` and `/s/[slug]` call `get_shared_plan` with an exact slug, then hydrate stop names live. A new night from the share page starts at `/`, which still goes through the daily spend cap.
+
 ## Observability (Datadog)
 
 One trace per request (or agent turn) in Datadog LLM Observability. Spans: `parse` → `places.search` (× N, cache hit/miss) →
