@@ -174,6 +174,29 @@ describe("spend store", () => {
     assert.equal(await skipped.readDailyMicros(DAY), 0);
   });
 
+  it("keeps a non-https Upstash URL in memory so next build can collect /api/plan", async () => {
+    let called = false;
+    const warnings: string[] = [];
+    const warn = console.warn;
+    console.warn = (...args: unknown[]) => {
+      warnings.push(args.map(String).join(" "));
+    };
+    try {
+      const store = createSpendStoreFromEnv(
+        { UPSTASH_REDIS_REST_URL: "redis://bad", UPSTASH_REDIS_REST_TOKEN: "tok" },
+        () => {
+          called = true;
+          return createMemorySpendRedis();
+        },
+      );
+      assert.equal(called, false);
+      assert.equal(await store.addDailyMicros(DAY, 1), 1);
+      assert.match(warnings.join("\n"), /UPSTASH_REDIS_REST_URL must start with https:\/\//);
+    } finally {
+      console.warn = warn;
+    }
+  });
+
   it("checks the memory cap in under 50ms at p95", async () => {
     const store = createSpendStore(createMemorySpendRedis());
     const samples: number[] = [];
