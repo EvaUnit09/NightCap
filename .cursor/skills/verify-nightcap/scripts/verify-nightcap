@@ -77,9 +77,54 @@ foreign_nightcap_on_3000() {
   nightcap_title_and_heading "$body"
 }
 
+# PIDs that hold the TCP listen socket for PORT. Prefer lsof; fall back to
+# /proc/net/tcp + /proc/*/fd when lsof cannot map sockets (common in some VMs).
+listen_pids() {
+  local from_lsof
+  from_lsof="$(lsof -nP -iTCP:"$PORT" -sTCP:LISTEN -t 2>/dev/null || true)"
+  if [[ -n "$from_lsof" ]]; then
+    printf '%s\n' $from_lsof
+    return 0
+  fi
+  PORT="$PORT" python3 - <<'PY'
+import os, re, sys
+port = int(os.environ["PORT"])
+hexport = f"{port:04X}"
+inodes = set()
+try:
+    with open("/proc/net/tcp") as f:
+        next(f)
+        for line in f:
+            parts = line.split()
+            lip, lport = parts[1].split(":")
+            if lport.upper() == hexport and parts[3] == "0A":
+                inodes.add(parts[9])
+except OSError:
+    sys.exit(0)
+if not inodes:
+    sys.exit(0)
+for pid in os.listdir("/proc"):
+    if not pid.isdigit():
+        continue
+    fd_dir = f"/proc/{pid}/fd"
+    try:
+        for name in os.listdir(fd_dir):
+            try:
+                target = os.readlink(f"{fd_dir}/{name}")
+            except OSError:
+                continue
+            m = re.fullmatch(r"socket:\[(\d+)\]", target)
+            if m and m.group(1) in inodes:
+                print(pid)
+                break
+    except OSError:
+        continue
+PY
+}
+
 listener_owned_by_us() {
   local listeners lp
-  listeners="$(lsof -nP -iTCP:"$PORT" -sTCP:LISTEN -t 2>/dev/null || true)"
+  listeners="$(listen_pids)"
   if [[ -z "$listeners" ]]; then
     echo "doctor: nothing is listening on port ${PORT}" >&2
     return 1
