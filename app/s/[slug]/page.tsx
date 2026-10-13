@@ -1,9 +1,9 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { connection } from "next/server";
+import { Suspense } from "react";
 
 import { loadSharedPlanPage } from "../../../src/api/share";
-
-export const dynamic = "force-dynamic";
 
 function formatWhen(iso: string): string {
   const date = new Date(iso);
@@ -18,22 +18,17 @@ function formatWhen(iso: string): string {
   }).format(date);
 }
 
-export default async function SharedPlanPage({ params }: PageProps<"/s/[slug]">) {
+async function SharedBody({ params }: { readonly params: Promise<{ slug: string }> }) {
+  await connection();
   const { slug } = await params;
   const page = await loadSharedPlanPage(slug);
   if (page.status === "missing") notFound();
   if (page.status === "unconfigured") {
-    return (
-      <main>
-        <h1>Nightcap</h1>
-        <p>Sharing is not available on this server.</p>
-      </main>
-    );
+    return <p>Sharing is not available on this server.</p>;
   }
   const { view } = page;
   return (
-    <main>
-      <h1>Nightcap</h1>
+    <>
       <h2>Shared plan</h2>
       <ol className="share-stops" data-hydrated={view.hydrated ? "true" : "false"}>
         {view.stops.map((stop) => (
@@ -47,6 +42,17 @@ export default async function SharedPlanPage({ params }: PageProps<"/s/[slug]">)
       <p>
         <Link href="/">Plan another night</Link>
       </p>
+    </>
+  );
+}
+
+export default function SharedPlanPage({ params }: PageProps<"/s/[slug]">) {
+  return (
+    <main>
+      <h1>Nightcap</h1>
+      <Suspense fallback={<p>Loading the shared plan.</p>}>
+        <SharedBody params={params} />
+      </Suspense>
     </main>
   );
 }
