@@ -11,6 +11,18 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 
+# Local eval runner (`docker build --target eval`). Not the default target.
+# devDependencies stay so tsx can load the eval CLI. The node user owns /app
+# so the default report dir evaluation/results is writable. `next start` is runtime.
+FROM node:22-slim AS eval
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci
+COPY . .
+RUN chown -R node:node /app
+USER node
+CMD ["npm", "run", "eval", "--", "--help"]
+
 FROM node:22-slim AS runtime
 WORKDIR /app
 ENV NODE_ENV=production PORT=3000
