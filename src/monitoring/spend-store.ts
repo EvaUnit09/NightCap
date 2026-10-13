@@ -1,5 +1,6 @@
 import "server-only";
 
+import { publishDailySpend } from "./datadog-metrics";
 import { hourWindowMs } from "./spend-cap";
 import { createUpstashSpendRedis } from "./upstash-spend-store";
 
@@ -50,16 +51,24 @@ export function createSpendStore(redis: SpendRedis): SpendStore {
       return redis.zcard(key);
     },
     async readDailyMicros(day) {
-      return parseMicros(await redis.get(spendKey(day)));
+      const micros = parseMicros(await redis.get(spendKey(day)));
+      // This total includes Places and Routes. Model cost tags do not.
+      publishDailySpend(micros);
+      return micros;
     },
     async addDailyMicros(day, micros) {
       if (!Number.isSafeInteger(micros) || micros < 0) {
         throw new Error("daily spend increment must be a non-negative integer");
       }
       const key = spendKey(day);
-      if (micros === 0) return parseMicros(await redis.get(key));
+      if (micros === 0) {
+        const current = parseMicros(await redis.get(key));
+        publishDailySpend(current);
+        return current;
+      }
       const next = await redis.incrby(key, micros);
       await redis.expire(key, SPEND_TTL_SECONDS);
+      publishDailySpend(next);
       return next;
     },
   };
