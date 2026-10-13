@@ -79,10 +79,13 @@ export function baseContext(overrides: Partial<AgentToolContext> = {}): AgentToo
   const candidates =
     overrides.candidates ??
     itinerary.options.flatMap((option) => option.stops.map((entry) => sampleCandidate(entry.placeId, entry.name)));
+  const startIds = new Set(itinerary.options.flatMap((option) => option.stops.map((stop) => stop.placeId)));
+  const allowedPlaceIds = overrides.allowedPlaceIds ?? new Set<string>();
   return {
     itinerary,
     intent: overrides.intent ?? sampleIntent(),
-    allowedPlaceIds: overrides.allowedPlaceIds ?? new Set<string>(),
+    allowedPlaceIds,
+    admissiblePlaceIds: overrides.admissiblePlaceIds ?? new Set([...startIds, ...allowedPlaceIds]),
     candidates,
     retrieve:
       overrides.retrieve ??
