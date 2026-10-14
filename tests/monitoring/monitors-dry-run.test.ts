@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
@@ -23,6 +23,29 @@ import { createSpendStoreFromEnv, type SpendStore } from "../../src/monitoring/s
 import { INTENT, OPTION_A, OPTION_B, REQUEST_TEXT, fakeModels, harness } from "../pipeline/orchestrator-harness";
 
 const root = fileURLToPath(new URL("../..", import.meta.url));
+
+function writeFetchHook(dir: string): { hook: string; log: string } {
+  const log = join(dir, "fetch.log");
+  const hook = join(dir, "fetch-log.mjs");
+  writeFileSync(log, "");
+  writeFileSync(
+    hook,
+    [
+      'import { appendFileSync } from "node:fs";',
+      `const log = ${JSON.stringify(log)};`,
+      "globalThis.fetch = async (input, init) => {",
+      '  const url = typeof input === "string" ? input : input instanceof URL ? String(input) : input.url;',
+      '  const method = init?.method ?? "GET";',
+      '  appendFileSync(log, method + " " + url + "\\n");',
+      '  if (method === "GET") return new Response("[]", { status: 200 });',
+      "  return new Response(JSON.stringify({ id: 7 }), { status: 200 });",
+      "};",
+      "",
+    ].join("\n"),
+  );
+  return { hook, log };
+}
+
 const NOW = Date.UTC(2026, 9, 13, 12, 0, 0);
 const IP = "203.0.113.9";
 const SERVICE = "service:nightcap";
@@ -462,10 +485,18 @@ describe("monitor queries", () => {
   });
 
   it("dry-run prints both monitor bodies and does not send the key", () => {
-    const result = spawnSync(process.execPath, ["--import", "tsx", "ops/datadog/create-monitors.ts"], {
+    const dir = mkdtempSync(join(tmpdir(), "nightcap-monitors-"));
+    const { hook, log } = writeFetchHook(dir);
+    const env = {
+      ...process.env,
+      DD_API_KEY: "should-not-send",
+      DD_APP_KEY: "should-not-send",
+      DD_MONITORS_APPLY: "1",
+    };
+    const result = spawnSync(process.execPath, ["--import", hook, "--import", "tsx", "ops/datadog/create-monitors.ts"], {
       cwd: root,
       encoding: "utf8",
-      env: { ...process.env, DD_API_KEY: "should-not-send", DD_APP_KEY: "should-not-send", DD_MONITORS_APPLY: "1" },
+      env,
     });
 
     assert.equal(result.status, 0, result.stderr);
@@ -478,6 +509,33 @@ describe("monitor queries", () => {
     assert.equal(result.stdout.includes("should-not-send"), false);
     assert.equal(result.stderr.includes("should-not-send"), false);
     assert.equal(result.stdout.includes("/api/v1/series"), false);
+    assert.equal(result.stdout.includes("created "), false);
+    assert.equal(readFileSync(log, "utf8"), "");
+
+    const applied = spawnSync(
+      process.execPath,
+      ["--import", hook, "--import", "tsx", "ops/datadog/create-monitors.ts", "--apply"],
+      { cwd: root, encoding: "utf8", env },
+    );
+    assert.equal(applied.status, 0, applied.stderr);
+    assert.equal(
+      readFileSync(log, "utf8"),
+      [
+        "GET https://api.datadoghq.com/api/v1/monitor?monitor_tags=managed-by%3Aops-datadog",
+        "POST https://api.datadoghq.com/api/v1/monitor",
+        "POST https://api.datadoghq.com/api/v1/monitor",
+        "",
+      ].join("\n"),
+    );
+    assert.equal(
+      applied.stdout,
+      [
+        "created [nightcap] Daily spend at 80% of RATE_LIMIT_DAILY_SPEND_USD id=7",
+        "created [nightcap] Plan error rate at or above 10% over 1h id=7",
+        "",
+      ].join("\n"),
+    );
+    assert.equal(applied.stdout.includes("should-not-send"), false);
   });
 
   it("simulated breach exits 0 and writes SIMULATED receipts", () => {
