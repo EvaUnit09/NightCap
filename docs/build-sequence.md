@@ -91,6 +91,6 @@ Core v1. Do not cut this to make the date.
 |---|---|---|---|---|
 | 33 | Alert when daily spend passes 80% of the cap, and when the 1-hour error rate passes 10%. | Datadog monitors | Both monitors fire on a forced breach in a dry run. A weekly snapshot covers validity, p50/p99, and cost per request. | partial |
 | 34 | Push eval runs to Datadog datasets and experiments, tagged with prompt version and test-case id. | `evaluation/` runner | Two prompt versions can be compared in the dashboard. | partial |
-| 35 | Write the weekly error-analysis loop. | `docs/error-analysis.md` | Each review pulls invalid and repair-triggered traces from Datadog, joins thumbs-down from Supabase, tags the fixed taxonomy, and adds representative cases to v2. | no |
+| 35 | Write the weekly error-analysis loop. | `docs/error-analysis.md` | Each review pulls invalid and repair-triggered traces from Datadog, joins thumbs-down from Supabase, tags the fixed taxonomy, and adds representative cases to v2. | yes |
 | 36 | Calibrate an offline Opus 5 judge on about 30 human labels, then run the model comparison. Shrink to 2 models first if the date slips. | `evaluation/` | Agreement is reported. Each stage keeps the cheapest model that holds ≥ 90% validity and fit within 5% of the best. Opus stays off the request path. | no |
 | 37 | Run the beta, fold 20 real requests into frozen v1, and publish the README plus a live demo. | `README.md`, Vercel | The README links this doc, the decision log, eval results, and the demo. v1 is 80 cases and stays frozen. | no |
