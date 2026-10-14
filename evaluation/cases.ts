@@ -6,6 +6,7 @@ import { z } from "zod";
 import { travelModeSchema } from "../src/validation/common";
 
 export const EVAL_V1_FILE = join(import.meta.dirname, "nightcap_eval_cases_v1.json");
+export const EVAL_V2_FILE = join(import.meta.dirname, "nightcap_eval_cases_v2.json");
 export const EVAL_V1_CASE_COUNT = 60;
 
 const caseIdSchema = z.string().regex(/^nc-\d{3}$/);
@@ -52,4 +53,8 @@ export function parseEvalCases(json: string): EvalCase[] {
 
 export function loadEvalCasesV1(): EvalCase[] {
   return parseEvalCases(readFileSync(EVAL_V1_FILE, "utf8"));
+}
+
+export function loadEvalCasesV2(): EvalCase[] {
+  return parseEvalCases(readFileSync(EVAL_V2_FILE, "utf8"));
 }
