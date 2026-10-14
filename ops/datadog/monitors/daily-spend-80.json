@@ -1,0 +1,12 @@
+{
+  "name": "[nightcap] Daily spend at 80% of RATE_LIMIT_DAILY_SPEND_USD",
+  "type": "query alert",
+  "query": "max(last_5m):max:nightcap.spend.daily_fraction{service:nightcap,env:prod} >= 0.8",
+  "message": "Today's (UTC) vendor spend ledger is at {{value}} of the daily cap. At 1.0, POST /api/plan returns 429 daily_spend_cap until 00:00 UTC.",
+  "tags": ["service:nightcap", "env:prod", "managed-by:ops-datadog"],
+  "options": {
+    "thresholds": { "critical": 0.8 },
+    "notify_no_data": false,
+    "require_full_window": false
+  }
+}

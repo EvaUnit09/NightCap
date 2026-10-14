@@ -1,10 +1,14 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { afterEach, describe, it } from "node:test";
 
+import { loadMonitors } from "../../ops/datadog/create-monitors";
+import { resetConfig } from "../../src/models/config";
 import {
   billableRoutesHops,
   clientIp,
+  dailySpendFraction,
   hourWindowMs,
+  usdToMicros,
   utcDay,
   vendorMicros,
 } from "../../src/monitoring/spend-cap";
@@ -209,5 +213,32 @@ describe("spend store", () => {
     samples.sort((left, right) => left - right);
     const p95 = samples[Math.ceil(samples.length * 0.95) - 1];
     assert.equal(p95 < 50, true);
+  });
+});
+
+describe("dailySpendFraction", () => {
+  const previous = process.env.RATE_LIMIT_DAILY_SPEND_USD;
+
+  afterEach(() => {
+    if (previous === undefined) delete process.env.RATE_LIMIT_DAILY_SPEND_USD;
+    else process.env.RATE_LIMIT_DAILY_SPEND_USD = previous;
+    resetConfig();
+  });
+
+  it("reaches the spend monitor critical threshold at 80% of the cap and stays under one micro below", () => {
+    process.env.RATE_LIMIT_DAILY_SPEND_USD = "5";
+    resetConfig();
+    const spend = loadMonitors().find((monitor) => monitor.query.includes("nightcap.spend.daily_fraction"));
+    if (spend === undefined) throw new Error("spend monitor missing");
+    const critical = spend.options.thresholds.critical;
+    const capMicros = usdToMicros(5);
+    const atThreshold = Math.round(capMicros * 0.8);
+
+    assert.equal(critical, 0.8);
+    assert.equal(capMicros, 5_000_000);
+    assert.equal(atThreshold, 4_000_000);
+    assert.equal(dailySpendFraction(atThreshold, 5), 0.8);
+    assert.equal(dailySpendFraction(atThreshold, 5) >= critical, true);
+    assert.equal(dailySpendFraction(atThreshold - 1, 5) >= critical, false);
   });
 });
