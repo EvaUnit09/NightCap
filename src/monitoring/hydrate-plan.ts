@@ -2,6 +2,9 @@ import "server-only";
 
 import { z } from "zod";
 
+import { getRateLimitDailySpendUsd } from "../models/config";
+import { usdToMicros, utcDay } from "./spend-cap";
+import type { SpendStore } from "./spend-store";
 import type { Queryable } from "./store-request";
 import { storedStopSchema, type StoredStop } from "./stored-stop";
 
@@ -101,4 +104,30 @@ export async function hydrateItinerary(
   lookup: PlaceDetailsLookup,
 ): Promise<{ readonly itinerary: StoredItinerary; readonly stops: readonly HydratedStop[] }> {
   return { itinerary, stops: await hydrateStoredStops(itinerary.stops, lookup) };
+}
+
+/** True when another Places call would start past the daily cap. */
+export function createPlacesBlocked(store: SpendStore): () => Promise<boolean> {
+  return async () => {
+    const spent = await store.readDailyMicros(utcDay(Date.now()));
+    return spent >= usdToMicros(getRateLimitDailySpendUsd());
+  };
+}
+
+function withoutDetails(stops: readonly StoredStop[]): HydratedStop[] {
+  return stops.map((stop) => ({ ...stop, name: null, formattedAddress: null, rating: null, priceLevel: null }));
+}
+
+/** Falls back to bare stops when the cap check or the lookup fails, or the cap is reached. */
+export async function hydrateUnlessBlocked(
+  stops: readonly StoredStop[],
+  lookup: PlaceDetailsLookup,
+  placesBlocked: () => Promise<boolean>,
+): Promise<{ readonly stops: readonly HydratedStop[]; readonly hydrated: boolean }> {
+  try {
+    if (!(await placesBlocked())) return { stops: await hydrateStoredStops(stops, lookup), hydrated: true };
+  } catch {
+    // fall through to bare stops
+  }
+  return { stops: withoutDetails(stops), hydrated: false };
 }
