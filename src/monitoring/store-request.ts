@@ -18,8 +18,8 @@ export type PrepareStoredRequestResult =
   | { readonly ok: false; readonly error: RedactionErrorCode | "invalid_intent" };
 
 const INSERT_STORED_REQUEST = `
-INSERT INTO public.requests (redacted_text, parsed_intent, client_hash)
-VALUES ($1, $2::jsonb, $3)
+INSERT INTO public.requests (redacted_text, parsed_intent, client_hash, user_id)
+VALUES ($1, $2::jsonb, $3, $4)
 RETURNING id
 `;
 
@@ -48,6 +48,7 @@ export function prepareStoredRequest(
 export async function insertStoredRequest(
   db: Queryable,
   row: StoredRequest,
+  userId: string | null = null,
 ): Promise<{ id: string }> {
   if (!isPlainJsonObject(row.parsedIntent)) {
     throw new Error("parsed_intent must be a plain JSON object");
@@ -56,6 +57,7 @@ export async function insertStoredRequest(
     row.redactedText,
     JSON.stringify(row.parsedIntent),
     row.clientHash,
+    userId,
   ]);
   return inserted.rows[0];
 }

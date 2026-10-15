@@ -1,6 +1,7 @@
 import "server-only";
 
 import { composePlanText, planRequestSchema } from "./plan-request";
+import { createGoTrueAuth, userIdFromRequest } from "../auth/magic-link";
 import { createQueryableFromEnv } from "../db/postgres";
 import { getEnableLiveRoutes, getRateLimitDailySpendUsd, getRateLimitRequestsPerHour, getRequestHashSecret } from "../models/config";
 import { costUsdFor } from "../models/pricing";
@@ -44,6 +45,8 @@ export interface PlanHandlerOptions {
   readonly store?: SpendStore;
   readonly now?: () => number;
   readonly persist?: PlanPersistence;
+  /** Resolves the signed-in user for a request. A rejection persists the plan as anonymous. */
+  readonly userId?: (request: Request) => Promise<string | null>;
   readonly metrics?: MetricsSink;
 }
 
@@ -253,7 +256,19 @@ export function createPlanHandler(
 ): (request: Request) => Promise<Response> {
   const now = options.now ?? Date.now;
   const sink = options.metrics ?? createNoopMetricsSink();
+  const { persist: basePersist, userId: resolveUser } = options;
   return async (request) => {
+    // Called at admission so the lookup overlaps the pipeline and a token that expires mid-plan still counts.
+    const admit = (): PlanPersistence | undefined => {
+      if (!basePersist || !resolveUser) return basePersist;
+      const userId = resolveUser(request).catch(() => null);
+      return {
+        async save(input) {
+          const id = await userId;
+          return basePersist.save(id ? { ...input, userId: id } : input);
+        },
+      };
+    };
     const raw = await request.text().catch(() => null);
     if (raw === null) {
       return badRequest("invalid_request");
@@ -278,7 +293,7 @@ export function createPlanHandler(
 
     const store = options.store;
     if (!store) {
-      return streamPlan(text, makeDeps, request, undefined, options.persist, {
+      return streamPlan(text, makeDeps, request, undefined, admit(), {
         sink,
         now,
         capUsd: getRateLimitDailySpendUsd(),
@@ -322,7 +337,7 @@ export function createPlanHandler(
         if (micros > 0 || keepZeroTotal) return store.addDailyMicros(day, micros);
         return null;
       },
-      options.persist,
+      admit(),
       { sink, now, capUsd, precheck },
     );
   };
@@ -331,9 +346,11 @@ export function createPlanHandler(
 /** Production POST. The app route stays free of `src/monitoring` imports. */
 export function createProductionPlanHandler(): (request: Request) => Promise<Response> {
   const db = createQueryableFromEnv();
+  const auth = createGoTrueAuth();
   return createPlanHandler(() => createPipelineDeps(), {
     store: createSpendStoreFromEnv(),
     persist: db ? createPlanPersistence(db, getRequestHashSecret()) : undefined,
+    userId: auth ? (request) => userIdFromRequest(request, auth) : undefined,
     metrics: createMetricsSinkFromEnv(),
   });
 }
