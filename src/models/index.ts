@@ -1,6 +1,7 @@
 export {
   assertProductionLiveRoutes,
   assertProductionRequestHashSecret,
+  assertProductionSpendStore,
   DEV_TEST_REQUEST_HASH_SECRET,
   getAgentMaxCostUsdPerTurn,
   getAgentMaxToolCalls,

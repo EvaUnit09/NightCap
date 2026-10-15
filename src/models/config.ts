@@ -527,6 +527,27 @@ export function assertProductionRequestHashSecret(): void {
   );
 }
 
+/**
+ * Prod-only startup gate for the shared spend store. Without Upstash each
+ * instance keeps its own in-memory daily cap and plan rate limit.
+ */
+export function assertProductionSpendStore(): void {
+  if (process.env.NODE_ENV !== "production") {
+    return;
+  }
+  if (isNextBuildPhase(process.env.NEXT_PHASE)) {
+    return;
+  }
+  const url = process.env.UPSTASH_REDIS_REST_URL?.trim();
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN?.trim();
+  if (url?.startsWith("https://") && token) {
+    return;
+  }
+  throw new Error(
+    "Production refuses to start without UPSTASH_REDIS_REST_URL (https://) and UPSTASH_REDIS_REST_TOKEN. The daily spend cap and plan rate limit need the shared store.",
+  );
+}
+
 /** Reset config for testing. */
 export function resetConfig(): void {
   config = null;

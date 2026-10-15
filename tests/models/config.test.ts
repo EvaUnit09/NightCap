@@ -28,6 +28,7 @@ import {
   getPriceRanges,
   resetConfig,
   assertProductionLiveRoutes,
+  assertProductionSpendStore,
 } from "../../src/models";
 
 describe("Config module", () => {
@@ -536,5 +537,51 @@ describe("Config module", () => {
       process.env.PARSE_MODEL_ID = "claude-haiku-4-5";
       assert.equal(getParseModelId(), "claude-haiku-4-5");
     });
+  });
+});
+
+describe("Upstash spend store production gate", () => {
+  const originalEnv = { ...process.env };
+
+  afterEach(() => {
+    process.env = { ...originalEnv };
+    resetConfig();
+  });
+
+  function setProd(url?: string, token?: string) {
+    Object.assign(process.env, { NODE_ENV: "production" });
+    delete process.env.NEXT_PHASE;
+    delete process.env.UPSTASH_REDIS_REST_URL;
+    delete process.env.UPSTASH_REDIS_REST_TOKEN;
+    if (url) process.env.UPSTASH_REDIS_REST_URL = url;
+    if (token) process.env.UPSTASH_REDIS_REST_TOKEN = token;
+  }
+
+  it("throws in production without Upstash vars", () => {
+    setProd();
+    assert.throws(() => assertProductionSpendStore(), /UPSTASH_REDIS_REST_URL/);
+  });
+
+  it("throws in production when the URL is not https", () => {
+    setProd("redis://example", "tok");
+    assert.throws(() => assertProductionSpendStore(), /UPSTASH_REDIS_REST_URL/);
+  });
+
+  it("throws in production when only the token is missing", () => {
+    setProd("https://example.upstash.io");
+    assert.throws(() => assertProductionSpendStore(), /UPSTASH_REDIS_REST_TOKEN/);
+  });
+
+  it("is ok in production with both vars", () => {
+    setProd("https://example.upstash.io", "tok");
+    assert.doesNotThrow(() => assertProductionSpendStore());
+  });
+
+  it("is ok outside production and during next build", () => {
+    setProd();
+    Object.assign(process.env, { NODE_ENV: "development" });
+    assert.doesNotThrow(() => assertProductionSpendStore());
+    Object.assign(process.env, { NODE_ENV: "production", NEXT_PHASE: "phase-production-build" });
+    assert.doesNotThrow(() => assertProductionSpendStore());
   });
 });
