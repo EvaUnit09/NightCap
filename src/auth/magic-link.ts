@@ -4,12 +4,16 @@ import { createHash, randomBytes } from "node:crypto";
 
 import { z } from "zod";
 
+import { clientIp } from "../monitoring/spend-cap";
+import { createSpendStoreFromEnv, type SpendStore } from "../monitoring/spend-store";
+
 const JSON_HEADERS = { "Cache-Control": "no-store" } as const;
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const SESSION_COOKIE = "nightcap_session";
 const PKCE_COOKIE = "nightcap_pkce";
 const SESSION_MAX_AGE = 60 * 60;
 const PKCE_MAX_AGE = 10 * 60;
+const MAGIC_LINKS_PER_IP_PER_HOUR = 5;
 
 const tokenResponseSchema = z.object({
   access_token: z.string().min(1),
@@ -59,7 +63,11 @@ export function readCookie(request: Request, name: string): string | null {
     if (separator === -1) continue;
     const key = part.slice(0, separator).trim();
     if (key !== name) continue;
-    return decodeURIComponent(part.slice(separator + 1).trim());
+    try {
+      return decodeURIComponent(part.slice(separator + 1).trim());
+    } catch {
+      return null;
+    }
   }
   return null;
 }
@@ -81,7 +89,10 @@ export function pkceChallenge(verifier: string): string {
   return createHash("sha256").update(verifier).digest("base64url");
 }
 
-export function createMagicLinkHandler(auth: MagicLinkAuth | null): (request: Request) => Promise<Response> {
+export function createMagicLinkHandler(
+  auth: MagicLinkAuth | null,
+  store: SpendStore,
+): (request: Request) => Promise<Response> {
   return async (request) => {
     if (!auth) return json({ error: "auth_unconfigured" }, 503);
     const raw = await request.text().catch(() => null);
@@ -94,6 +105,13 @@ export function createMagicLinkHandler(auth: MagicLinkAuth | null): (request: Re
     }
     const email = parseEmail(body);
     if (!email) return json({ error: "invalid_request" }, 400);
+    let sent: number;
+    try {
+      sent = await store.recordPlan(`auth:${clientIp(request)}`, Date.now());
+    } catch {
+      return json({ error: "rate_limit_unavailable" }, 503);
+    }
+    if (sent > MAGIC_LINKS_PER_IP_PER_HOUR) return json({ error: "rate_limited" }, 429);
     const verifier = createPkceVerifier();
     const redirectTo = new URL("/auth/confirm", request.url).toString();
     const started = await auth.startMagicLink(email, redirectTo, pkceChallenge(verifier));
@@ -213,7 +231,7 @@ export function createGoTrueAuth(env: Record<string, string | undefined> = proce
 }
 
 export function createProductionMagicLinkHandler(): (request: Request) => Promise<Response> {
-  return createMagicLinkHandler(createGoTrueAuth());
+  return createMagicLinkHandler(createGoTrueAuth(), createSpendStoreFromEnv());
 }
 
 export function createProductionConfirmHandler(): (request: Request) => Promise<Response> {

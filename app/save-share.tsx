@@ -48,7 +48,13 @@ export function SaveShare({ itineraryId }: { readonly itineraryId?: string }) {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ email }),
       });
-      setNote(response.ok ? "Check your email for a sign-in link." : "The sign-in link could not be sent.");
+      setNote(
+        response.ok
+          ? "Check your email for a sign-in link."
+          : response.status === 429
+            ? "Too many sign-in attempts. Try again in an hour."
+            : "The sign-in link could not be sent.",
+      );
     } finally {
       setBusy(false);
     }
