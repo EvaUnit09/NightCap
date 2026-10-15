@@ -30,6 +30,7 @@ const sharedRowSchema = z.object({
 const savedRowSchema = z.object({
   id: z.string().uuid(),
   share_slug: z.string().regex(SHARE_SLUG),
+  created: z.boolean(),
 });
 
 export interface SharedPlanView {
@@ -119,26 +120,13 @@ export function createSavePlanHandler(deps: SaveDeps): (request: Request) => Pro
     const userId = await deps.userId(request);
     if (!userId) return json({ error: "sign_in_required" }, 401);
 
-    const existing = await deps.db.query<{ id: string; share_slug: string }>(
-      `SELECT id, share_slug
-       FROM public.saved_plans
-       WHERE user_id = $1 AND itinerary_id = $2
-       ORDER BY created_at ASC
-       LIMIT 1`,
-      [userId, parsed.itineraryId],
-    );
-    const already = existing.rows[0];
-    if (already && isShareSlug(already.share_slug)) {
-      return json({ id: already.id, shareSlug: already.share_slug, sharePath: `/s/${already.share_slug}` }, 200);
-    }
-
     try {
-      const saved = await deps.db.query<{ id: string; share_slug: string }>(
+      const saved = await deps.db.query<{ id: string; share_slug: string; created: boolean }>(
         `SELECT * FROM public.save_plan($1, $2)`,
         [userId, parsed.itineraryId],
       );
       const row = savedRowSchema.parse(saved.rows[0]);
-      return json({ id: row.id, shareSlug: row.share_slug, sharePath: `/s/${row.share_slug}` }, 201);
+      return json({ id: row.id, shareSlug: row.share_slug, sharePath: `/s/${row.share_slug}` }, row.created ? 201 : 200);
     } catch (error) {
       const failure = saveFailure(error);
       switch (failure) {

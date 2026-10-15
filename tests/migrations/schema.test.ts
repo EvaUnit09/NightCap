@@ -223,6 +223,34 @@ describe("Supabase migration with real Postgres", { concurrency: 1 }, () => {
       });
     });
 
+    it("save_plan is idempotent per user and itinerary, even when called concurrently", async () => {
+      const user = await db.query<{ id: string }>(
+        `INSERT INTO auth.users (email) VALUES ('idem@test.com') RETURNING id`
+      );
+      const request = await db.query<{ id: string }>(
+        `INSERT INTO public.requests (user_id, redacted_text, parsed_intent)
+         VALUES ($1, 'twice', '{}'::jsonb) RETURNING id`,
+        [user.rows[0].id]
+      );
+      const itinerary = await db.query<{ id: string }>(
+        `INSERT INTO public.itineraries
+           (request_id, option_index, stops, valid, prompt_versions, models)
+         VALUES ($1, 0, '[]'::jsonb, true, '{}'::jsonb, '{}'::jsonb) RETURNING id`,
+        [request.rows[0].id]
+      );
+      const save = () =>
+        db.query<{ id: string; share_slug: string; created: boolean }>(
+          `SELECT * FROM public.save_plan($1, $2)`,
+          [user.rows[0].id, itinerary.rows[0].id]
+        );
+      const [a, b] = await asRole(db, "service_role", null, () => Promise.all([save(), save()]));
+      assert.equal(a.rows[0].share_slug, b.rows[0].share_slug);
+      assert.equal(a.rows[0].id, b.rows[0].id);
+      assert.deepEqual([a.rows[0].created, b.rows[0].created].sort(), [false, true]);
+      const count = await db.query<{ n: string }>(`SELECT count(*)::text AS n FROM public.saved_plans`);
+      assert.equal(count.rows[0].n, "1");
+    });
+
     it("blocks deleting a request that still has a saved plan", async () => {
       const user = await db.query<{ id: string }>(
         `INSERT INTO auth.users (email) VALUES ('restrict@test.com') RETURNING id`
