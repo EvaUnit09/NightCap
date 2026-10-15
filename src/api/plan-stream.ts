@@ -1,6 +1,7 @@
 import "server-only";
 
 import { composePlanText, planRequestSchema } from "./plan-request";
+import { readJsonBody } from "./read-json-body";
 import { createGoTrueAuth, userIdFromRequest } from "../auth/magic-link";
 import { createQueryableFromEnv } from "../db/postgres";
 import { getEnableLiveRoutes, getRateLimitDailySpendUsd, getRateLimitRequestsPerHour, getRequestHashSecret } from "../models/config";
@@ -269,19 +270,8 @@ export function createPlanHandler(
         },
       };
     };
-    const raw = await request.text().catch(() => null);
-    if (raw === null) {
-      return badRequest("invalid_request");
-    }
-    if (raw.length > BODY_MAX_CHARS) {
-      return badRequest("too_large");
-    }
-    let body: unknown;
-    try {
-      body = JSON.parse(raw);
-    } catch {
-      return badRequest("invalid_json");
-    }
+    const body = await readJsonBody(request, BODY_MAX_CHARS);
+    if (body instanceof Response) return body;
     const parsed = planRequestSchema.safeParse(body);
     if (!parsed.success) {
       return badRequest("invalid_request");

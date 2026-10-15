@@ -1,6 +1,7 @@
 import "server-only";
 
 import { createQueryableFromEnv } from "../db/postgres";
+import { readJsonBody } from "./read-json-body";
 import { recordFeedback } from "../monitoring/record-feedback";
 import type { Queryable } from "../monitoring/store-request";
 import { feedbackBodySchema } from "./feedback-body";
@@ -14,15 +15,8 @@ function json(body: unknown, status: number): Response {
 
 export function createFeedbackHandler(db: Queryable): (request: Request) => Promise<Response> {
   return async (request) => {
-    const raw = await request.text().catch(() => null);
-    if (raw === null) return json({ error: "invalid_request" }, 400);
-    if (raw.length > BODY_MAX_CHARS) return json({ error: "too_large" }, 400);
-    let body: unknown;
-    try {
-      body = JSON.parse(raw);
-    } catch {
-      return json({ error: "invalid_json" }, 400);
-    }
+    const body = await readJsonBody(request, BODY_MAX_CHARS);
+    if (body instanceof Response) return body;
     const parsed = feedbackBodySchema.safeParse(body);
     if (!parsed.success) return json({ error: "invalid_request" }, 400);
 
