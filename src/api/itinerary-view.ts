@@ -2,6 +2,7 @@ import "server-only";
 
 import { createQueryableFromEnv } from "../db/postgres";
 import { hydrateUnlessBlocked, loadStoredItinerary, type HydratedStop, type PlaceDetailsLookup, type StoredItinerary } from "../monitoring/hydrate-plan";
+import { UUID } from "./share";
 import { createSpendStoreFromEnv, type SpendStore } from "../monitoring/spend-store";
 import { createPlaceDetailsLookupFromEnv } from "../retrieval";
 
@@ -29,6 +30,9 @@ function viewJson(itinerary: StoredItinerary, stops: readonly HydratedStop[], hy
 
 export function createItineraryViewHandler(deps: ItineraryViewDeps): (request: Request, id: string) => Promise<Response> {
   return async (_request, id) => {
+    if (!UUID.test(id)) {
+      return Response.json({ error: "not_found" }, { status: 404, headers: JSON_HEADERS });
+    }
     const itinerary = await deps.load(id);
     if (!itinerary) {
       return Response.json({ error: "not_found" }, { status: 404, headers: JSON_HEADERS });

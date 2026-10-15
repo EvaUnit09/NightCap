@@ -15,7 +15,7 @@ import { storedStopSchema, type StoredStop } from "../monitoring/stored-stop";
 import { createPlaceDetailsLookupFromEnv } from "../retrieval";
 
 const JSON_HEADERS = { "Cache-Control": "no-store" } as const;
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export const UUID =/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const SHARE_SLUG = /^[A-Za-z0-9_-]{16,64}$/;
 const CLIENT_SLUG_KEYS = ["shareSlug", "share_slug", "slug"] as const;
 
@@ -33,7 +33,6 @@ const savedRowSchema = z.object({
 });
 
 export interface SharedPlanView {
-  readonly itineraryId: string;
   readonly optionIndex: number;
   readonly storedStops: readonly StoredStop[];
   readonly stops: readonly HydratedStop[];
@@ -149,7 +148,7 @@ export function createSharedPlanReader(deps: SharedReadDeps): (slug: string) => 
     const row = await readSharedRow(deps.db, slug);
     if (!row) return null;
     const { stops, hydrated } = await hydrateUnlessBlocked(row.stops, deps.lookup, deps.store);
-    return { itineraryId: row.itinerary_id, optionIndex: row.option_index, storedStops: row.stops, stops, hydrated };
+    return { optionIndex: row.option_index, storedStops: row.stops, stops, hydrated };
   };
 }
 

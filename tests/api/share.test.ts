@@ -222,7 +222,8 @@ describe("save and share", () => {
     const body = await found.json();
     assert.equal(found.status, 200);
     assert.equal(body.hydrated, true);
-    assert.equal(body.itineraryId, itineraryId);
+    assert.equal(Object.hasOwn(body, "itineraryId"), false);
+    assert.equal(JSON.stringify(body).includes(itineraryId), false);
     assert.equal(body.stops[0].name, `Live ${body.storedStops[0].placeId}`);
     assert.equal(Object.hasOwn(body.storedStops[0], "name"), false);
     assert.equal(body.storedStops[0].placeId, body.stops[0].placeId);
