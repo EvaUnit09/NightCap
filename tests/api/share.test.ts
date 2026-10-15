@@ -18,6 +18,7 @@ import {
   userIdFromRequest,
   type MagicLinkAuth,
 } from "../../src/auth/magic-link";
+import { createSpendStore, createMemorySpendRedis } from "../../src/monitoring/spend-store";
 import { databaseUrl } from "../../src/db/postgres";
 import { savePlan, type PlaceDetailsLookup } from "../../src/monitoring";
 import { OPTION_A, REQUEST_TEXT } from "../pipeline/orchestrator-harness";
@@ -34,6 +35,10 @@ const META = {
   costUsd: 0.012,
   latencyMs: 40,
 } as const;
+
+function memoryStore() {
+  return createSpendStore(createMemorySpendRedis());
+}
 
 function post(url: string, body: unknown, cookie?: string): Request {
   const headers = new Headers({ "content-type": "application/json" });
@@ -91,7 +96,7 @@ describe("save and share", () => {
   it("saves an anonymous itinerary for the signed-in user and returns the same slug again", async () => {
     const { db, itineraryId } = await seedItinerary();
     const auth = authFor("token-a", USER_A);
-    const start = await createMagicLinkHandler(auth)(post("http://localhost/api/auth/magic-link", { email: "A@Example.com" }));
+    const start = await createMagicLinkHandler(auth, memoryStore())(post("http://localhost/api/auth/magic-link", { email: "A@Example.com" }));
     const started = await start.json();
     assert.equal(start.status, 200);
     assert.deepEqual(started, { status: "sent" });
@@ -262,7 +267,7 @@ describe("save and share", () => {
         SUPABASE_ANON_KEY: "anon-test",
       });
       assert.ok(auth);
-      const response = await createMagicLinkHandler(auth)(
+      const response = await createMagicLinkHandler(auth, memoryStore())(
         post("http://localhost/api/auth/magic-link", { email: "ada@example.com" }),
       );
       assert.equal(response.status, 200);
@@ -328,7 +333,7 @@ describe("save and share", () => {
       assert.equal((await confirm.text()).includes("itinerary"), false);
       assert.equal(createGoTrueAuth({}), null);
 
-      const unconfigured = await createMagicLinkHandler(null)(
+      const unconfigured = await createMagicLinkHandler(null, memoryStore())(
         post("http://localhost/api/auth/magic-link", { email: "ada@example.com" }),
       );
       assert.equal(unconfigured.status, 503);
@@ -350,5 +355,50 @@ describe("save and share", () => {
     const save = await createProductionSaveHandler()(post("http://localhost/api/saved-plans", { itineraryId: MISSING }));
     assert.equal(save.status, 503);
     assert.deepEqual(await save.json(), { error: "persist_unconfigured" });
+  });
+});
+
+describe("auth hardening", () => {
+  it("treats a cookie with malformed percent-encoding as signed out", async () => {
+    const request = new Request("http://localhost/api/auth/session", {
+      headers: { cookie: "nightcap_session=%E0%A4%A" },
+    });
+    assert.equal(readCookie(request, "nightcap_session"), null);
+    const response = await createSessionHandler(authFor("t", USER_A))(request);
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { signedIn: false });
+  });
+
+  it("allows 5 magic links per IP per hour and rejects the 6th without calling GoTrue", async () => {
+    let sends = 0;
+    const auth: MagicLinkAuth = {
+      ...authFor("t", USER_A),
+      async startMagicLink() {
+        sends += 1;
+        return true;
+      },
+    };
+    const handler = createMagicLinkHandler(auth, memoryStore());
+    const send = () =>
+      handler(
+        new Request("http://localhost/api/auth/magic-link", {
+          method: "POST",
+          headers: { "x-forwarded-for": "203.0.113.9" },
+          body: JSON.stringify({ email: "ada@example.com" }),
+        }),
+      );
+    for (let i = 0; i < 5; i += 1) assert.equal((await send()).status, 200);
+    const limited = await send();
+    assert.equal(limited.status, 429);
+    assert.deepEqual(await limited.json(), { error: "rate_limited" });
+    assert.equal(sends, 5);
+  });
+
+  it("fails closed with 503 when the rate-limit store throws", async () => {
+    const store = { ...memoryStore(), async recordPlan(): Promise<number> { throw new Error("down"); } };
+    const response = await createMagicLinkHandler(authFor("t", USER_A), store)(
+      post("http://localhost/api/auth/magic-link", { email: "ada@example.com" }),
+    );
+    assert.equal(response.status, 503);
   });
 });
