@@ -23,12 +23,12 @@ import { databaseUrl } from "../../src/db/postgres";
 import { savePlan, type PlaceDetailsLookup } from "../../src/monitoring";
 import { OPTION_A, REQUEST_TEXT } from "../pipeline/orchestrator-harness";
 import { createMigratedDatabase } from "../migrations/harness";
-import { usdToMicros, utcDay } from "../../src/monitoring/spend-cap";
+import { usdToMicros, spendDay } from "../../src/monitoring/spend-cap";
 import { getRateLimitDailySpendUsd } from "../../src/models/config";
 
 async function cappedStore() {
   const store = createSpendStore(createMemorySpendRedis());
-  await store.addDailyMicros(utcDay(Date.now()), usdToMicros(getRateLimitDailySpendUsd()));
+  await store.addDailyMicros(spendDay(Date.now()), usdToMicros(getRateLimitDailySpendUsd()));
   return store;
 }
 

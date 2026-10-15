@@ -6,7 +6,7 @@ import { createSharedPlanHandler } from "../../src/api/share";
 import { resetConfig } from "../../src/models";
 import { getRateLimitDailySpendUsd } from "../../src/models/config";
 import type { PlaceDetailsLookup, StoredItinerary } from "../../src/monitoring/hydrate-plan";
-import { PLACE_DETAILS_MICROS, usdToMicros, utcDay } from "../../src/monitoring/spend-cap";
+import { PLACE_DETAILS_MICROS, usdToMicros, spendDay } from "../../src/monitoring/spend-cap";
 import { createMemorySpendRedis, createSpendStore, type SpendStore } from "../../src/monitoring/spend-store";
 
 const ID = "44444444-4444-4444-8444-444444444444";
@@ -52,7 +52,7 @@ const sharedDb = {
 };
 
 function today(): string {
-  return utcDay(Date.now());
+  return spendDay(Date.now());
 }
 
 function capMicros(): number {

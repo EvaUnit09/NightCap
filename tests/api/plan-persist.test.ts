@@ -7,7 +7,7 @@ import { createSavePlanHandler } from "../../src/api/share";
 import { createItineraryViewHandler } from "../../src/api/itinerary-view";
 import { resetConfig } from "../../src/models";
 import { createPlanPersistence, loadStoredItinerary, type PlaceDetailsLookup } from "../../src/monitoring";
-import { usdToMicros, utcDay } from "../../src/monitoring/spend-cap";
+import { usdToMicros, spendDay } from "../../src/monitoring/spend-cap";
 import { createMemorySpendRedis, createSpendStore, createSpendStoreFromEnv } from "../../src/monitoring/spend-store";
 import { INTENT, OPTION_A, OPTION_B, REQUEST_TEXT, fakeModels, harness } from "../pipeline/orchestrator-harness";
 import { createMigratedDatabase } from "../migrations/harness";
@@ -15,7 +15,7 @@ import { getRateLimitDailySpendUsd } from "../../src/models/config";
 
 async function cappedStore() {
   const store = createSpendStore(createMemorySpendRedis());
-  await store.addDailyMicros(utcDay(Date.now()), usdToMicros(getRateLimitDailySpendUsd()));
+  await store.addDailyMicros(spendDay(Date.now()), usdToMicros(getRateLimitDailySpendUsd()));
   return store;
 }
 
@@ -67,7 +67,7 @@ describe("plan persist and hydrate view", () => {
     const db = await createMigratedDatabase();
     try {
       const store = createSpendStoreFromEnv({});
-      await store.addDailyMicros(utcDay(NOW), usdToMicros(5));
+      await store.addDailyMicros(spendDay(NOW), usdToMicros(5));
       let saves = 0;
       const handler = createPlanHandler(
         () => {

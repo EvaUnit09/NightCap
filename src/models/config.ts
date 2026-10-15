@@ -360,7 +360,7 @@ export function getRateLimitRequestsPerHour(): number {
   return getConfig().rateLimitRequestsPerHour;
 }
 
-/** Get rate limit: daily spend cap in USD (100 by default). */
+/** Get rate limit: daily spend cap in USD (5 by default). */
 export function getRateLimitDailySpendUsd(): number {
   return getConfig().rateLimitDailySpendUsd;
 }

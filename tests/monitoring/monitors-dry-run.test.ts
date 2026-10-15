@@ -18,7 +18,7 @@ import { evaluateMonitor, parseMonitorQuery } from "../../ops/datadog/monitor-ev
 import { createPlanHandler } from "../../src/api/plan-stream";
 import { resetConfig } from "../../src/models/config";
 import { createMemoryMetricsSink, type MetricSample } from "../../src/monitoring/metrics";
-import { usdToMicros, utcDay } from "../../src/monitoring/spend-cap";
+import { usdToMicros, spendDay } from "../../src/monitoring/spend-cap";
 import { createSpendStoreFromEnv, type SpendStore } from "../../src/monitoring/spend-store";
 import { INTENT, OPTION_A, OPTION_B, REQUEST_TEXT, fakeModels, harness } from "../pipeline/orchestrator-harness";
 
@@ -100,7 +100,7 @@ describe("handler metric emission", () => {
     await response.text();
 
     assert.equal(response.status, 200);
-    assert.equal(await store.readDailyMicros(utcDay(NOW)), 35_400);
+    assert.equal(await store.readDailyMicros(spendDay(NOW)), 35_400);
     assert.deepEqual(summarized(sink.samples), [
       { metric: "nightcap.spend.daily_fraction", value: 0, tags: [SERVICE] },
       { metric: "nightcap.spend.daily_fraction", value: 35_400 / usdToMicros(5), tags: [SERVICE] },
@@ -121,7 +121,7 @@ describe("handler metric emission", () => {
     const response = await handler(post({ text: REQUEST_TEXT }));
     await response.text();
 
-    assert.equal(await store.readDailyMicros(utcDay(NOW)), 200);
+    assert.equal(await store.readDailyMicros(spendDay(NOW)), 200);
     assert.deepEqual(summarized(sink.samples), [
       { metric: "nightcap.spend.daily_fraction", value: 0, tags: [SERVICE] },
       { metric: "nightcap.spend.daily_fraction", value: 200 / usdToMicros(5), tags: [SERVICE] },
@@ -239,7 +239,7 @@ describe("handler metric emission", () => {
   it("emits only the spend sample on a daily cap 429", async () => {
     const sink = createMemoryMetricsSink();
     const store = createSpendStoreFromEnv({});
-    await store.addDailyMicros(utcDay(NOW), usdToMicros(5));
+    await store.addDailyMicros(spendDay(NOW), usdToMicros(5));
     const handler = createPlanHandler(() => admittedDeps(), { store, now: () => NOW, metrics: sink });
 
     const response = await handler(post({ text: REQUEST_TEXT }));
@@ -316,7 +316,7 @@ describe("handler metric emission", () => {
     const response = await handler(post({ text: REQUEST_TEXT }, { signal: abort.signal }));
     assert.equal(await response.text(), "");
 
-    assert.equal(await store.readDailyMicros(utcDay(NOW)), 35_200);
+    assert.equal(await store.readDailyMicros(spendDay(NOW)), 35_200);
     assert.deepEqual(summarized(sink.samples), [
       { metric: "nightcap.spend.daily_fraction", value: 0, tags: [SERVICE] },
       { metric: "nightcap.spend.daily_fraction", value: 35_200 / usdToMicros(5), tags: [SERVICE] },

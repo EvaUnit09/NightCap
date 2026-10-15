@@ -5,7 +5,7 @@ import { createFeedbackHandler } from "../../src/api/feedback";
 import { createPlanHandler } from "../../src/api/plan-stream";
 import { resetConfig } from "../../src/models";
 import { hashRequest, savePlan, stripStopForStorage } from "../../src/monitoring";
-import { usdToMicros, utcDay } from "../../src/monitoring/spend-cap";
+import { usdToMicros, spendDay } from "../../src/monitoring/spend-cap";
 import { createSpendStoreFromEnv } from "../../src/monitoring/spend-store";
 import { OPTION_A, REQUEST_TEXT } from "../pipeline/orchestrator-harness";
 import { createMigratedDatabase } from "../migrations/harness";
@@ -227,7 +227,7 @@ describe("POST /api/feedback", () => {
     const db = await createMigratedDatabase();
     try {
       const store = createSpendStoreFromEnv({});
-      await store.addDailyMicros(utcDay(NOW), usdToMicros(5));
+      await store.addDailyMicros(spendDay(NOW), usdToMicros(5));
       let saves = 0;
       const plan = createPlanHandler(
         () => {

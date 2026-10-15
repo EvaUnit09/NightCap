@@ -3,7 +3,7 @@ import "server-only";
 import { z } from "zod";
 
 import { getRateLimitDailySpendUsd } from "../models/config";
-import { PLACE_DETAILS_MICROS, usdToMicros, utcDay } from "./spend-cap";
+import { PLACE_DETAILS_MICROS, usdToMicros, spendDay } from "./spend-cap";
 import type { SpendStore } from "./spend-store";
 import type { Queryable } from "./store-request";
 import { storedStopSchema, type StoredStop } from "./stored-stop";
@@ -117,7 +117,7 @@ export async function hydrateUnlessBlocked(
   store: SpendStore,
 ): Promise<{ readonly stops: readonly HydratedStop[]; readonly hydrated: boolean }> {
   try {
-    const day = utcDay(Date.now());
+    const day = spendDay(Date.now());
     if ((await store.readDailyMicros(day)) < usdToMicros(getRateLimitDailySpendUsd())) {
       const hydrated = await hydrateStoredStops(stops, lookup);
       const uniqueIds = new Set(stops.map((stop) => stop.placeId)).size;

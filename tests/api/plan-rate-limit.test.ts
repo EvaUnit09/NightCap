@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, it } from "node:test";
 
 import { createPlanHandler } from "../../src/api/plan-stream";
 import { resetConfig } from "../../src/models";
-import { utcDay } from "../../src/monitoring/spend-cap";
+import { spendDay } from "../../src/monitoring/spend-cap";
 import { createSpendStoreFromEnv, type SpendStore } from "../../src/monitoring/spend-store";
 import { INTENT, OPTION_A, OPTION_B, REQUEST_TEXT, fakeModels, harness } from "../pipeline/orchestrator-harness";
 
@@ -58,7 +58,7 @@ describe("POST /api/plan spend cap", () => {
 
     assert.equal(response.status, 200);
     assert.match(wire, /event: done\ndata: \{"options":2,"itineraryIds":\[\]\}/);
-    assert.equal(await store.readDailyMicros(utcDay(NOW)), 400 + 35_000 + 10_000);
+    assert.equal(await store.readDailyMicros(spendDay(NOW)), 400 + 35_000 + 10_000);
   });
 
   it("refuses the sixth plan from one IP before the pipeline starts", async () => {
@@ -90,7 +90,7 @@ describe("POST /api/plan spend cap", () => {
 
   it("returns come back tomorrow at the daily cap and does not start the pipeline", async () => {
     const store = createSpendStoreFromEnv({});
-    await store.addDailyMicros(utcDay(NOW), 4_960_000 + 35_000 + 5_000);
+    await store.addDailyMicros(spendDay(NOW), 4_960_000 + 35_000 + 5_000);
     let starts = 0;
     const handler = createPlanHandler(
       () => {
@@ -105,12 +105,12 @@ describe("POST /api/plan spend cap", () => {
     assert.equal(response.status, 429);
     assert.deepEqual(await response.json(), { error: "daily_spend_cap", message: "Come back tomorrow." });
     assert.equal(starts, 0);
-    assert.equal(await store.readDailyMicros(utcDay(NOW)), 5_000_000);
+    assert.equal(await store.readDailyMicros(spendDay(NOW)), 5_000_000);
   });
 
   it("still admits a day that is under the cap on model spend alone", async () => {
     const store = createSpendStoreFromEnv({});
-    await store.addDailyMicros(utcDay(NOW), 4_960_000);
+    await store.addDailyMicros(spendDay(NOW), 4_960_000);
     let starts = 0;
     const handler = createPlanHandler(
       () => {
@@ -182,7 +182,7 @@ describe("POST /api/plan spend cap", () => {
     const wire = await response.text();
 
     assert.equal(wire, "");
-    assert.equal(await store.readDailyMicros(utcDay(NOW)), 200 + 35_000);
+    assert.equal(await store.readDailyMicros(spendDay(NOW)), 200 + 35_000);
   });
 
   it("answers 503 and skips the pipeline when the ledger cannot be read", async () => {

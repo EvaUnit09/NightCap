@@ -4,7 +4,7 @@ import { describe, it } from "node:test";
 import { hydrateUnlessBlocked } from "../../src/monitoring/hydrate-plan";
 import type { PlaceDetailsLookup } from "../../src/monitoring/hydrate-plan";
 import { getRateLimitDailySpendUsd } from "../../src/models/config";
-import { usdToMicros, utcDay } from "../../src/monitoring/spend-cap";
+import { usdToMicros, spendDay } from "../../src/monitoring/spend-cap";
 import { createMemorySpendRedis, createSpendStore, type SpendStore } from "../../src/monitoring/spend-store";
 import type { StoredStop } from "../../src/monitoring/stored-stop";
 
@@ -25,7 +25,7 @@ function freshStore(): SpendStore {
 
 async function cappedStore(): Promise<SpendStore> {
   const store = freshStore();
-  await store.addDailyMicros(utcDay(Date.now()), usdToMicros(getRateLimitDailySpendUsd()));
+  await store.addDailyMicros(spendDay(Date.now()), usdToMicros(getRateLimitDailySpendUsd()));
   return store;
 }
 
