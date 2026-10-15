@@ -5,12 +5,11 @@ import { z } from "zod";
 import { createGoTrueAuth, userIdFromRequest, type MagicLinkAuth } from "../auth/magic-link";
 import { createQueryableFromEnv } from "../db/postgres";
 import {
-  createPlacesBlocked,
   hydrateUnlessBlocked,
   type HydratedStop,
   type PlaceDetailsLookup,
 } from "../monitoring/hydrate-plan";
-import { createSpendStoreFromEnv } from "../monitoring/spend-store";
+import { createSpendStoreFromEnv, type SpendStore } from "../monitoring/spend-store";
 import type { Queryable } from "../monitoring/store-request";
 import { storedStopSchema, type StoredStop } from "../monitoring/stored-stop";
 import { createPlaceDetailsLookupFromEnv } from "../retrieval";
@@ -49,7 +48,7 @@ export interface SaveDeps {
 export interface SharedReadDeps {
   readonly db: Queryable;
   readonly lookup: PlaceDetailsLookup;
-  readonly placesBlocked: () => Promise<boolean>;
+  readonly store: SpendStore;
 }
 
 export type SharedPage =
@@ -149,7 +148,7 @@ export function createSharedPlanReader(deps: SharedReadDeps): (slug: string) => 
   return async (slug) => {
     const row = await readSharedRow(deps.db, slug);
     if (!row) return null;
-    const { stops, hydrated } = await hydrateUnlessBlocked(row.stops, deps.lookup, deps.placesBlocked);
+    const { stops, hydrated } = await hydrateUnlessBlocked(row.stops, deps.lookup, deps.store);
     return { itineraryId: row.itinerary_id, optionIndex: row.option_index, storedStops: row.stops, stops, hydrated };
   };
 }
@@ -167,7 +166,7 @@ function productionReader(db: Queryable): (slug: string) => Promise<SharedPlanVi
   return createSharedPlanReader({
     db,
     lookup: createPlaceDetailsLookupFromEnv(),
-    placesBlocked: createPlacesBlocked(createSpendStoreFromEnv()),
+    store: createSpendStoreFromEnv(),
   });
 }
 
@@ -191,7 +190,7 @@ export function createProductionSharedPlanHandler(): (slug: string) => Promise<R
   const read = createSharedPlanHandler({
     db,
     lookup: createPlaceDetailsLookupFromEnv(),
-    placesBlocked: createPlacesBlocked(createSpendStoreFromEnv()),
+    store: createSpendStoreFromEnv(),
   });
   return async (slug) => (isShareSlug(slug) ? read(slug) : json({ error: "not_found" }, 404));
 }

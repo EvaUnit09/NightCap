@@ -9,6 +9,9 @@ export const PLACES_TEXT_SEARCH_MICROS = 35_000;
 /** Routes Essentials is $0.005 per 1×1 matrix element (decision #44). */
 export const ROUTES_ESSENTIALS_HOP_MICROS = 5_000;
 
+/** Place Details Enterprise is $20 per 1,000: the hydrate mask asks for rating and priceLevel. */
+export const PLACE_DETAILS_MICROS = 20_000;
+
 const MICROS_PER_USD = 1_000_000;
 const HOUR_MS = 3_600_000;
 
