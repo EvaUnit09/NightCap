@@ -18,6 +18,8 @@ export interface PlanSaveInput {
   readonly models: Readonly<Record<string, string>>;
   readonly costUsd: number;
   readonly latencyMs: number;
+  /** Signed-in owner of the plan. Absent for anonymous plans. */
+  readonly userId?: string;
 }
 
 export interface SavedPlan {
@@ -68,7 +70,7 @@ export async function savePlan(db: Queryable, input: PlanSaveInput, hashSecret: 
   for (const row of rows) assertStoredStops(row.stops);
 
   return inTransaction(db, async (tx) => {
-    const request = await insertStoredRequest(tx, prepared.row);
+    const request = await insertStoredRequest(tx, prepared.row, input.userId ?? null);
     const itineraryIds: string[] = [];
     for (const row of rows) {
       const inserted = await tx.query<{ id: string }>(INSERT_ITINERARY, [

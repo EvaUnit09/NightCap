@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { createPlanHandler } from "../../src/api/plan-stream";
+import { createSavePlanHandler } from "../../src/api/share";
 import { createItineraryViewHandler } from "../../src/api/itinerary-view";
 import { resetConfig } from "../../src/models";
 import { createPlanPersistence, loadStoredItinerary, type PlaceDetailsLookup } from "../../src/monitoring";
@@ -11,6 +12,8 @@ import { INTENT, OPTION_A, OPTION_B, REQUEST_TEXT, fakeModels, harness } from ".
 import { createMigratedDatabase } from "../migrations/harness";
 
 const HASH_SECRET = "test-hash-secret";
+const USER_A = "11111111-1111-4111-8111-111111111111";
+const USER_B = "22222222-2222-4222-8222-222222222222";
 const NOW = Date.UTC(2026, 9, 12, 22, 0, 0);
 
 function post(body: unknown): Request {
@@ -129,6 +132,48 @@ describe("plan persist and hydrate view", () => {
       assert.equal(capped.hydrated, false);
       assert.equal(capped.stops[0].name, null);
       assert.equal(lookups, 1);
+    } finally {
+      await db.close();
+    }
+  });
+
+  it("persists the signed-in user so another user cannot save the plan", async () => {
+    resetConfig();
+    const db = await createMigratedDatabase();
+    try {
+      await db.query(`INSERT INTO auth.users (id, email) VALUES ($1, 'a@example.com'), ($2, 'b@example.com')`, [USER_A, USER_B]);
+      const handler = createPlanHandler(() => harness({
+        models: fakeModels({
+          parse_intent: [{ json: INTENT }, { json: INTENT }],
+          plan_itineraries: [{ json: { options: [OPTION_A, OPTION_B] } }, { json: { options: [OPTION_A, OPTION_B] } }],
+        }),
+      }).deps, {
+        persist: createPlanPersistence(db, HASH_SECRET),
+        userId: async (request) => (request.headers.get("cookie") === "session=a" ? USER_A : null),
+      });
+      const signedIn = new Request("http://localhost/api/plan", {
+        method: "POST",
+        headers: { "content-type": "application/json", cookie: "session=a" },
+        body: JSON.stringify({ text: REQUEST_TEXT }),
+      });
+      const wire = await (await handler(signedIn)).text();
+      const itineraryId = /"itineraryIds":\["([^"]+)"/.exec(wire)?.[1];
+      assert.ok(itineraryId, wire);
+      await (await handler(post({ text: REQUEST_TEXT }))).text();
+
+      const owners = await db.query<{ user_id: string | null }>(`SELECT user_id FROM public.requests ORDER BY created_at`);
+      assert.deepEqual(owners.rows.map((row) => row.user_id), [USER_A, null]);
+
+      const saveAs = (userId: string) =>
+        createSavePlanHandler({ db, userId: async () => userId })(
+          new Request("http://localhost/api/saved-plans", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ itineraryId }),
+          }),
+        );
+      assert.equal((await saveAs(USER_B)).status, 403);
+      assert.equal((await saveAs(USER_A)).status, 201);
     } finally {
       await db.close();
     }
