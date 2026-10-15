@@ -23,7 +23,6 @@ import { databaseUrl } from "../../src/db/postgres";
 import { savePlan, type PlaceDetailsLookup } from "../../src/monitoring";
 import { OPTION_A, REQUEST_TEXT } from "../pipeline/orchestrator-harness";
 import { createMigratedDatabase } from "../migrations/harness";
-import { createMemorySpendRedis, createSpendStore } from "../../src/monitoring/spend-store";
 import { usdToMicros, utcDay } from "../../src/monitoring/spend-cap";
 import { getRateLimitDailySpendUsd } from "../../src/models/config";
 
