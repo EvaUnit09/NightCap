@@ -1,7 +1,7 @@
 import "server-only";
 
 import { createQueryableFromEnv } from "../db/postgres";
-import { createPlacesBlocked, hydrateUnlessBlocked, loadStoredItinerary, type HydratedStop, type PlaceDetailsLookup, type StoredItinerary } from "../monitoring/hydrate-plan";
+import { hydrateUnlessBlocked, loadStoredItinerary, type HydratedStop, type PlaceDetailsLookup, type StoredItinerary } from "../monitoring/hydrate-plan";
 import { createSpendStoreFromEnv, type SpendStore } from "../monitoring/spend-store";
 import { createPlaceDetailsLookupFromEnv } from "../retrieval";
 
@@ -10,8 +10,7 @@ const JSON_HEADERS = { "Cache-Control": "no-store" } as const;
 export interface ItineraryViewDeps {
   readonly load: (id: string) => Promise<StoredItinerary | null>;
   readonly lookup: PlaceDetailsLookup;
-  /** True when another Places call would start past the daily cap. */
-  readonly placesBlocked: () => Promise<boolean>;
+  readonly store: SpendStore;
 }
 
 function viewJson(itinerary: StoredItinerary, stops: readonly HydratedStop[], hydrated: boolean): Response {
@@ -34,7 +33,7 @@ export function createItineraryViewHandler(deps: ItineraryViewDeps): (request: R
     if (!itinerary) {
       return Response.json({ error: "not_found" }, { status: 404, headers: JSON_HEADERS });
     }
-    const view = await hydrateUnlessBlocked(itinerary.stops, deps.lookup, deps.placesBlocked);
+    const view = await hydrateUnlessBlocked(itinerary.stops, deps.lookup, deps.store);
     return viewJson(itinerary, view.stops, view.hydrated);
   };
 }
@@ -44,10 +43,9 @@ export function createProductionItineraryViewHandler(): (request: Request, id: s
   if (!db) {
     return async () => Response.json({ error: "persist_unconfigured" }, { status: 503, headers: JSON_HEADERS });
   }
-  const store: SpendStore = createSpendStoreFromEnv();
   return createItineraryViewHandler({
     load: (id) => loadStoredItinerary(db, id),
     lookup: createPlaceDetailsLookupFromEnv(),
-    placesBlocked: createPlacesBlocked(store),
+    store: createSpendStoreFromEnv(),
   });
 }

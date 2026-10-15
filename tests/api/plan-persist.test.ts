@@ -8,9 +8,16 @@ import { createItineraryViewHandler } from "../../src/api/itinerary-view";
 import { resetConfig } from "../../src/models";
 import { createPlanPersistence, loadStoredItinerary, type PlaceDetailsLookup } from "../../src/monitoring";
 import { usdToMicros, utcDay } from "../../src/monitoring/spend-cap";
-import { createSpendStoreFromEnv } from "../../src/monitoring/spend-store";
+import { createMemorySpendRedis, createSpendStore, createSpendStoreFromEnv } from "../../src/monitoring/spend-store";
 import { INTENT, OPTION_A, OPTION_B, REQUEST_TEXT, fakeModels, harness } from "../pipeline/orchestrator-harness";
 import { createMigratedDatabase } from "../migrations/harness";
+import { getRateLimitDailySpendUsd } from "../../src/models/config";
+
+async function cappedStore() {
+  const store = createSpendStore(createMemorySpendRedis());
+  await store.addDailyMicros(utcDay(Date.now()), usdToMicros(getRateLimitDailySpendUsd()));
+  return store;
+}
 
 const HASH_SECRET = "test-hash-secret";
 const USER_A = "11111111-1111-4111-8111-111111111111";
@@ -116,7 +123,7 @@ describe("plan persist and hydrate view", () => {
       const open = createItineraryViewHandler({
         load: (itineraryId) => loadStoredItinerary(db, itineraryId),
         lookup,
-        placesBlocked: async () => false,
+        store: createSpendStore(createMemorySpendRedis()),
       });
       const body = await (await open(new Request("http://localhost/"), id)).json();
       assert.equal(body.hydrated, true);
@@ -127,7 +134,7 @@ describe("plan persist and hydrate view", () => {
       const blocked = createItineraryViewHandler({
         load: (itineraryId) => loadStoredItinerary(db, itineraryId),
         lookup,
-        placesBlocked: async () => true,
+        store: await cappedStore(),
       });
       const capped = await (await blocked(new Request("http://localhost/"), id)).json();
       assert.equal(capped.hydrated, false);

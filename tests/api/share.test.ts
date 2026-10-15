@@ -23,6 +23,14 @@ import { databaseUrl } from "../../src/db/postgres";
 import { savePlan, type PlaceDetailsLookup } from "../../src/monitoring";
 import { OPTION_A, REQUEST_TEXT } from "../pipeline/orchestrator-harness";
 import { createMigratedDatabase } from "../migrations/harness";
+import { usdToMicros, utcDay } from "../../src/monitoring/spend-cap";
+import { getRateLimitDailySpendUsd } from "../../src/models/config";
+
+async function cappedStore() {
+  const store = createSpendStore(createMemorySpendRedis());
+  await store.addDailyMicros(utcDay(Date.now()), usdToMicros(getRateLimitDailySpendUsd()));
+  return store;
+}
 
 const HASH_SECRET = "test-hash-secret";
 const USER_A = "11111111-1111-4111-8111-111111111111";
@@ -208,7 +216,7 @@ describe("save and share", () => {
     const read = createSharedPlanHandler({
       db,
       lookup,
-      placesBlocked: async () => false,
+      store: createSpendStore(createMemorySpendRedis()),
     });
     const found = await read(shareSlug);
     const body = await found.json();
@@ -242,7 +250,7 @@ describe("save and share", () => {
     const blocked = await createSharedPlanHandler({
       db,
       lookup,
-      placesBlocked: async () => true,
+      store: await cappedStore(),
     })(shareSlug);
     const capped = await blocked.json();
     assert.equal(blocked.status, 200);
