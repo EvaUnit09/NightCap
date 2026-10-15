@@ -5,6 +5,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { z } from "zod";
 
 import { clientIp } from "../monitoring/spend-cap";
+import { readJsonBody } from "../api/read-json-body";
 import { createSpendStoreFromEnv, type SpendStore } from "../monitoring/spend-store";
 
 const JSON_HEADERS = { "Cache-Control": "no-store" } as const;
@@ -95,14 +96,8 @@ export function createMagicLinkHandler(
 ): (request: Request) => Promise<Response> {
   return async (request) => {
     if (!auth) return json({ error: "auth_unconfigured" }, 503);
-    const raw = await request.text().catch(() => null);
-    if (raw === null || raw.length > 2000) return json({ error: "invalid_request" }, 400);
-    let body: unknown;
-    try {
-      body = JSON.parse(raw);
-    } catch {
-      return json({ error: "invalid_json" }, 400);
-    }
+    const body = await readJsonBody(request, 2000, "invalid_request");
+    if (body instanceof Response) return body;
     const email = parseEmail(body);
     if (!email) return json({ error: "invalid_request" }, 400);
     let sent: number;

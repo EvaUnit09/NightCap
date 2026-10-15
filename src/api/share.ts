@@ -13,6 +13,7 @@ import { createSpendStoreFromEnv, type SpendStore } from "../monitoring/spend-st
 import type { Queryable } from "../monitoring/store-request";
 import { storedStopSchema, type StoredStop } from "../monitoring/stored-stop";
 import { createPlaceDetailsLookupFromEnv } from "../retrieval";
+import { readJsonBody } from "./read-json-body";
 
 const JSON_HEADERS = { "Cache-Control": "no-store" } as const;
 export const UUID =/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -103,15 +104,8 @@ async function readSharedRow(db: Queryable, slug: string): Promise<z.infer<typeo
 
 export function createSavePlanHandler(deps: SaveDeps): (request: Request) => Promise<Response> {
   return async (request) => {
-    const raw = await request.text().catch(() => null);
-    if (raw === null) return json({ error: "invalid_request" }, 400);
-    if (raw.length > 4000) return json({ error: "too_large" }, 400);
-    let body: unknown;
-    try {
-      body = JSON.parse(raw);
-    } catch {
-      return json({ error: "invalid_json" }, 400);
-    }
+    const body = await readJsonBody(request, 4000);
+    if (body instanceof Response) return body;
     const parsed = parseSaveBody(body);
     if (!parsed.ok) return json({ error: parsed.error }, 400);
 
