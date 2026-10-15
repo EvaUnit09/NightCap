@@ -4,13 +4,12 @@ import { z } from "zod";
 
 import { createGoTrueAuth, userIdFromRequest, type MagicLinkAuth } from "../auth/magic-link";
 import { createQueryableFromEnv } from "../db/postgres";
-import { getRateLimitDailySpendUsd } from "../models/config";
 import {
-  hydrateStoredStops,
+  createPlacesBlocked,
+  hydrateUnlessBlocked,
   type HydratedStop,
   type PlaceDetailsLookup,
 } from "../monitoring/hydrate-plan";
-import { usdToMicros, utcDay } from "../monitoring/spend-cap";
 import { createSpendStoreFromEnv } from "../monitoring/spend-store";
 import type { Queryable } from "../monitoring/store-request";
 import { storedStopSchema, type StoredStop } from "../monitoring/stored-stop";
@@ -82,16 +81,6 @@ function saveFailure(error: unknown): "not_found" | "forbidden" | "failed" {
   if (message.includes("itinerary not found")) return "not_found";
   if (message.includes("cannot save another user's itinerary")) return "forbidden";
   return "failed";
-}
-
-function withoutNames(stops: readonly StoredStop[]): HydratedStop[] {
-  return stops.map((stop) => ({
-    ...stop,
-    name: null,
-    formattedAddress: null,
-    rating: null,
-    priceLevel: null,
-  }));
 }
 
 function stopsFromRow(value: unknown): unknown {
@@ -172,40 +161,8 @@ export function createSharedPlanReader(deps: SharedReadDeps): (slug: string) => 
   return async (slug) => {
     const row = await readSharedRow(deps.db, slug);
     if (!row) return null;
-    const storedStops = row.stops;
-    let blocked = true;
-    try {
-      blocked = await deps.placesBlocked();
-    } catch {
-      blocked = true;
-    }
-    if (blocked) {
-      return {
-        itineraryId: row.itinerary_id,
-        optionIndex: row.option_index,
-        storedStops,
-        stops: withoutNames(storedStops),
-        hydrated: false,
-      };
-    }
-    try {
-      const stops = await hydrateStoredStops(storedStops, deps.lookup);
-      return {
-        itineraryId: row.itinerary_id,
-        optionIndex: row.option_index,
-        storedStops,
-        stops,
-        hydrated: true,
-      };
-    } catch {
-      return {
-        itineraryId: row.itinerary_id,
-        optionIndex: row.option_index,
-        storedStops,
-        stops: withoutNames(storedStops),
-        hydrated: false,
-      };
-    }
+    const { stops, hydrated } = await hydrateUnlessBlocked(row.stops, deps.lookup, deps.placesBlocked);
+    return { itineraryId: row.itinerary_id, optionIndex: row.option_index, storedStops: row.stops, stops, hydrated };
   };
 }
 
@@ -218,20 +175,11 @@ export function createSharedPlanHandler(deps: SharedReadDeps): (slug: string) =>
   };
 }
 
-async function placesBlocked(): Promise<boolean> {
-  try {
-    const spent = await createSpendStoreFromEnv().readDailyMicros(utcDay(Date.now()));
-    return spent >= usdToMicros(getRateLimitDailySpendUsd());
-  } catch {
-    return true;
-  }
-}
-
 function productionReader(db: Queryable): (slug: string) => Promise<SharedPlanView | null> {
   return createSharedPlanReader({
     db,
     lookup: createPlaceDetailsLookupFromEnv(),
-    placesBlocked,
+    placesBlocked: createPlacesBlocked(createSpendStoreFromEnv()),
   });
 }
 
@@ -248,14 +196,16 @@ export function createProductionSaveHandler(): (request: Request) => Promise<Res
 
 export function createProductionSharedPlanHandler(): (slug: string) => Promise<Response> {
   const db = createQueryableFromEnv();
-  const read = db ? productionReader(db) : null;
-  return async (slug) => {
-    if (!isShareSlug(slug)) return json({ error: "not_found" }, 404);
-    if (!read) return json({ error: "persist_unconfigured" }, 503);
-    const view = await read(slug);
-    if (!view) return json({ error: "not_found" }, 404);
-    return json(view, 200);
-  };
+  if (!db) {
+    return async (slug) =>
+      isShareSlug(slug) ? json({ error: "persist_unconfigured" }, 503) : json({ error: "not_found" }, 404);
+  }
+  const read = createSharedPlanHandler({
+    db,
+    lookup: createPlaceDetailsLookupFromEnv(),
+    placesBlocked: createPlacesBlocked(createSpendStoreFromEnv()),
+  });
+  return async (slug) => (isShareSlug(slug) ? read(slug) : json({ error: "not_found" }, 404));
 }
 
 export async function loadSharedPlanPage(slug: string): Promise<SharedPage> {
