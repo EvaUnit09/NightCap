@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
+import { createGoTrueAuth } from "../../src/auth/magic-link";
 import { createPlanHandler } from "../../src/api/plan-stream";
 import { createSavePlanHandler } from "../../src/api/share";
 import { createItineraryViewHandler } from "../../src/api/itinerary-view";
@@ -176,6 +177,46 @@ describe("plan persist and hydrate view", () => {
       assert.equal((await saveAs(USER_A)).status, 201);
     } finally {
       await db.close();
+    }
+  });
+
+  it("saves user_id NULL and still streams done when the user lookup rejects", async () => {
+    resetConfig();
+    const db = await createMigratedDatabase();
+    try {
+      const handler = createPlanHandler(() => harness({
+        models: fakeModels({
+          parse_intent: [{ json: INTENT }],
+          plan_itineraries: [{ json: { options: [OPTION_A, OPTION_B] } }],
+        }),
+      }).deps, {
+        persist: createPlanPersistence(db, HASH_SECRET),
+        userId: async () => {
+          throw new Error("gotrue down");
+        },
+      });
+      const wire = await (await handler(post({ text: REQUEST_TEXT }))).text();
+      assert.match(wire, /event: done/);
+      const owners = await db.query<{ user_id: string | null }>(`SELECT user_id FROM public.requests`);
+      assert.deepEqual(owners.rows.map((row) => row.user_id), [null]);
+    } finally {
+      await db.close();
+    }
+  });
+
+  it("bounds the GoTrue user lookup with a timeout signal and maps failure to null", async () => {
+    const realFetch = globalThis.fetch;
+    let signal: AbortSignal | null | undefined;
+    globalThis.fetch = (async (_url: unknown, init?: RequestInit) => {
+      signal = init?.signal;
+      throw new DOMException("timed out", "TimeoutError");
+    }) as typeof fetch;
+    try {
+      const auth = createGoTrueAuth({ SUPABASE_URL: "https://x.supabase.co", SUPABASE_ANON_KEY: "k" });
+      assert.equal(await auth?.userIdForAccessToken("t"), null);
+      assert.ok(signal instanceof AbortSignal);
+    } finally {
+      globalThis.fetch = realFetch;
     }
   });
 });

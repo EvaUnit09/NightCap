@@ -174,6 +174,8 @@ function gotrueHeaders(anonKey: string, accessToken?: string): Headers {
   });
 }
 
+const GOTRUE_TIMEOUT_MS = 3000;
+
 export function createGoTrueAuth(env: Record<string, string | undefined> = process.env): MagicLinkAuth | null {
   const base = env.SUPABASE_URL?.trim().replace(/\/$/, "");
   const anonKey = env.SUPABASE_ANON_KEY?.trim() || env.SUPABASE_PUBLISHABLE_KEY?.trim();
@@ -222,6 +224,7 @@ export function createGoTrueAuth(env: Record<string, string | undefined> = proce
       const response = await fetchImpl(`${base}/auth/v1/user`, {
         method: "GET",
         headers: gotrueHeaders(anonKey, accessToken),
+        signal: AbortSignal.timeout(GOTRUE_TIMEOUT_MS),
       }).catch(() => null);
       if (!response?.ok) return null;
       const parsed = userResponseSchema.safeParse(await response.json().catch(() => null));

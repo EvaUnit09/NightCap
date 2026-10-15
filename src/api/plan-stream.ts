@@ -258,15 +258,17 @@ export function createPlanHandler(
   const sink = options.metrics ?? createNoopMetricsSink();
   const { persist: basePersist, userId: resolveUser } = options;
   return async (request) => {
-    const persist: PlanPersistence | undefined =
-      basePersist && resolveUser
-        ? {
-            async save(input) {
-              const userId = await resolveUser(request).catch(() => null);
-              return basePersist.save(userId ? { ...input, userId } : input);
-            },
-          }
-        : basePersist;
+    // Called at admission so the lookup overlaps the pipeline and a token that expires mid-plan still counts.
+    const admit = (): PlanPersistence | undefined => {
+      if (!basePersist || !resolveUser) return basePersist;
+      const userId = resolveUser(request).catch(() => null);
+      return {
+        async save(input) {
+          const id = await userId;
+          return basePersist.save(id ? { ...input, userId: id } : input);
+        },
+      };
+    };
     const raw = await request.text().catch(() => null);
     if (raw === null) {
       return badRequest("invalid_request");
@@ -291,7 +293,7 @@ export function createPlanHandler(
 
     const store = options.store;
     if (!store) {
-      return streamPlan(text, makeDeps, request, undefined, persist, {
+      return streamPlan(text, makeDeps, request, undefined, admit(), {
         sink,
         now,
         capUsd: getRateLimitDailySpendUsd(),
@@ -335,7 +337,7 @@ export function createPlanHandler(
         if (micros > 0 || keepZeroTotal) return store.addDailyMicros(day, micros);
         return null;
       },
-      persist,
+      admit(),
       { sink, now, capUsd, precheck },
     );
   };
