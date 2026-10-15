@@ -72,7 +72,7 @@ node --import tsx ops/datadog/create-monitors.ts --apply
 
 `--apply` lists monitors tagged `managed-by:ops-datadog`, updates a monitor with the same name, and creates one when the name is missing. Add `--notify oncall` to append `@oncall` to the message. The JSON files contain no `@` handle.
 
-`notify_no_data` is false. An idle window does not page. The error monitor sets `timeout_h` to 1, so an alert with no new points resolves after an hour. The spend fraction is the UTC-day ledger, so the 5 minute window is only freshness.
+`notify_no_data` is false. An idle window does not page. The error monitor sets `timeout_h` to 1, so an alert with no new points resolves after an hour. The spend fraction is the New York-day ledger, so the 5 minute window is only freshness.
 
 ## Record the weekly snapshot
 
@@ -81,7 +81,7 @@ Once a week, open the Nightcap dashboard and write down these four numbers for t
 1. Validity. Widget title `Request validity`. Query `1 - (sum:nightcap.plan.errors{service:nightcap,env:prod}.as_count() / sum:nightcap.plan.requests{service:nightcap,env:prod}.as_count())`. Counted outcomes are completed, failed, internal_error, and spend_cap_unavailable.
 2. p50. Widget title `Request latency p50`. Use the LLM Observability metric `latency_ms` on the `request` span, 50th percentile.
 3. p99. Widget title `Request latency p99`. Use the same `latency_ms` metric, 99th percentile.
-4. Cost per request. Widget title `Ledger cost per request`. For one UTC day, multiply `max:nightcap.spend.daily_fraction{service:nightcap,env:prod}` by `RATE_LIMIT_DAILY_SPEND_USD`, then divide by `sum:nightcap.plan.requests{service:nightcap,env:prod}.as_count()` for that day.
+4. Cost per request. Widget title `Ledger cost per request`. For one New York day, multiply `max:nightcap.spend.daily_fraction{service:nightcap,env:prod}` by `RATE_LIMIT_DAILY_SPEND_USD`, then divide by `sum:nightcap.plan.requests{service:nightcap,env:prod}.as_count()` for that day.
 
 The ledger fraction includes Places and Routes. The `cost_usd` span tag is model spend only.
 

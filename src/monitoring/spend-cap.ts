@@ -47,8 +47,10 @@ export function vendorMicros(spend: VendorSpend): number {
   );
 }
 
-export function utcDay(nowMs: number): string {
-  return new Date(nowMs).toISOString().slice(0, 10);
+const SPEND_DAY_FORMAT = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" });
+
+export function spendDay(nowMs: number): string {
+  return SPEND_DAY_FORMAT.format(nowMs);
 }
 
 export function hourWindowMs(): number {

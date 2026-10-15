@@ -9,7 +9,7 @@ import {
   dailySpendFraction,
   hourWindowMs,
   usdToMicros,
-  utcDay,
+  spendDay,
   vendorMicros,
 } from "../../src/monitoring/spend-cap";
 import {
@@ -111,10 +111,12 @@ describe("client address", () => {
 });
 
 describe("spend store", () => {
-  it("names the UTC day", () => {
-    const midnight = Date.UTC(2026, 9, 12, 0, 0, 0);
-    assert.equal(utcDay(midnight), DAY);
-    assert.equal(utcDay(midnight - 1), "2026-10-11");
+  it("names the New York day, not the UTC day", () => {
+    assert.equal(spendDay(Date.parse("2026-10-16T01:30:00Z")), "2026-10-15");
+    assert.equal(spendDay(Date.parse("2026-10-16T03:59:59Z")), "2026-10-15");
+    assert.equal(spendDay(Date.parse("2026-10-16T04:30:00Z")), "2026-10-16");
+    assert.equal(spendDay(Date.parse("2026-12-16T04:59:59Z")), "2026-12-15");
+    assert.equal(spendDay(Date.parse("2026-12-16T05:00:00Z")), "2026-12-16");
   });
 
   it("adds Places and Routes micros onto the same day key", async () => {

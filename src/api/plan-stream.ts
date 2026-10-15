@@ -15,7 +15,7 @@ import {
   type PlanOutcome,
 } from "../monitoring/metrics";
 import { createPlanPersistence, modelsFromCalls, type PlanPersistence } from "../monitoring/persist-plan";
-import { billableRoutesHops, clientIp, usdToMicros, utcDay, vendorMicros } from "../monitoring/spend-cap";
+import { billableRoutesHops, clientIp, usdToMicros, spendDay, vendorMicros } from "../monitoring/spend-cap";
 import { createSpendStoreFromEnv, type SpendStore } from "../monitoring/spend-store";
 import { createPipelineDeps, runPipeline, WRAP_USER_TEXT_MAX_CHARS, type PipelineDeps, type PipelineFailure } from "../pipeline";
 import type { Intent } from "../validation/intent";
@@ -302,7 +302,7 @@ export function createPlanHandler(
     }
 
     const at = now();
-    const day = utcDay(at);
+    const day = spendDay(at);
     const capUsd = getRateLimitDailySpendUsd();
     let spent: number;
     try {
