@@ -1,9 +1,7 @@
 import "server-only";
 
 import { createQueryableFromEnv } from "../db/postgres";
-import { getRateLimitDailySpendUsd } from "../models/config";
-import { hydrateItinerary, loadStoredItinerary, type HydratedStop, type PlaceDetailsLookup, type StoredItinerary } from "../monitoring/hydrate-plan";
-import { usdToMicros, utcDay } from "../monitoring/spend-cap";
+import { createPlacesBlocked, hydrateUnlessBlocked, loadStoredItinerary, type HydratedStop, type PlaceDetailsLookup, type StoredItinerary } from "../monitoring/hydrate-plan";
 import { createSpendStoreFromEnv, type SpendStore } from "../monitoring/spend-store";
 import { createPlaceDetailsLookupFromEnv } from "../retrieval";
 
@@ -14,16 +12,6 @@ export interface ItineraryViewDeps {
   readonly lookup: PlaceDetailsLookup;
   /** True when another Places call would start past the daily cap. */
   readonly placesBlocked: () => Promise<boolean>;
-}
-
-function unnamed(itinerary: StoredItinerary): HydratedStop[] {
-  return itinerary.stops.map((stop) => ({
-    ...stop,
-    name: null,
-    formattedAddress: null,
-    rating: null,
-    priceLevel: null,
-  }));
 }
 
 function viewJson(itinerary: StoredItinerary, stops: readonly HydratedStop[], hydrated: boolean): Response {
@@ -46,19 +34,8 @@ export function createItineraryViewHandler(deps: ItineraryViewDeps): (request: R
     if (!itinerary) {
       return Response.json({ error: "not_found" }, { status: 404, headers: JSON_HEADERS });
     }
-    let blocked = true;
-    try {
-      blocked = await deps.placesBlocked();
-    } catch {
-      blocked = true;
-    }
-    if (blocked) return viewJson(itinerary, unnamed(itinerary), false);
-    try {
-      const view = await hydrateItinerary(itinerary, deps.lookup);
-      return viewJson(itinerary, view.stops, true);
-    } catch {
-      return viewJson(itinerary, unnamed(itinerary), false);
-    }
+    const view = await hydrateUnlessBlocked(itinerary.stops, deps.lookup, deps.placesBlocked);
+    return viewJson(itinerary, view.stops, view.hydrated);
   };
 }
 
@@ -71,9 +48,6 @@ export function createProductionItineraryViewHandler(): (request: Request, id: s
   return createItineraryViewHandler({
     load: (id) => loadStoredItinerary(db, id),
     lookup: createPlaceDetailsLookupFromEnv(),
-    placesBlocked: async () => {
-      const spent = await store.readDailyMicros(utcDay(Date.now()));
-      return spent >= usdToMicros(getRateLimitDailySpendUsd());
-    },
+    placesBlocked: createPlacesBlocked(store),
   });
 }
