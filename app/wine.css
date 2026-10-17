@@ -334,6 +334,12 @@ h4 {
   background: color-mix(in srgb, var(--color-accent) 10%, transparent);
 }
 
+.home-plan-status {
+  margin: 0;
+  font-size: 14px;
+  color: color-mix(in srgb, var(--color-text) 55%, transparent);
+}
+
 .home-try {
   display: flex;
   flex-wrap: wrap;

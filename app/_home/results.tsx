@@ -137,7 +137,7 @@ export function Results({ plan }: { readonly plan: PlanState }) {
   const night = ready ? selectNight(plan, requested) : null;
 
   return (
-    <section className="home-results" aria-label="Itineraries">
+    <section className="home-results" aria-label="Itineraries" aria-busy={plan.kind === "streaming"}>
       {plan.kind === "failed" ? (
         <p className="home-alert" role="alert">
           {FAILURE_COPY[plan.reason]}
