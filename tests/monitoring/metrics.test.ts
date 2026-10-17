@@ -75,7 +75,7 @@ describe("plan metrics", () => {
     });
   });
 
-  it("posts gauge and count series points to a local intake and leaves the key and request text out of the body", async () => {
+  it("posts distribution points to a local intake and leaves the key and request text out of the body", async () => {
     const received: { path: string; key: string | undefined; body: string }[] = [];
     const server = http.createServer((req, res) => {
       const chunks: Buffer[] = [];
@@ -111,30 +111,27 @@ describe("plan metrics", () => {
     }
 
     assert.equal(received.length, 1);
-    assert.equal(received[0].path, "/api/v1/series");
+    assert.equal(received[0].path, "/api/v1/distribution_points");
     assert.equal(received[0].key, SENTINEL_KEY);
     assert.equal(received[0].body.includes(SENTINEL_KEY), false);
     assert.equal(received[0].body.includes("Sarah"), false);
-    assert.equal(received[0].body.includes("/api/v1/distribution_points"), false);
+    assert.equal(received[0].body.includes("/api/v1/series"), false);
     const posted: unknown = JSON.parse(received[0].body);
     assert.deepEqual(posted, {
       series: [
         {
           metric: "nightcap.spend.daily_fraction",
-          type: "gauge",
-          points: [[1_700_000_000, 0.8]],
+          points: [[1_700_000_000, [0.8]]],
           tags: ["service:nightcap", "env:prod"],
         },
         {
           metric: "nightcap.plan.requests",
-          type: "count",
-          points: [[1_700_000_000, 1]],
+          points: [[1_700_000_000, [1]]],
           tags: ["service:nightcap", "env:prod", "outcome:completed"],
         },
         {
           metric: "nightcap.plan.errors",
-          type: "count",
-          points: [[1_700_000_000, 0]],
+          points: [[1_700_000_000, [0]]],
           tags: ["service:nightcap", "env:prod", "outcome:completed"],
         },
       ],

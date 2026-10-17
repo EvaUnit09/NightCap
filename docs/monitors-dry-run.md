@@ -53,9 +53,9 @@ Stderr contains this line once per process:
 [monitoring] Datadog metrics off: DD_API_KEY not set
 ```
 
-The process keeps serving plans. No metric series point is posted.
+The process keeps serving plans. No distribution point is posted.
 
-Runtime intake is `POST /api/v1/series`. Spend is a gauge. Plan requests and errors are counts. Distribution points do not drive these monitor queries.
+Runtime intake is `POST /api/v1/distribution_points`. Datadog has typed these metric names as distribution. Series gauge/count posts return 202 but do not create queryable points for the monitor queries.
 
 ## Set DD_ENV in production
 
