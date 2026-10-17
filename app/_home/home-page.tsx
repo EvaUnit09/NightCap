@@ -32,6 +32,8 @@ export function HomePage() {
 
   useEffect(() => () => inFlight.current?.abort(), []);
 
+  const busy = plan.kind === "streaming";
+
   return (
     <div className="home">
       <Nav />
@@ -42,6 +44,7 @@ export function HomePage() {
           onText={setText}
           overrides={overrides}
           onOverrides={setOverrides}
+          busy={busy}
           canSubmit={canSubmit(text)}
           onSubmit={() => {
             void submit();

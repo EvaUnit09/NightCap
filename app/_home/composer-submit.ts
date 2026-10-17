@@ -6,8 +6,8 @@ export interface ComposerSubmitUi {
 
 export function composerSubmitUi(busy: boolean, canSubmitText: boolean): ComposerSubmitUi {
   return {
-    disabled: !canSubmitText,
-    label: "Plan our night",
-    status: null,
+    disabled: !canSubmitText || busy,
+    label: busy ? "Planning…" : "Plan our night",
+    status: busy ? "Planning your night" : null,
   };
 }

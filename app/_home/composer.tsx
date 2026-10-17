@@ -1,6 +1,7 @@
 import { useState, type KeyboardEvent } from "react";
 
 import { ChipMenu } from "./chip-menu";
+import { composerSubmitUi } from "./composer-submit";
 import { ArrowRight, MagnifyingGlass } from "./icons";
 import {
   CHIP_TABLE,
@@ -16,17 +17,24 @@ export interface ComposerProps {
   readonly onText: (text: string) => void;
   readonly overrides: Overrides;
   readonly onOverrides: (next: Overrides) => void;
+  readonly busy: boolean;
   readonly canSubmit: boolean;
   readonly onSubmit: () => void;
 }
 
-export function Composer({ text, onText, overrides, onOverrides, canSubmit, onSubmit }: ComposerProps) {
+export function Composer({ text, onText, overrides, onOverrides, busy, canSubmit, onSubmit }: ComposerProps) {
   const [customDraft, setCustomDraft] = useState("");
+  const submitUi = composerSubmitUi(busy, canSubmit);
+
+  function submitNight() {
+    if (busy) return;
+    onSubmit();
+  }
 
   function onKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
       event.preventDefault();
-      onSubmit();
+      submitNight();
     }
   }
 
@@ -47,9 +55,10 @@ export function Composer({ text, onText, overrides, onOverrides, canSubmit, onSu
   return (
     <form
       className="home-composer"
+      aria-busy={busy}
       onSubmit={(event) => {
         event.preventDefault();
-        onSubmit();
+        submitNight();
       }}
     >
       <textarea
@@ -106,9 +115,14 @@ export function Composer({ text, onText, overrides, onOverrides, canSubmit, onSu
           {nearLabel}
         </button>
         <span className="home-toolbar-spacer" />
-        <button type="submit" className="btn btn-primary home-submit" disabled={!canSubmit}>
-          Plan our night
-          <ArrowRight />
+        {submitUi.status ? (
+          <p role="status" className="home-plan-status">
+            {submitUi.status}
+          </p>
+        ) : null}
+        <button type="submit" className="btn btn-primary home-submit" disabled={submitUi.disabled}>
+          {submitUi.label}
+          {busy ? null : <ArrowRight />}
         </button>
       </div>
     </form>
