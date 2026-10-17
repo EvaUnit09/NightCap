@@ -2,7 +2,7 @@ import "server-only";
 
 import type { MetricSample, MetricsSink } from "./metrics";
 
-const DISTRIBUTION_PATH = "/api/v1/distribution_points";
+const SERIES_PATH = "/api/v1/series";
 const DEFAULT_TIMEOUT_MS = 1_500;
 
 export interface DatadogMetricsOptions {
@@ -44,7 +44,7 @@ export function createDatadogMetricsSink(options: DatadogMetricsOptions): Metric
         return;
       }
       try {
-        const response = await (fetchImpl ?? fetch)(`${origin}${DISTRIBUTION_PATH}`, {
+        const response = await (fetchImpl ?? fetch)(`${origin}${SERIES_PATH}`, {
           method: "POST",
           redirect: "error",
           signal: AbortSignal.timeout(timeoutMs),
@@ -52,7 +52,7 @@ export function createDatadogMetricsSink(options: DatadogMetricsOptions): Metric
             "content-type": "application/json",
             "DD-API-KEY": options.apiKey,
           },
-          body: JSON.stringify(distributionBody(samples)),
+          body: JSON.stringify(seriesBody(samples)),
         });
         if (!response.ok) {
           console.warn(`[monitoring] Datadog metrics HTTP ${response.status}`);
@@ -69,13 +69,28 @@ export function createDatadogMetricsSink(options: DatadogMetricsOptions): Metric
   };
 }
 
-function distributionBody(samples: readonly MetricSample[]): {
-  series: { metric: string; points: [number, number[]][]; tags: string[] }[];
+function seriesType(metric: MetricSample["metric"]): "gauge" | "count" {
+  switch (metric) {
+    case "nightcap.spend.daily_fraction":
+      return "gauge";
+    case "nightcap.plan.requests":
+    case "nightcap.plan.errors":
+      return "count";
+    default: {
+      const neverMetric: never = metric;
+      return neverMetric;
+    }
+  }
+}
+
+function seriesBody(samples: readonly MetricSample[]): {
+  series: { metric: string; type: "gauge" | "count"; points: [number, number][]; tags: string[] }[];
 } {
   return {
     series: samples.map((sample) => ({
       metric: sample.metric,
-      points: [[Math.floor(sample.atMs / 1000), [sample.value]]],
+      type: seriesType(sample.metric),
+      points: [[Math.floor(sample.atMs / 1000), sample.value]],
       tags: [...sample.tags],
     })),
   };
