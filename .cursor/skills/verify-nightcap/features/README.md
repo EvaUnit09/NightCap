@@ -40,6 +40,6 @@ Each feature file starts with an H1 title and one paragraph describing the user-
 
 ## Features
 
-- [Home](./home.md) covers opening `/`, the date-night heading, the idle composer, keyless failure, and keyed map/save when keys exist.
+- [Home](./home.md) covers opening `/`, the date-night heading, idle ghost cards, the composer, keyless failure, and keyed map/save when keys exist.
 - [Unknown route](./not-found.md) covers opening a path that has no page and reading the 404.
 - [Shared plan](./shared-plan.md) covers `/s/<slug>` missing, unconfigured, and ready share views.
