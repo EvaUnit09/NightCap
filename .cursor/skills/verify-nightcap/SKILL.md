@@ -48,7 +48,7 @@ Home:
 .cursor/skills/verify-nightcap/scripts/verify-nightcap drive home
 ```
 
-Then open the printed URL `/` in a browser. The accessibility tree has a level-1 heading named `Plan a date night in one sentence.` and the document is titled `Nightcap`. Write that snapshot to the printed `ARIA_PATH` and a screenshot to the printed `SCREENSHOT_PATH`.
+Then open the printed URL `/` in a browser. The accessibility tree has a level-1 heading named `Plan a date night in one sentence.` and the document is titled `Nightcap`. Idle ghost cards show OPTION labels. Write that snapshot to the printed `ARIA_PATH` and a screenshot to the printed `SCREENSHOT_PATH`.
 
 Unknown route:
 

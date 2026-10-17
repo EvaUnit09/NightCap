@@ -9,7 +9,7 @@ Opening a path the app does not define shows a 404 page. The status is not found
 
 ## How to get to it (user POV)
 
-- Type a path that is not the site root, such as `/does-not-exist`, into the address bar.
+- Type an unmatched path such as `/does-not-exist` into the address bar. A real route like `/s/<slug>` uses the share missing page instead.
 
 ## Driving it with verify-nightcap
 
