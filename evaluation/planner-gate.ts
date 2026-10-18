@@ -16,6 +16,7 @@ import { join } from "node:path";
 
 import { planFromPool } from "../src/assembly/plan-from-pool";
 import { admitOption } from "../src/pipeline/emit-gate";
+import type { PipelineFailure } from "../src/pipeline/lifecycle";
 import {
   buildPlanBrief,
   expandPlanCard,
@@ -135,13 +136,12 @@ function failedRecord(
   evalCase: EvalCase,
   intent: Intent,
   candidates: readonly Candidate[],
-  stage: "retrieve" | "plan" | "validate",
-  code: "no_candidates" | "schema_invalid" | "no_valid_options",
+  failure: PipelineFailure,
   plannedOptionCount = 0,
 ): EvalCaseRecord {
   return {
     caseId: evalCase.id,
-    outcome: { kind: "failed", failure: { stage, code } },
+    outcome: { kind: "failed", failure },
     intent: recordedIntent(intent, "case_label"),
     options: [],
     pool: poolOf(candidates),
@@ -181,7 +181,13 @@ async function runAssemblerCase(evalCase: EvalCase, signal: AbortSignal): Promis
   if (assembled.kind === "none") {
     return {
       wallMs,
-      record: failedRecord(evalCase, intent, candidates, "validate", "no_valid_options", assembled.plannedOptionCount),
+      record: failedRecord(
+        evalCase,
+        intent,
+        candidates,
+        { stage: "validate", code: "no_valid_options" },
+        assembled.plannedOptionCount,
+      ),
     };
   }
   return {
@@ -217,14 +223,14 @@ async function runPlanCardCase(evalCase: EvalCase, signal: AbortSignal): Promise
   if (card === null) {
     return {
       wallMs: performance.now() - started,
-      record: failedRecord(evalCase, intent, candidates, "plan", "schema_invalid"),
+      record: failedRecord(evalCase, intent, candidates, { stage: "plan", code: "schema_invalid" }),
     };
   }
   const parsed = parsePlanCard(card, brief, intent);
   if (!parsed.success) {
     return {
       wallMs: performance.now() - started,
-      record: failedRecord(evalCase, intent, candidates, "plan", "schema_invalid"),
+      record: failedRecord(evalCase, intent, candidates, { stage: "plan", code: "schema_invalid" }),
     };
   }
   const expanded = await expandPlanCard({
@@ -239,7 +245,7 @@ async function runPlanCardCase(evalCase: EvalCase, signal: AbortSignal): Promise
   if (expanded.kind === "none_schedulable") {
     return {
       wallMs,
-      record: failedRecord(evalCase, intent, candidates, "validate", "no_valid_options", 2),
+      record: failedRecord(evalCase, intent, candidates, { stage: "validate", code: "no_valid_options" }, 2),
     };
   }
   const candidateIds = new Set(candidates.map((c) => c.placeId));
@@ -257,7 +263,13 @@ async function runPlanCardCase(evalCase: EvalCase, signal: AbortSignal): Promise
   if (first === undefined) {
     return {
       wallMs,
-      record: failedRecord(evalCase, intent, candidates, "validate", "no_valid_options", expanded.itinerary.options.length),
+      record: failedRecord(
+        evalCase,
+        intent,
+        candidates,
+        { stage: "validate", code: "no_valid_options" },
+        expanded.itinerary.options.length,
+      ),
     };
   }
   return {

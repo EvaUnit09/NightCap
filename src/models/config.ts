@@ -555,7 +555,7 @@ export function assertProductionSpendStore(): void {
  */
 export type PlannerMode = "model" | "assembler" | "plan-card";
 
-export function getPlannerMode(env: NodeJS.ProcessEnv = process.env): PlannerMode {
+export function getPlannerMode(env: Record<string, string | undefined> = process.env): PlannerMode {
   const raw = preprocessEnvVar(env.NIGHTCAP_PLANNER);
   if (raw === undefined) {
     return "model";
