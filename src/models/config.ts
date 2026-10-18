@@ -548,6 +548,30 @@ export function assertProductionSpendStore(): void {
   );
 }
 
+/**
+ * Planner migration switch for the latency experiment.
+ * Unset/empty → today's model path. `assembler` and `plan-card` are the
+ * Option C / Option A experiment arms. Any other string throws.
+ */
+export type PlannerMode = "model" | "assembler" | "plan-card";
+
+export function getPlannerMode(env: NodeJS.ProcessEnv = process.env): PlannerMode {
+  const raw = preprocessEnvVar(env.NIGHTCAP_PLANNER);
+  if (raw === undefined) {
+    return "model";
+  }
+  switch (raw) {
+    case "model":
+    case "assembler":
+    case "plan-card":
+      return raw;
+    default:
+      throw new Error(
+        `NIGHTCAP_PLANNER must be model, assembler, or plan-card (got ${JSON.stringify(raw)})`,
+      );
+  }
+}
+
 /** Reset config for testing. */
 export function resetConfig(): void {
   config = null;
