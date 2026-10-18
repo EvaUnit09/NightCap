@@ -1,5 +1,7 @@
 import "server-only";
 
+import { join } from "node:path";
+
 import { planFromPool } from "../assembly/plan-from-pool";
 import {
   getEnableLiveRoutes,
@@ -37,6 +39,9 @@ import { buildPlanBrief, expandPlanCard, parsePlanCard } from "./plan-card";
 import { validateAndRepair } from "./repair-loop";
 import { callModelStage } from "./stage-call";
 import { parseMessage, planCardMessage, planMessage } from "./stage-messages";
+
+/** Experiment-only plan-card prompt root (keeps CI smoke off until a production flip). */
+const PLAN_CARD_PROMPTS_ROOT = join(process.cwd(), "evaluation/experiment-prompts");
 
 export const PARSE_MAX_TOKENS = 2_000;
 export const PLAN_MAX_TOKENS = 16_000;
@@ -226,6 +231,7 @@ async function planWithCard(
   const planned = await callModelStage(deps.models, {
     stage: "plan_itineraries",
     promptVersion: "v2",
+    promptsRoot: PLAN_CARD_PROMPTS_ROOT,
     user: planCardMessage(intent, brief),
     maxTokens: PLAN_CARD_MAX_TOKENS,
     parse: (json) => parsePlanCard(json, brief, intent),
