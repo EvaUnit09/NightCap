@@ -1,6 +1,6 @@
 # Shared plan
 
-Opening `/s/<slug>` shows a public share page. With no database the server says sharing is unavailable. An invalid or unknown slug shows the share-missing page (Nightcap heading, "This shared plan was not found.", link back home). A real saved slug needs persist configured and shows the stops.
+Opening `/s/<slug>` shows a public share page. An invalid slug (wrong shape) always shows the share-missing page (Nightcap heading, "This shared plan was not found.", link back home). A valid-format slug with no database URL shows "Sharing is not available on this server." A real saved slug needs persist configured and shows the stops.
 
 ## Sub-features
 
