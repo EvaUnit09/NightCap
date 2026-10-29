@@ -1,6 +1,14 @@
 import "server-only";
 
-import { getMaxTravelLegsPerRequest, getRepairMaxRounds } from "../models/config";
+import { join } from "node:path";
+
+import { planFromPool } from "../assembly/plan-from-pool";
+import {
+  getEnableLiveRoutes,
+  getMaxTravelLegsPerRequest,
+  getPlannerMode,
+  getRepairMaxRounds,
+} from "../models/config";
 import { redact } from "../monitoring/redact";
 import { withRequestTrace } from "../monitoring/tracing";
 import type { RequestOutput, RequestRecorder, TraceExporter } from "../monitoring/trace-types";
@@ -10,8 +18,9 @@ import { normalizeModelTravelModes } from "../validation/common";
 import { intentSchema, type Intent } from "../validation/intent";
 import { itinerarySchemaFor, type Itinerary } from "../validation/itinerary";
 import { stampSingleStopFromIntent } from "../validation/single-stop";
+import type { TravelCalculator } from "../validation/travel";
 import type { ValidatorInput } from "../validation/validator";
-import { validateItineraryServer } from "../validation/validator-server";
+import { createRoutesTravelCalculator, validateItineraryServer } from "../validation/validator-server";
 import type { ValidationError } from "../validation/validation-error";
 import { createAnthropicModelClient } from "./anthropic-model-client";
 import { unknownPlaceIds } from "./emit-gate";
@@ -26,12 +35,17 @@ import {
   type RetrievalGap,
 } from "./lifecycle";
 import type { ModelClient, ModelStage } from "./model-client";
+import { buildPlanBrief, expandPlanCard, parsePlanCard } from "./plan-card";
 import { validateAndRepair } from "./repair-loop";
 import { callModelStage } from "./stage-call";
-import { parseMessage, planMessage } from "./stage-messages";
+import { parseMessage, planCardMessage, planMessage } from "./stage-messages";
+
+/** Experiment-only plan-card prompt root (keeps CI smoke off until a production flip). */
+const PLAN_CARD_PROMPTS_ROOT = join(process.cwd(), "evaluation/experiment-prompts");
 
 export const PARSE_MAX_TOKENS = 2_000;
 export const PLAN_MAX_TOKENS = 16_000;
+export const PLAN_CARD_MAX_TOKENS = 1_200;
 
 /** Prompt version per model stage. A new prompt version is a change here plus a new file. */
 export const PROMPT_VERSIONS: Readonly<Record<ModelStage, string>> = {
@@ -49,6 +63,11 @@ export interface PipelineDeps {
   readonly repairMaxRounds: number;
   readonly maxLegs: number;
   readonly promptVersions: Readonly<Record<ModelStage, string>>;
+  /**
+   * Request-scoped travel calculator for assembler / plan-card expand.
+   * Production sets Routes when live Routes is on; omitted otherwise.
+   */
+  readonly travel?: TravelCalculator;
   /** Test-only. Production omits this and the trace picks its exporter from config. */
   readonly exporter?: TraceExporter;
 }
@@ -69,6 +88,7 @@ export function createPipelineDeps(overrides: Partial<PipelineDeps> = {}): Pipel
     repairMaxRounds: getRepairMaxRounds(),
     maxLegs: getMaxTravelLegsPerRequest(),
     promptVersions: PROMPT_VERSIONS,
+    travel: getEnableLiveRoutes() ? createRoutesTravelCalculator() : undefined,
     ...overrides,
   };
 }
@@ -178,7 +198,7 @@ async function parseStage(deps: PipelineDeps, request: PipelineRequest, trace: R
   return { kind: "parsed", intent: parsed.value, progress: { ...next, intent: parsed.value } } as const;
 }
 
-async function planAndRepair(
+async function planWithModel(
   deps: PipelineDeps,
   request: PipelineRequest,
   intent: Intent,
@@ -197,6 +217,93 @@ async function planAndRepair(
   if (plan.kind === "failed") {
     return failed({ stage: "plan", code: plan.code }, planned);
   }
+  return settlePlanned(deps, request, intent, planned, plan.value, plannedInventions(plan.value, candidates));
+}
+
+async function planWithCard(
+  deps: PipelineDeps,
+  request: PipelineRequest,
+  intent: Intent,
+  progress: Progress,
+): Promise<PipelineResult> {
+  const { candidates } = progress;
+  const brief = buildPlanBrief(candidates);
+  const planned = await callModelStage(deps.models, {
+    stage: "plan_itineraries",
+    promptVersion: "v2",
+    promptsRoot: PLAN_CARD_PROMPTS_ROOT,
+    user: planCardMessage(intent, brief),
+    maxTokens: PLAN_CARD_MAX_TOKENS,
+    parse: (json) => parsePlanCard(json, brief, intent),
+    signal: request.signal,
+  });
+  const withPlanCall = withCall(progress, planned.call);
+  if (planned.kind === "failed") {
+    return failed({ stage: "plan", code: planned.code }, withPlanCall);
+  }
+  const expanded = await expandPlanCard({
+    card: planned.value,
+    brief,
+    intent,
+    travel: deps.travel,
+    maxLegs: deps.maxLegs,
+    signal: request.signal,
+  });
+  if (expanded.kind === "none_schedulable") {
+    return failed({ stage: "validate", code: "no_valid_options" }, withPlanCall);
+  }
+  return settlePlanned(deps, request, intent, withPlanCall, expanded.itinerary, []);
+}
+
+async function planWithAssembler(
+  deps: PipelineDeps,
+  request: PipelineRequest,
+  intent: Intent,
+  progress: Progress,
+): Promise<PipelineResult> {
+  if (deps.travel === undefined) {
+    return failed({ stage: "validate", code: "no_valid_options" }, progress);
+  }
+  const assembled = await planFromPool({
+    intent,
+    candidates: progress.candidates,
+    models: deps.models,
+    travel: deps.travel,
+    validate: (input, travel) => validateItineraryServer(input, { travelCalculator: travel }),
+    maxLegs: deps.maxLegs,
+    narratePromptVersion: "v1",
+    signal: request.signal,
+  });
+  const settled: Progress = {
+    ...progress,
+    modelCalls: [...progress.modelCalls, ...assembled.modelCalls],
+    plannedOptionCount: assembled.plannedOptionCount,
+    inventedPlaceIds: [],
+    repairRoundsRun: 0,
+    dropped: assembled.dropped,
+  };
+  if (assembled.kind === "none") {
+    return failed({ stage: "validate", code: "no_valid_options" }, settled);
+  }
+  return {
+    kind: "completed",
+    intent,
+    options: assembled.emitted,
+    dropped: settled.dropped,
+    retrievalGaps: settled.gaps,
+    audit: audit(settled),
+  };
+}
+
+async function settlePlanned(
+  deps: PipelineDeps,
+  request: PipelineRequest,
+  intent: Intent,
+  progress: Progress,
+  plan: Itinerary,
+  inventions: readonly InventedPlaceId[],
+): Promise<PipelineResult> {
+  const { candidates } = progress;
   const loop = await validateAndRepair(
     {
       models: deps.models,
@@ -204,13 +311,13 @@ async function planAndRepair(
       repairMaxRounds: deps.repairMaxRounds,
       repairPromptVersion: deps.promptVersions.repair_itinerary,
     },
-    { intent, candidates, planned: plan.value.options, signal: request.signal },
+    { intent, candidates, planned: plan.options, signal: request.signal },
   );
   const settled: Progress = {
-    ...planned,
-    modelCalls: [...planned.modelCalls, ...loop.modelCalls],
-    plannedOptionCount: plan.value.options.length,
-    inventedPlaceIds: [...plannedInventions(plan.value, candidates), ...loop.inventedPlaceIds],
+    ...progress,
+    modelCalls: [...progress.modelCalls, ...loop.modelCalls],
+    plannedOptionCount: plan.options.length,
+    inventedPlaceIds: [...inventions, ...loop.inventedPlaceIds],
     repairRoundsRun: loop.roundsRun,
     dropped: loop.dropped,
   };
@@ -226,6 +333,27 @@ async function planAndRepair(
     retrievalGaps: settled.gaps,
     audit: audit(settled),
   };
+}
+
+async function planAndRepair(
+  deps: PipelineDeps,
+  request: PipelineRequest,
+  intent: Intent,
+  progress: Progress,
+): Promise<PipelineResult> {
+  const mode = getPlannerMode();
+  switch (mode) {
+    case "assembler":
+      return planWithAssembler(deps, request, intent, progress);
+    case "plan-card":
+      return planWithCard(deps, request, intent, progress);
+    case "model":
+      return planWithModel(deps, request, intent, progress);
+    default: {
+      const neverMode: never = mode;
+      throw new Error(`Unknown planner mode: ${String(neverMode)}`);
+    }
+  }
 }
 
 async function runStages(deps: PipelineDeps, request: PipelineRequest, trace: RequestRecorder): Promise<PipelineResult> {

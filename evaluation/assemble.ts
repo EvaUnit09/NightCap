@@ -1,10 +1,16 @@
 import type { StopType } from "../src/retrieval";
 import type { Candidate } from "../src/validation/candidate";
 import type { TravelMode } from "../src/validation/common";
-import { DEFAULT_PARTY_SIZE, DEFAULT_PRICE_RANGES } from "../src/validation/defaults";
 import type { Intent } from "../src/validation/intent";
 import type { ItineraryOption } from "../src/validation/itinerary";
-import { isOpenDuringSlot } from "../src/validation/open-hours";
+import {
+  MS_PER_MINUTE,
+  STOP_MINUTES,
+  estimatedCost,
+  firstOpenStart,
+  iso,
+  type ScheduledStop,
+} from "../src/validation/schedule";
 import type { TravelCalculator } from "../src/validation/travel";
 
 /**
@@ -13,19 +19,10 @@ import type { TravelCalculator } from "../src/validation/travel";
  * stop type, in the intent's stop-type order, and schedules it at the first
  * quarter hour it is open. Nothing here checks its own work; the real
  * validator does (see `judge.ts`).
+ *
+ * Clock helpers live in `src/validation/schedule.ts` so the plan-card
+ * expander shares one owner.
  */
-
-const MS_PER_MINUTE = 60_000;
-const SCHEDULE_STEP_MINUTES = 15;
-
-/** Fixed visit length per stop type. */
-const STOP_MINUTES: Readonly<Record<StopType, number>> = {
-  dinner: 90,
-  drinks: 60,
-  bar: 60,
-  dessert: 30,
-  activity: 90,
-};
 
 export interface AssembleContext {
   readonly travel: TravelCalculator;
@@ -36,14 +33,6 @@ export interface AssembleContext {
 
 type Pools = ReadonlyMap<StopType, readonly Candidate[]>;
 
-interface Placed {
-  readonly candidate: Candidate;
-  readonly startMs: number;
-  readonly endMs: number;
-  /** Minutes from the previous stop. 0 for the first. */
-  readonly legMinutes: number;
-}
-
 /** The pool grouped by stop type, rank order kept (the flat list is ranked per type). */
 export function poolsByStopType(candidates: readonly Candidate[]): Pools {
   return candidates.reduce<Map<StopType, Candidate[]>>((pools, candidate) => {
@@ -52,24 +41,9 @@ export function poolsByStopType(candidates: readonly Candidate[]): Pools {
   }, new Map());
 }
 
-function iso(ms: number): string {
-  return new Date(ms).toISOString();
-}
-
-/** First quarter hour from `notBeforeMs` at which the venue is open for the whole visit, inside the window. */
-function firstOpenStart(candidate: Candidate, notBeforeMs: number, windowEndMs: number): number | null {
-  const lengthMs = STOP_MINUTES[candidate.stopType] * MS_PER_MINUTE;
-  for (let startMs = notBeforeMs; startMs + lengthMs <= windowEndMs; startMs += SCHEDULE_STEP_MINUTES * MS_PER_MINUTE) {
-    if (isOpenDuringSlot(candidate, iso(startMs), iso(startMs + lengthMs))) {
-      return startMs;
-    }
-  }
-  return null;
-}
-
 async function legMinutes(
   ctx: AssembleContext,
-  from: Placed,
+  from: ScheduledStop,
   to: Candidate,
   signal: AbortSignal,
 ): Promise<number | null> {
@@ -83,11 +57,11 @@ async function legMinutes(
 async function placeNext(
   ctx: AssembleContext,
   window: { readonly startMs: number; readonly endMs: number },
-  previous: Placed | undefined,
+  previous: ScheduledStop | undefined,
   pool: readonly Candidate[],
   used: ReadonlySet<string>,
   signal: AbortSignal,
-): Promise<Placed | null> {
+): Promise<ScheduledStop | null> {
   for (const candidate of pool) {
     if (used.has(candidate.placeId)) {
       continue;
@@ -99,30 +73,18 @@ async function placeNext(
     const notBeforeMs = previous === undefined ? window.startMs : previous.endMs + leg * MS_PER_MINUTE;
     const startMs = firstOpenStart(candidate, notBeforeMs, window.endMs);
     if (startMs !== null) {
-      return { candidate, startMs, endMs: startMs + STOP_MINUTES[candidate.stopType] * MS_PER_MINUTE, legMinutes: leg };
+      return {
+        candidate,
+        startMs,
+        endMs: startMs + STOP_MINUTES[candidate.stopType] * MS_PER_MINUTE,
+        legMinutes: leg,
+      };
     }
   }
   return null;
 }
 
-/** Per-person price band times party size, or null when Places gave no usable level. */
-function costBand(candidate: Candidate): readonly [number, number] | null {
-  const level = candidate.priceLevel;
-  if (level === null || level === "PRICE_LEVEL_UNSPECIFIED") {
-    return null;
-  }
-  const [low, high] = DEFAULT_PRICE_RANGES[level];
-  return [low * DEFAULT_PARTY_SIZE, high * DEFAULT_PARTY_SIZE];
-}
-
-/** An even share of the budget, pulled inside the venue's price band so the plausibility check can pass. */
-function estimatedCost(candidate: Candidate, budgetUsd: number, stopCount: number): number {
-  const share = Math.floor(budgetUsd / stopCount);
-  const band = costBand(candidate);
-  return band === null ? share : Math.min(Math.max(share, band[0]), band[1]);
-}
-
-function toOption(placed: readonly Placed[], intent: Intent, mode: TravelMode, optionNumber: number): ItineraryOption {
+function toOption(placed: readonly ScheduledStop[], intent: Intent, mode: TravelMode, optionNumber: number): ItineraryOption {
   return {
     theme: `Top-ranked ${intent.stopTypes.join(" then ")} (${optionNumber})`,
     stops: placed.map((stop, index) => {
@@ -146,9 +108,9 @@ async function buildOption(
   used: ReadonlySet<string>,
   ctx: AssembleContext,
   signal: AbortSignal,
-): Promise<readonly Placed[] | null> {
+): Promise<readonly ScheduledStop[] | null> {
   const window = { startMs: Date.parse(intent.window.start), endMs: Date.parse(intent.window.end) };
-  const placed: Placed[] = [];
+  const placed: ScheduledStop[] = [];
   for (const stopType of intent.stopTypes) {
     const next = await placeNext(ctx, window, placed.at(-1), pools.get(stopType) ?? [], used, signal);
     if (next === null) {

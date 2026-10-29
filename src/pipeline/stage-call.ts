@@ -34,6 +34,11 @@ export interface ModelStageCall<T> {
   /** Validation codes this call is asked to fix (repair only). */
   readonly outcomeCodes?: readonly ValidationErrorCode[];
   readonly signal?: AbortSignal;
+  /**
+   * Optional prompts root (experiment / test). Production omits this and
+   * loads from the repo `prompts/` directory.
+   */
+  readonly promptsRoot?: string;
 }
 
 /**
@@ -93,7 +98,11 @@ export async function callModelStage<T>(
   models: ModelClient,
   call: ModelStageCall<T>,
 ): Promise<ModelCallOutcome<T>> {
-  const prompt = loadPrompt(call.stage, call.promptVersion);
+  const prompt = loadPrompt(
+    call.stage,
+    call.promptVersion,
+    call.promptsRoot === undefined ? undefined : { promptsRoot: call.promptsRoot },
+  );
   const model = getModelFor(call.stage);
   const target = { stage: call.stage, model, promptVersion: prompt.version };
   const errored = (errorCode: ModelErrorCode): ModelCallRecord => ({ kind: "errored", ...target, errorCode });
